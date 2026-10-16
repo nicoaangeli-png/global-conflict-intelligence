@@ -1,0 +1,356 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-void: #01040a;
+  --color-abyss: #02060f;
+  --color-deep: #04101f;
+  --color-navy: #062036;
+  --color-ice: #dff2ff;
+  --color-cyan: #7fd4ff;
+  --color-cyan-soft: #4aa3d8;
+  --color-cyan-dim: #2b6f9e;
+  --color-alert: #ff4a2f;
+  --color-alert-soft: #ff8a3d;
+  --color-text: #dff1ff;
+  --color-text-dim: #8fb4cc;
+  --color-text-faint: #4a6f88;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Inter, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+
+  --text-micro: 0.5625rem;   /* 9px  — libellés de structure */
+  --text-mini: 0.625rem;     /* 10px — données secondaires */
+  --text-hud: 0.6875rem;     /* 11px — données courantes */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--color-void);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "ss01" 1;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+body {
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ fond --- */
+.stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(115% 80% at 76% -12%, rgba(41, 96, 148, 0.28), transparent 58%),
+    radial-gradient(90% 60% at 12% 8%, rgba(24, 63, 102, 0.18), transparent 62%),
+    radial-gradient(140% 90% at 50% 118%, rgba(21, 58, 92, 0.22), transparent 60%),
+    linear-gradient(180deg, #01040a 0%, #01050d 45%, #01030a 100%);
+}
+
+.stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(127, 212, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(127, 212, 255, 0.022) 1px, transparent 1px);
+  background-size: 86px 86px;
+  mask-image: radial-gradient(120% 100% at 50% 45%, #000 25%, transparent 78%);
+  pointer-events: none;
+}
+
+.stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.012) 0px,
+    rgba(255, 255, 255, 0.012) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------- structure ---*/
+.hud {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.panel {
+  pointer-events: auto;
+  position: relative;
+  background: linear-gradient(180deg, rgba(6, 20, 34, 0.72) 0%, rgba(3, 11, 20, 0.66) 100%);
+  border: 1px solid rgba(127, 212, 255, 0.14);
+  backdrop-filter: blur(9px) saturate(1.08);
+  box-shadow:
+    0 0 0 1px rgba(1, 4, 10, 0.5),
+    0 18px 48px -28px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(223, 242, 255, 0.045);
+}
+
+/* Coins techniques : quatre équerres fines. */
+.corners::before,
+.corners::after,
+.corners > .corner::before,
+.corners > .corner::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-color: rgba(127, 212, 255, 0.55);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+.corners::before {
+  top: -1px;
+  left: -1px;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+.corners::after {
+  top: -1px;
+  right: -1px;
+  border-top-width: 1px;
+  border-right-width: 1px;
+}
+.corners > .corner::before {
+  bottom: -1px;
+  left: -1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+}
+.corners > .corner::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom-width: 1px;
+  border-right-width: 1px;
+}
+
+/* ------------------------------------------------------------ typographie ---*/
+.label {
+  font-size: var(--text-micro);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  font-weight: 500;
+}
+
+.label-strong {
+  font-size: var(--text-micro);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-cyan);
+  font-weight: 500;
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--color-ice);
+}
+
+.readout {
+  font-family: var(--font-mono);
+  font-size: var(--text-mini);
+  color: var(--color-text-dim);
+  letter-spacing: 0.06em;
+}
+
+.hairline {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(127, 212, 255, 0.28) 12%,
+    rgba(127, 212, 255, 0.28) 88%,
+    transparent
+  );
+}
+
+/* -------------------------------------------------------------- contrôles ---*/
+.nav-item {
+  pointer-events: auto;
+  position: relative;
+  font-size: var(--text-micro);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #6d90a8;
+  padding: 5px 2px;
+  transition: color 0.22s ease;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.nav-item:hover {
+  color: var(--color-ice);
+}
+.nav-item[data-active="true"] {
+  color: var(--color-ice);
+}
+.nav-item[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(to right, rgba(127, 212, 255, 0.1), rgba(127, 212, 255, 0.85), rgba(127, 212, 255, 0.1));
+}
+
+.chip {
+  pointer-events: auto;
+  font-size: var(--text-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  border: 1px solid rgba(127, 212, 255, 0.16);
+  background: rgba(8, 24, 40, 0.42);
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+.chip:hover {
+  border-color: rgba(127, 212, 255, 0.34);
+  color: var(--color-ice);
+}
+.chip[data-active="true"] {
+  border-color: rgba(127, 212, 255, 0.55);
+  background: rgba(127, 212, 255, 0.1);
+  color: #ffffff;
+  box-shadow: 0 0 18px -6px rgba(127, 212, 255, 0.5);
+}
+
+.chip-alert[data-active="true"] {
+  border-color: rgba(255, 74, 47, 0.6);
+  background: rgba(255, 74, 47, 0.1);
+  color: #ffd9cd;
+  box-shadow: 0 0 18px -6px rgba(255, 74, 47, 0.6);
+}
+
+.row-button {
+  pointer-events: auto;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-left: 1px solid transparent;
+  padding: 5px 8px 5px 9px;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.row-button:hover {
+  background: rgba(127, 212, 255, 0.055);
+  border-left-color: rgba(255, 74, 47, 0.6);
+}
+.row-button[data-active="true"] {
+  background: rgba(255, 74, 47, 0.07);
+  border-left-color: var(--color-alert);
+}
+
+.dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.blink {
+  animation: blink 2.6s ease-in-out infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.boot {
+  animation: boot 1.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes boot {
+  from { opacity: 0; transform: translateY(6px); filter: blur(3px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.sweep {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sweep::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -30%;
+  width: 26%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(127, 212, 255, 0.055), transparent);
+  animation: sweep 9s linear infinite;
+}
+@keyframes sweep {
+  from { transform: translateX(0); }
+  to { transform: translateX(560%); }
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(127, 212, 255, 0.22) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgba(127, 212, 255, 0.22);
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: rgba(127, 212, 255, 0.2);
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 9px;
+  height: 9px;
+  background: var(--color-cyan);
+  box-shadow: 0 0 10px rgba(127, 212, 255, 0.8);
+  cursor: pointer;
+}
+
+.tick-marks {
+  background-image: repeating-linear-gradient(
+    to right,
+    rgba(127, 212, 255, 0.24) 0px,
+    rgba(127, 212, 255, 0.24) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}

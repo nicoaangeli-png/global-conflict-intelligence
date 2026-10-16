@@ -1,0 +1,36 @@
+# Format d'import — exemple
+
+Ce fichier est un **modèle de colonnes**, pas une donnée. Il est volontairement
+nommé `*.csv.exemple` : le connecteur d'import ne lit que les fichiers se
+terminant par `.csv`. Renommez votre propre export en `.csv` (ou déposez-le tel
+quel dans ce dossier) puis lancez `POST /api/ingest` ou le bouton
+« lancer une ingestion » de la vue SOURCES.
+
+## Export ACLED (colonnes minimales utilisées)
+
+```csv
+event_id_cnty,event_date,event_type,sub_event_type,actor1,actor2,country,admin1,location,latitude,longitude,fatalities,source
+```
+
+Seules ces colonnes sont lues ; les autres sont ignorées. Les types reconnus :
+`Battles`, `Explosions/Remote violence`, `Violence against civilians`, `Riots`,
+`Protests`, `Strategic developments` (toute autre valeur devient
+`Strategic developments`).
+
+## Export UCDP GED (colonnes minimales utilisées)
+
+```csv
+id,date_start,type_of_violence,side_a,side_b,country,region,where_description,latitude,longitude,best,source_headline,source_article
+```
+
+`type_of_violence = 3` est classé en violences contre les civils, les autres en
+affrontements. `best` (meilleure estimation de morts) prime sur
+`deaths_civilians`.
+
+## Règles appliquées à l'ingestion
+
+- Les lignes sans coordonnées exploitables sont ignorées.
+- Déduplication sur `(jeu de données, identifiant)` puis sur
+  `(source, jour, type, ~10 km)`.
+- Les événements importés conservent leur source et leur date : ACLED et UCDP
+  sont marqués `CONFIRMED` / `REPORTED` selon le format — jamais GDELT.

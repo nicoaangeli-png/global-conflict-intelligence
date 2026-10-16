@@ -1,0 +1,22 @@
+   ▲ Next.js 15.2.4
+   - Local:        http://localhost:3005
+   - Network:      http://192.168.1.4:3005
+
+ ✓ Starting...
+ ✓ Ready in 244ms
+$ next start -p 3005
+   ▲ Next.js 15.2.4
+   - Local:        http://localhost:3005
+   - Network:      http://192.168.1.4:3005
+
+ ✓ Starting...
+ ✓ Ready in 218ms
+$ next start -p 3005
+   ▲ Next.js 15.2.4
+   - Local:        http://localhost:3005
+   - Network:      http://192.168.1.4:3005
+
+ ✓ Starting...
+ ✓ Ready in 1847ms
+[intel] ingestion automatique : Import CSV : 0 événements · ACLED : non configuré · UCDP GED : non configuré · GDELT 2.0 : 158 événements
+[intel] ingestion automatique : Import CSV : 0 événements · ACLED : non configuré · UCDP GED : non configuré · GDELT 2.0 : gdelt: fetch failed
