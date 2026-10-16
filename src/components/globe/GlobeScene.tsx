@@ -32,7 +32,14 @@ export function GlobeScene() {
   const setCountry = useIntelStore((s) => s.setCountry);
   const setHoveredCountry = useIntelStore((s) => s.setHoveredCountry);
 
-  const sphericalRef = useRef<{ distance: number; targetDistance: number; theta: number; targetTheta: number; phi: number; targetPhi: number; }>({
+  const sphericalRef = useRef<{
+    distance: number;
+    targetDistance: number;
+    theta: number;
+    targetTheta: number;
+    phi: number;
+    targetPhi: number;
+  }>({
     distance: CAMERA.initial.distance,
     targetDistance: CAMERA.initial.distance,
     theta: CAMERA.initial.theta,
@@ -42,10 +49,13 @@ export function GlobeScene() {
   });
 
   const isDraggingRef = useRef(false);
+  const dragStartPosRef = useRef({ x: 0, y: 0 });
+  const totalDragDistRef = useRef(0);
   const previousMousePosRef = useRef({ x: 0, y: 0 });
   const velocityRef = useRef({ theta: 0, phi: 0 });
   const lastInteractionTimeRef = useRef(Date.now());
   const lastReportedDegrees = useRef(0);
+  const debounceZoomTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -100,11 +110,13 @@ export function GlobeScene() {
     const worldIndexPromise = loadWorld();
 
     const onMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 && e.button !== 2) return;
       isDraggingRef.current = true;
+      dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+      totalDragDistRef.current = 0;
       previousMousePosRef.current = { x: e.clientX, y: e.clientY };
-      lastInteractionTimeRef.current = Date.now();
       velocityRef.current = { theta: 0, phi: 0 };
+      lastInteractionTimeRef.current = Date.now();
     };
 
     const onMouseMove = (e: MouseEvent) => {
@@ -115,16 +127,24 @@ export function GlobeScene() {
       if (isDraggingRef.current) {
         const deltaX = e.clientX - previousMousePosRef.current.x;
         const deltaY = e.clientY - previousMousePosRef.current.y;
+        totalDragDistRef.current += Math.hypot(deltaX, deltaY);
 
-        const vTheta = -deltaX * CAMERA.rotateSpeed;
-        const vPhi = -deltaY * CAMERA.rotateSpeed;
+        // Rotation fluide proportionnelle à la distance caméra (plus on est près, plus le contrôle est fin)
+        const scale = (sphericalRef.current.targetDistance / CAMERA.initial.distance) * CAMERA.rotateSpeed;
+        const vTheta = -deltaX * scale;
+        const vPhi = -deltaY * scale;
 
-        velocityRef.current = { theta: vTheta, phi: vPhi };
+        // Amortissement de vélocité
+        velocityRef.current = {
+          theta: velocityRef.current.theta * 0.35 + vTheta * 0.65,
+          phi: velocityRef.current.phi * 0.35 + vPhi * 0.65,
+        };
+
         sphericalRef.current.targetTheta += vTheta;
         sphericalRef.current.targetPhi = clamp(
           sphericalRef.current.targetPhi + vPhi,
-          0.12,
-          Math.PI - 0.12
+          0.15,
+          Math.PI - 0.15
         );
 
         previousMousePosRef.current = { x: e.clientX, y: e.clientY };
@@ -163,52 +183,85 @@ export function GlobeScene() {
     };
 
     const onMouseUp = (e: MouseEvent) => {
-      if (isDraggingRef.current) {
-        const dx = Math.abs(e.clientX - previousMousePosRef.current.x);
-        const dy = Math.abs(e.clientY - previousMousePosRef.current.y);
-        // Clic sans glisser
-        if (dx < 4 && dy < 4) {
-          raycaster.setFromCamera(mouse, camera);
-          const hit = conflictLayerRef.current?.hitTest(raycaster, camera) || null;
-          if (hit) {
-            void select(hit);
-          } else {
-            // Clic sur un pays pour ouvrir la fiche détaillée Pentagone
-            if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
-              const geo = vector3ToLatLon(hitPoint);
-              worldIndexPromise.then((w) => {
-                const c = countryAt(w, geo.lat, geo.lon);
-                if (c) {
-                  setCountry({ name: c.name, iso: c.iso, lat: geo.lat, lon: geo.lon });
-                } else {
-                  setCountry(null);
-                }
-              });
+      const wasDragging = isDraggingRef.current;
+      const totalDist = totalDragDistRef.current;
+      isDraggingRef.current = false;
+
+      // Si l'utilisateur a glissé de plus de 5px au total, c'était une rotation du globe.
+      // On ne déclenche JAMAIS de clic accidentel lors du relâchement !
+      if (!wasDragging || totalDist > 5) {
+        return;
+      }
+
+      // Clic stationnaire intentionnel (totalDist <= 5)
+      raycaster.setFromCamera(mouse, camera);
+      const hit = conflictLayerRef.current?.hitTest(raycaster, camera) || null;
+      if (hit) {
+        void select(hit);
+      } else {
+        // Clic sur un pays pour ouvrir la fiche détaillée Pentagone
+        if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
+          const geo = vector3ToLatLon(hitPoint);
+          worldIndexPromise.then((w) => {
+            const c = countryAt(w, geo.lat, geo.lon);
+            if (c) {
+              setCountry({ name: c.name, iso: c.iso, lat: geo.lat, lon: geo.lon });
             } else {
               setCountry(null);
             }
-          }
+          });
+        } else {
+          setCountry(null);
         }
       }
-      isDraggingRef.current = false;
     };
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       lastInteractionTimeRef.current = Date.now();
-      const zoomDelta = e.deltaY * 0.003;
-      sphericalRef.current.targetDistance = clamp(
-        sphericalRef.current.targetDistance + zoomDelta,
-        CAMERA.minDistance,
-        CAMERA.maxDistance
-      );
 
-      // Calcul dynamique du niveau d'agrégation selon la distance
-      const deg = clusterDegreesForCamera(sphericalRef.current.targetDistance);
-      if (Math.abs(deg - lastReportedDegrees.current) > 0.05) {
-        lastReportedDegrees.current = deg;
-        setDegrees(deg);
+      const isPinch = e.ctrlKey;
+      const isHorizontalTrackpad = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+
+      if (isPinch) {
+        // Pincement Trackpad macOS (Pinch to Zoom) : progressif et doux
+        const factor = Math.exp(e.deltaY * 0.005);
+        sphericalRef.current.targetDistance = clamp(
+          sphericalRef.current.targetDistance * factor,
+          CAMERA.minDistance,
+          CAMERA.maxDistance
+        );
+      } else if (isHorizontalTrackpad || (Math.abs(e.deltaX) > 2 && Math.abs(e.deltaY) < 30)) {
+        // Balayage à 2 doigts sur trackpad (Trackpad Pan/Rotate) : tourne le globe, NE ZOOME PAS !
+        const rotScale = 0.0022;
+        sphericalRef.current.targetTheta += -e.deltaX * rotScale;
+        sphericalRef.current.targetPhi = clamp(
+          sphericalRef.current.targetPhi + -e.deltaY * rotScale,
+          0.15,
+          Math.PI - 0.15
+        );
+        velocityRef.current = { theta: 0, phi: 0 };
+      } else {
+        // Molette de souris classique ou scroll vertical trackpad franc
+        // Zoom exponentiel doux sans saut brusque
+        const boundedDelta = clamp(e.deltaY, -60, 60);
+        const zoomFactor = Math.exp(boundedDelta * 0.0016);
+        sphericalRef.current.targetDistance = clamp(
+          sphericalRef.current.targetDistance * zoomFactor,
+          CAMERA.minDistance,
+          CAMERA.maxDistance
+        );
       }
+
+      // Débouncage de la mise à jour d'agrégation réseau (évite tout freeze)
+      if (debounceZoomTimer.current) clearTimeout(debounceZoomTimer.current);
+      debounceZoomTimer.current = setTimeout(() => {
+        const deg = clusterDegreesForCamera(sphericalRef.current.targetDistance);
+        if (Math.abs(deg - lastReportedDegrees.current) > 0.05) {
+          lastReportedDegrees.current = deg;
+          setDegrees(deg);
+        }
+      }, 180);
     };
 
     const dom = renderer.domElement;
@@ -216,6 +269,10 @@ export function GlobeScene() {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     dom.addEventListener('wheel', onWheel, { passive: false });
+
+    // Empêche le menu contextuel par clic droit pour permettre la rotation fluide
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    dom.addEventListener('contextmenu', onContextMenu);
 
     const handleResize = () => {
       if (!containerRef.current) return;
@@ -241,21 +298,22 @@ export function GlobeScene() {
         sphericalRef.current.targetTheta += velocityRef.current.theta;
         sphericalRef.current.targetPhi = clamp(
           sphericalRef.current.targetPhi + velocityRef.current.phi,
-          0.12,
-          Math.PI - 0.12
+          0.15,
+          Math.PI - 0.15
         );
         velocityRef.current.theta *= CAMERA.damping;
         velocityRef.current.phi *= CAMERA.damping;
 
-        if (now - lastInteractionTimeRef.current > 3500) {
-          sphericalRef.current.targetTheta += CAMERA.autoRotate.speed * delta;
+        // Auto-rotation lente uniquement après 25 secondes d'inactivité totale
+        if (now - lastInteractionTimeRef.current > 25000) {
+          sphericalRef.current.targetTheta += CAMERA.autoRotate.speed * delta * 0.4;
         }
       }
 
       const s = sphericalRef.current;
-      s.theta += (s.targetTheta - s.theta) * 0.1;
-      s.phi += (s.targetPhi - s.phi) * 0.1;
-      s.distance += (s.targetDistance - s.distance) * 0.1;
+      s.theta += (s.targetTheta - s.theta) * 0.12;
+      s.phi += (s.targetPhi - s.phi) * 0.12;
+      s.distance += (s.targetDistance - s.distance) * 0.12;
 
       const sinPhi = Math.sin(s.phi);
       camera.position.x = s.distance * sinPhi * Math.sin(s.theta);
@@ -280,7 +338,9 @@ export function GlobeScene() {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       dom.removeEventListener('wheel', onWheel);
+      dom.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('resize', handleResize);
+      if (debounceZoomTimer.current) clearTimeout(debounceZoomTimer.current);
 
       holographicEarth.dispose();
       orbitLayer.dispose();
@@ -307,7 +367,7 @@ export function GlobeScene() {
     }
   }, [selected, hoveredId]);
 
-  // Recentrage sur requête externe
+  // Recentrage sur requête externe sans coup de zoom violent
   useEffect(() => {
     if (!focusRequest) return;
     const latRad = (focusRequest.lat * Math.PI) / 180;
@@ -322,9 +382,88 @@ export function GlobeScene() {
 
     sphericalRef.current.targetTheta = targetTheta;
     sphericalRef.current.targetPhi = targetPhi;
-    sphericalRef.current.targetDistance = Math.min(sphericalRef.current.distance, 1.85);
+    // Préserve le niveau de zoom choisi par l'utilisateur (ne force plus un zoom brutal à 1.85)
     lastInteractionTimeRef.current = Date.now();
   }, [focusRequest]);
 
-  return <div ref={containerRef} className="relative h-full w-full select-none" />;
+  // Fonctions de contrôle manuel pour la barre d'outils tactique
+  const handleZoomIn = () => {
+    sphericalRef.current.targetDistance = clamp(
+      sphericalRef.current.targetDistance * 0.78,
+      CAMERA.minDistance,
+      CAMERA.maxDistance
+    );
+    lastInteractionTimeRef.current = Date.now();
+    const deg = clusterDegreesForCamera(sphericalRef.current.targetDistance);
+    setDegrees(deg);
+  };
+
+  const handleZoomOut = () => {
+    sphericalRef.current.targetDistance = clamp(
+      sphericalRef.current.targetDistance * 1.28,
+      CAMERA.minDistance,
+      CAMERA.maxDistance
+    );
+    lastInteractionTimeRef.current = Date.now();
+    const deg = clusterDegreesForCamera(sphericalRef.current.targetDistance);
+    setDegrees(deg);
+  };
+
+  const handleResetView = () => {
+    sphericalRef.current.targetDistance = CAMERA.initial.distance;
+    sphericalRef.current.targetTheta = CAMERA.initial.theta;
+    sphericalRef.current.targetPhi = CAMERA.initial.phi;
+    velocityRef.current = { theta: 0, phi: 0 };
+    lastInteractionTimeRef.current = Date.now();
+    setDegrees(2.4);
+  };
+
+  const handleNorthUp = () => {
+    sphericalRef.current.targetPhi = Math.PI / 2;
+    velocityRef.current.phi = 0;
+    lastInteractionTimeRef.current = Date.now();
+  };
+
+  return (
+    <div className="relative h-full w-full select-none">
+      <div ref={containerRef} className="h-full w-full" />
+
+      {/* Widget de Contrôles Tactiques Pentagone (Zoom / Reset / Boussole) */}
+      <div className="pointer-events-auto absolute bottom-[128px] right-5 z-20 flex flex-col gap-1 border border-cyan/20 bg-[#020b14]/85 p-1 backdrop-blur-md shadow-[0_0_20px_rgba(0,180,255,0.1)]">
+        <button
+          type="button"
+          onClick={handleZoomIn}
+          title="Zoom avant (+)"
+          className="flex h-7 w-7 items-center justify-center border border-cyan/20 bg-cyan/5 text-[14px] font-mono font-bold text-ice transition hover:border-cyan hover:bg-cyan/20 active:scale-95"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={handleZoomOut}
+          title="Zoom arrière (-)"
+          className="flex h-7 w-7 items-center justify-center border border-cyan/20 bg-cyan/5 text-[14px] font-mono font-bold text-ice transition hover:border-cyan hover:bg-cyan/20 active:scale-95"
+        >
+          −
+        </button>
+        <div className="my-0.5 h-[1px] w-full bg-cyan/20" />
+        <button
+          type="button"
+          onClick={handleNorthUp}
+          title="Orienter vers le Nord (Boussole)"
+          className="flex h-7 w-7 items-center justify-center border border-cyan/20 bg-cyan/5 text-[10px] font-mono font-bold text-cyan transition hover:border-cyan hover:bg-cyan/20 active:scale-95"
+        >
+          N
+        </button>
+        <button
+          type="button"
+          onClick={handleResetView}
+          title="Réinitialiser vue globale"
+          className="flex h-7 w-7 items-center justify-center border border-cyan/20 bg-cyan/5 text-[11px] font-mono text-cyan-dim transition hover:border-cyan hover:bg-cyan/20 active:scale-95"
+        >
+          ⟳
+        </button>
+      </div>
+    </div>
+  );
 }
