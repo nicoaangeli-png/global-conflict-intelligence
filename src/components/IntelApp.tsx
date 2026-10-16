@@ -15,6 +15,7 @@ import {
   CountryCard,
   DataProvenanceBanner,
   FrameCorners,
+  HoverCountryBadge,
   HoverReadout,
   SystemReadout,
 } from "@/components/ui/Overlays";
@@ -116,6 +117,7 @@ export function IntelApp() {
       <div className="hud">
         <Header view={view} onView={setView} />
         <DataProvenanceBanner />
+        <HoverCountryBadge />
         <CountryCard />
         <HoverReadout />
         <SystemReadout />
@@ -154,10 +156,14 @@ export function IntelApp() {
         <div className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2">
           <div className="panel corners px-4 py-3">
             <span className="corner" />
-            <div className="label-strong">api indisponible</div>
-            <p className="mt-1 max-w-[280px] text-[10px] leading-relaxed text-text-dim">{error}</p>
-            <button type="button" className="chip mt-2" onClick={() => void refresh()}>
-              réessayer
+            <div className="text-[11px] uppercase tracking-wide text-[#ff4d3b]">Anomalie flux</div>
+            <div className="mt-1 text-[9px] text-text-faint">{error}</div>
+            <button
+              type="button"
+              className="chip mt-3 w-full text-center"
+              onClick={() => void refresh()}
+            >
+              Réessayer
             </button>
           </div>
         </div>

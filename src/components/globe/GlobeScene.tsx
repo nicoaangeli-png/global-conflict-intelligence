@@ -30,6 +30,7 @@ export function GlobeScene() {
   const hover = useIntelStore((s) => s.hover);
   const setDegrees = useIntelStore((s) => s.setDegrees);
   const setCountry = useIntelStore((s) => s.setCountry);
+  const setHoveredCountry = useIntelStore((s) => s.setHoveredCountry);
 
   const sphericalRef = useRef<{ distance: number; targetDistance: number; theta: number; targetTheta: number; phi: number; targetPhi: number; }>({
     distance: CAMERA.initial.distance,
@@ -53,7 +54,7 @@ export function GlobeScene() {
     let height = container.clientHeight;
 
     const scene = new THREE.Scene();
-    scene.background = null; // Let the .stage CSS gradient background show through!
+    scene.fog = new THREE.FogExp2(0x010409, 0.002);
 
     const fov = CAMERA.fov;
     const camera = new THREE.PerspectiveCamera(fov, width / height, CAMERA.near, CAMERA.far);
@@ -91,10 +92,12 @@ export function GlobeScene() {
     globeGroup.add(conflictLayer.group);
     conflictLayerRef.current = conflictLayer;
 
-    // Raycasting & picking
+    // Raycasting & picking analytique exact sur la sphère terrestre
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
-    let worldIndexPromise = loadWorld();
+    const earthSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE.radius);
+    const hitPoint = new THREE.Vector3();
+    const worldIndexPromise = loadWorld();
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
@@ -127,27 +130,33 @@ export function GlobeScene() {
         previousMousePosRef.current = { x: e.clientX, y: e.clientY };
         lastInteractionTimeRef.current = Date.now();
         hover(null);
+        setHoveredCountry(null);
       } else {
         raycaster.setFromCamera(mouse, camera);
         const hit = conflictLayerRef.current?.hitTest(raycaster, camera) || null;
         if (hit) {
           container.style.cursor = 'pointer';
           hover(hit.id);
+          setHoveredCountry(null);
         } else {
-          container.style.cursor = 'default';
           hover(null);
 
-          // Inspection pays au survol
-          const intersects = raycaster.intersectObject(holographicEarth.group, true);
-          if (intersects.length > 0) {
-            const pt = intersects[0].point;
-            const geo = vector3ToLatLon(pt);
+          // Inspection pays au survol via intersection analytique sur la sphère
+          if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
+            const geo = vector3ToLatLon(hitPoint);
             worldIndexPromise.then((w) => {
               const c = countryAt(w, geo.lat, geo.lon);
               if (c) {
-                setCountry({ name: c.name, iso: c.iso, lat: geo.lat, lon: geo.lon });
+                container.style.cursor = 'pointer';
+                setHoveredCountry({ name: c.name, iso: c.iso, lat: geo.lat, lon: geo.lon });
+              } else {
+                container.style.cursor = 'default';
+                setHoveredCountry(null);
               }
             });
+          } else {
+            container.style.cursor = 'default';
+            setHoveredCountry(null);
           }
         }
       }
@@ -157,10 +166,28 @@ export function GlobeScene() {
       if (isDraggingRef.current) {
         const dx = Math.abs(e.clientX - previousMousePosRef.current.x);
         const dy = Math.abs(e.clientY - previousMousePosRef.current.y);
+        // Clic sans glisser
         if (dx < 4 && dy < 4) {
           raycaster.setFromCamera(mouse, camera);
           const hit = conflictLayerRef.current?.hitTest(raycaster, camera) || null;
-          void select(hit);
+          if (hit) {
+            void select(hit);
+          } else {
+            // Clic sur un pays pour ouvrir la fiche détaillée Pentagone
+            if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
+              const geo = vector3ToLatLon(hitPoint);
+              worldIndexPromise.then((w) => {
+                const c = countryAt(w, geo.lat, geo.lon);
+                if (c) {
+                  setCountry({ name: c.name, iso: c.iso, lat: geo.lat, lon: geo.lon });
+                } else {
+                  setCountry(null);
+                }
+              });
+            } else {
+              setCountry(null);
+            }
+          }
         }
       }
       isDraggingRef.current = false;
@@ -264,7 +291,7 @@ export function GlobeScene() {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [hover, select, setCountry, setDegrees]);
+  }, [hover, select, setCountry, setHoveredCountry, setDegrees]);
 
   // Synchronisation des foyers
   useEffect(() => {
@@ -280,24 +307,24 @@ export function GlobeScene() {
     }
   }, [selected, hoveredId]);
 
-  // Recentrage fluide lors d'un focusRequest
+  // Recentrage sur requête externe
   useEffect(() => {
-    if (focusRequest) {
-      const targetPhi = clamp((90 - focusRequest.lat) * (Math.PI / 180), 0.15, Math.PI - 0.15);
-      const targetTheta = -(focusRequest.lon + 90) * (Math.PI / 180);
+    if (!focusRequest) return;
+    const latRad = (focusRequest.lat * Math.PI) / 180;
+    const lonRad = (focusRequest.lon * Math.PI) / 180;
 
-      sphericalRef.current.targetTheta = targetTheta;
-      sphericalRef.current.targetPhi = targetPhi;
-      sphericalRef.current.targetDistance = 2.4;
-      lastInteractionTimeRef.current = Date.now();
-    }
+    let targetTheta = -lonRad - Math.PI / 2;
+    const targetPhi = clamp(Math.PI / 2 - latRad, 0.15, Math.PI - 0.15);
+
+    const currentTheta = sphericalRef.current.theta;
+    const twoPi = Math.PI * 2;
+    targetTheta = currentTheta + ((((targetTheta - currentTheta) % twoPi) + twoPi * 1.5) % twoPi) - Math.PI;
+
+    sphericalRef.current.targetTheta = targetTheta;
+    sphericalRef.current.targetPhi = targetPhi;
+    sphericalRef.current.targetDistance = Math.min(sphericalRef.current.distance, 1.85);
+    lastInteractionTimeRef.current = Date.now();
   }, [focusRequest]);
 
-  return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 select-none overflow-hidden"
-      style={{ touchAction: 'none' }}
-    />
-  );
+  return <div ref={containerRef} className="relative h-full w-full select-none" />;
 }

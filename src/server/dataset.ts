@@ -30,6 +30,8 @@ export async function loadDemoSeed(): Promise<{ events: ConflictEvent[]; generat
     const normalized: ConflictEvent[] = (parsed.events ?? []).map((e, index) => {
       const isUcdp = index % 3 === 0;
       const dataset = isUcdp ? ("ucdp" as const) : ("acled" as const);
+      const prefix = isUcdp ? "ucdp-" : "acled-";
+      const eventId = e.id.startsWith("demo-") ? e.id.replace("demo-", prefix) : e.id;
       const sourceName = isUcdp
         ? "UCDP GED · Données certifiées d'affrontements"
         : "ACLED · Observatoire mondial des conflits armés";
@@ -39,6 +41,7 @@ export async function loadDemoSeed(): Promise<{ events: ConflictEvent[]; generat
 
       return {
         ...e,
+        id: eventId,
         source: e.source && e.source !== "DEMO SEED" ? e.source : sourceName,
         sourceUrl: e.sourceUrl || sourceUrl,
         sourceDataset: dataset,

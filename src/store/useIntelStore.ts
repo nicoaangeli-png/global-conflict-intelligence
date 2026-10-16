@@ -55,8 +55,10 @@ interface IntelStore {
   stats: StatsResponse | null;
   selected: ConflictCluster | null;
   selectedEvents: ConflictEvent[];
-  /** Pays pointé sur le globe. */
+  /** Pays pointé sur le globe (ouvert au clic). */
   country: CountryFocus;
+  /** Pays survolé sous le curseur (badge discret, ne masque pas la carte). */
+  hoveredCountry: CountryFocus;
   hoveredId: string | null;
   loading: boolean;
   selecting: boolean;
@@ -90,6 +92,7 @@ interface IntelStore {
   hover: (id: string | null) => void;
   focus: (lat: number, lon: number) => void;
   setCountry: (country: CountryFocus) => void;
+  setHoveredCountry: (country: CountryFocus) => void;
   setStreamStatus: (s: IntelStore["streamStatus"]) => void;
 }
 
@@ -153,6 +156,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
   selected: null,
   selectedEvents: [],
   country: null,
+  hoveredCountry: null,
   hoveredId: null,
   loading: true,
   selecting: false,
@@ -286,5 +290,6 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
   hover: (hoveredId) => set({ hoveredId }),
   focus: (lat, lon) => set({ focusRequest: { lat, lon, at: Date.now() } }),
   setCountry: (country) => set({ country }),
+  setHoveredCountry: (hoveredCountry) => set({ hoveredCountry }),
   setStreamStatus: (streamStatus) => set({ streamStatus }),
 }));

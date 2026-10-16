@@ -147,7 +147,43 @@ export function HoverReadout() {
   );
 }
 
-/** Fiche géopolitique du pays pointé (lancer de rayon sur la sphère). */
+/** Badge discret au survol d'un pays : ancré sur le côté pour ne jamais obstruer le globe. */
+export function HoverCountryBadge() {
+  const hoveredCountry = useIntelStore((s) => s.hoveredCountry);
+  const country = useIntelStore((s) => s.country);
+  const locale = useIntelStore((s) => s.locale);
+
+  if (!hoveredCountry || country) return null;
+
+  const geo = getCountryGeopolitics(hoveredCountry.name);
+
+  return (
+    <div className="pointer-events-none fixed right-[330px] top-[74px] z-10 flex items-center gap-3 border border-cyan/30 bg-[#020b14]/90 px-3 py-1.5 backdrop-blur-md shadow-[0_0_20px_rgba(0,180,255,0.12)]">
+      <div className="h-1.5 w-1.5 rounded-full bg-cyan animate-pulse" />
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[11px] font-mono font-medium tracking-wider text-ice uppercase">
+          {hoveredCountry.name}
+        </span>
+        <span className="text-[9px] font-mono text-cyan-dim">
+          [{hoveredCountry.iso || geo.iso}]
+        </span>
+        <span className="text-[8px] font-mono text-text-faint">
+          {coords(hoveredCountry.lat, hoveredCountry.lon)}
+        </span>
+      </div>
+      <div className="h-3 w-[1px] bg-cyan/20" />
+      <div className="text-[9px] font-mono text-alert-soft">
+        👥 {geo.demographics.population}
+      </div>
+      <div className="h-3 w-[1px] bg-cyan/20" />
+      <span className="text-[8px] uppercase tracking-wider text-cyan/70 font-mono">
+        {locale === 'fr' ? 'Clic → Dossier Pentagone' : 'Click → Pentagon Dossier'}
+      </span>
+    </div>
+  );
+}
+
+/** Fiche géopolitique du pays pointé (ouvert uniquement au clic sur le pays). */
 export function CountryCard() {
   const country = useIntelStore((s) => s.country);
   const clusters = useIntelStore((s) => s.clusters);
@@ -166,7 +202,7 @@ export function CountryCard() {
   const best = local.slice().sort((a, b) => b.intensity - a.intensity)[0];
 
   return (
-    <div className="panel corners boot pointer-events-auto absolute left-1/2 top-[86px] z-20 w-[290px] -translate-x-1/2 px-3.5 py-3 shadow-[0_0_40px_rgba(0,180,255,0.12)]">
+    <div className="panel corners boot pointer-events-auto absolute left-1/2 top-[86px] z-20 w-[310px] -translate-x-1/2 px-3.5 py-3 shadow-[0_0_40px_rgba(0,180,255,0.15)] bg-[#020b14]/95 backdrop-blur-md">
       <span className="corner" />
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -180,15 +216,41 @@ export function CountryCard() {
         </button>
       </div>
 
-      {/* Régime politique avec badge distinctif */}
-      <div className="mt-2.5 border border-cyan/20 bg-cyan/5 p-2">
-        <div className="text-[8px] uppercase tracking-wider text-cyan">{dict.countryCard.regime}</div>
-        <div className="mt-0.5 text-[10px] font-mono font-medium text-ice leading-tight">
+      {/* Régime politique & Démographie / Population */}
+      <div className="mt-2.5 border border-cyan/20 bg-cyan/5 p-2 space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] uppercase tracking-wider text-cyan">{dict.countryCard.regime}</span>
+          <span className="text-[9px] font-mono font-semibold text-alert-soft">
+            👥 {geo.demographics.population}
+          </span>
+        </div>
+        <div className="text-[10px] font-mono font-medium text-ice leading-tight">
           {locale === "fr" ? geo.regime.labelFr : geo.regime.labelEn}
         </div>
-        <div className="mt-1 flex items-baseline justify-between text-[8px] text-text-faint">
+        <div className="flex items-baseline justify-between text-[8px] text-text-faint">
           <span>{dict.geopolitics.headOfState} :</span>
-          <span className="text-text truncate max-w-[150px]">{geo.regime.leader}</span>
+          <span className="text-text truncate max-w-[170px]">{geo.regime.leader}</span>
+        </div>
+      </div>
+
+      {/* Renseignement Militaire Pentagone */}
+      <div className="mt-2 border border-alert-soft/20 bg-alert-soft/5 p-2 space-y-1">
+        <div className="text-[8px] uppercase tracking-wider text-alert-soft flex items-center justify-between">
+          <span>{locale === 'fr' ? 'Renseignement Militaire (Pentagone)' : 'Pentagon Military Intel'}</span>
+          <span className="text-[8px] font-mono text-cyan">{geo.military.defenseBudget}</span>
+        </div>
+        <div className="flex items-center justify-between text-[9px] font-mono">
+          <span className="text-text-faint">{locale === 'fr' ? 'Forces armées :' : 'Armed Forces:'}</span>
+          <span className="text-ice">{geo.military.activeArmedForces}</span>
+        </div>
+        <div className="flex items-center justify-between text-[9px] font-mono">
+          <span className="text-text-faint">{locale === 'fr' ? 'Dissuasion :' : 'Deterrence:'}</span>
+          <span className="text-alert-soft text-[8px] truncate max-w-[180px]">
+            {locale === 'fr' ? geo.military.nuclearStatusFr : geo.military.nuclearStatusEn}
+          </span>
+        </div>
+        <div className="text-[8px] font-mono text-cyan-dim border-t border-cyan/10 pt-1">
+          {locale === 'fr' ? geo.military.pentagonAlertFr : geo.military.pentagonAlertEn}
         </div>
       </div>
 
@@ -348,9 +410,6 @@ export function BootOverlay() {
         <span className="label">
           {locale === "fr" ? "initialisation du système de renseignement" : "initializing intelligence system"}
         </span>
-        <div className="h-[1px] w-40 overflow-hidden bg-[rgba(127,212,255,0.16)]">
-          <div className="h-full w-1/3 bg-cyan" style={{ animation: "sweep 1.1s linear infinite" }} />
-        </div>
       </div>
     </div>
   );

@@ -1,26 +1,77 @@
 import * as THREE from 'three';
 import { GLOBE, rgb } from '@/lib/config/visual';
 import { latLonToVector3 } from '@/lib/geo/latlon';
-import { buildLandDots, LandDots } from '@/lib/geo/landDots';
-import { buildCityLights, CityLights } from '@/lib/geo/cityLights';
-import { buildWorldIndex, WorldIndex } from '@/lib/geo/world';
+import { buildLandDots } from '@/lib/geo/landDots';
+import { buildCityLights } from '@/lib/geo/cityLights';
+import { buildWorldIndex } from '@/lib/geo/world';
 import {
   hologramVertex,
   hologramFragment,
-  hologramDefaults,
 } from '@/shaders/hologram';
 import {
   atmosphereVertex,
   atmosphereFragment,
-  atmosphereHaloDefaults,
-  atmosphereRimDefaults,
 } from '@/shaders/atmosphere';
 import {
   pointsVertex,
   pointsFragment,
-  landDotUniforms,
-  cityUniforms,
 } from '@/shaders/points';
+
+const borderLineVertex = /* glsl */ `
+  varying float vFacing;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vec3 N = normalize(mat3(modelMatrix) * normalize(position));
+    vec3 V = normalize(cameraPosition - world.xyz);
+    float facing = dot(N, V);
+    if (facing < 0.035) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      vFacing = 0.0;
+      return;
+    }
+    vFacing = smoothstep(0.035, 0.22, facing);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+const borderLineFragment = /* glsl */ `
+  precision highp float;
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  varying float vFacing;
+  void main() {
+    if (vFacing < 0.01) discard;
+    gl_FragColor = vec4(uColor, uOpacity * vFacing);
+  }
+`;
+
+const graticuleVertex = /* glsl */ `
+  varying float vFacing;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vec3 N = normalize(mat3(modelMatrix) * normalize(position));
+    vec3 V = normalize(cameraPosition - world.xyz);
+    float facing = dot(N, V);
+    if (facing < 0.035) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      vFacing = 0.0;
+      return;
+    }
+    vFacing = smoothstep(0.035, 0.25, facing);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+const graticuleFragment = /* glsl */ `
+  precision highp float;
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  varying float vFacing;
+  void main() {
+    if (vFacing < 0.01) discard;
+    gl_FragColor = vec4(uColor, uOpacity * vFacing);
+  }
+`;
 
 function makeGraticule(radius: number, step: number): THREE.BufferGeometry {
   const positions: number[] = [];
@@ -63,14 +114,15 @@ export class HolographicEarth {
   private cityPoints: THREE.Points | null = null;
   private cityMaterial: THREE.ShaderMaterial;
   private borderLines: THREE.LineSegments | null = null;
-  private borderMaterial: THREE.LineBasicMaterial;
+  private borderMaterial: THREE.ShaderMaterial;
   private graticuleLines: THREE.LineSegments;
+  private graticuleMaterial: THREE.ShaderMaterial;
 
   constructor(radius: number) {
     this.group = new THREE.Group();
     this.radius = radius;
 
-    // 1. Halo atmosphérique diffus arrière (effet lueur céleste étendu)
+    // 1. Halo atmosphérique diffus arrière
     const haloGeo = new THREE.SphereGeometry(radius * GLOBE.atmosphere.haloRadius, 64, 64);
     this.haloMaterial = new THREE.ShaderMaterial({
       vertexShader: atmosphereVertex,
@@ -91,8 +143,7 @@ export class HolographicEarth {
     this.haloMesh = new THREE.Mesh(haloGeo, this.haloMaterial);
     this.group.add(this.haloMesh);
 
-    // 2. Corps de la planète : Shader océanique profond avec occlusion (depthWrite: true)
-    // Permet d'éviter de voir l'autre côté de la Terre en transparence confuse
+    // 2. Corps de la planète : Shader océanique profond avec occlusion
     const bodyGeo = new THREE.SphereGeometry(radius, 128, 128);
     this.bodyMaterial = new THREE.ShaderMaterial({
       vertexShader: hologramVertex,
@@ -126,7 +177,7 @@ export class HolographicEarth {
     this.bodyMesh = new THREE.Mesh(bodyGeo, this.bodyMaterial);
     this.group.add(this.bodyMesh);
 
-    // 3. Liseré atmosphérique net sur le limbe
+    // 3. Liséré atmosphérique net sur le limbe
     const rimGeo = new THREE.SphereGeometry(radius * GLOBE.atmosphere.outerRadius, 64, 64);
     this.rimMaterial = new THREE.ShaderMaterial({
       vertexShader: atmosphereVertex,
@@ -147,18 +198,24 @@ export class HolographicEarth {
     this.rimMesh = new THREE.Mesh(rimGeo, this.rimMaterial);
     this.group.add(this.rimMesh);
 
-    // 4. Grille sphérique discrète (méridiens / parallèles)
+    // 4. Grille sphérique avec occlusion de la face arrière
     const graticuleGeo = makeGraticule(radius, GLOBE.graticule.step);
-    const graticuleMat = new THREE.LineBasicMaterial({
-      color: new THREE.Color(GLOBE.graticule.color),
+    this.graticuleMaterial = new THREE.ShaderMaterial({
+      vertexShader: graticuleVertex,
+      fragmentShader: graticuleFragment,
+      uniforms: {
+        uColor: { value: rgb(GLOBE.graticule.color) },
+        uOpacity: { value: GLOBE.graticule.opacity },
+      },
       transparent: true,
-      opacity: GLOBE.graticule.opacity,
+      depthWrite: false,
+      depthTest: true,
       blending: THREE.AdditiveBlending,
     });
-    this.graticuleLines = new THREE.LineSegments(graticuleGeo, graticuleMat);
+    this.graticuleLines = new THREE.LineSegments(graticuleGeo, this.graticuleMaterial);
     this.group.add(this.graticuleLines);
 
-    // 5. Matières pour nuages de points (continents et villes)
+    // 5. Matières pour nuages de points avec occlusion stricte
     this.landMaterial = new THREE.ShaderMaterial({
       vertexShader: pointsVertex,
       fragmentShader: pointsFragment,
@@ -201,20 +258,31 @@ export class HolographicEarth {
       blending: THREE.AdditiveBlending,
     });
 
-    this.borderMaterial = new THREE.LineBasicMaterial({
-      color: new THREE.Color(GLOBE.borders.color),
+    // 6. Matière frontières avec occlusion stricte
+    this.borderMaterial = new THREE.ShaderMaterial({
+      vertexShader: borderLineVertex,
+      fragmentShader: borderLineFragment,
+      uniforms: {
+        uColor: { value: rgb(GLOBE.borders.color) },
+        uOpacity: { value: GLOBE.borders.opacity },
+      },
       transparent: true,
-      opacity: GLOBE.borders.opacity,
+      depthWrite: false,
+      depthTest: true,
       blending: THREE.AdditiveBlending,
     });
 
-    // Chargement asynchrone des continents (42k land dots), villes et frontières
+    // Chargement asynchrone des continents, villes et frontières
     this.loadGeographicLayers();
+  }
+
+  public getBodyMesh(): THREE.Mesh {
+    return this.bodyMesh;
   }
 
   private async loadGeographicLayers(): Promise<void> {
     try {
-      // A. Nuage de points des continents (planète faite de données)
+      // Continents (nuage de points)
       const landData = await buildLandDots(GLOBE.land.dotCount);
       const landGeo = new THREE.BufferGeometry();
       landGeo.setAttribute('position', new THREE.BufferAttribute(landData.positions, 3));
@@ -223,7 +291,7 @@ export class HolographicEarth {
       this.landPoints = new THREE.Points(landGeo, this.landMaterial);
       this.group.add(this.landPoints);
 
-      // B. Villes et foyers urbains
+      // Villes et foyers urbains
       const placesRes = await fetch('/data/ne_110m_places.geojson');
       if (placesRes.ok) {
         const placesGj = await placesRes.json();
@@ -236,7 +304,7 @@ export class HolographicEarth {
         this.group.add(this.cityPoints);
       }
 
-      // C. Frontières administratives fines
+      // Frontières administratives fines
       const countriesRes = await fetch('/data/ne_110m_countries.geojson');
       if (countriesRes.ok) {
         const countriesGj = await countriesRes.json();
@@ -258,6 +326,10 @@ export class HolographicEarth {
   }
 
   public dispose(): void {
+    this.bodyGeoDispose();
+  }
+
+  private bodyGeoDispose(): void {
     this.bodyMesh.geometry.dispose();
     this.bodyMaterial.dispose();
     this.haloMesh.geometry.dispose();
@@ -265,6 +337,7 @@ export class HolographicEarth {
     this.rimMesh.geometry.dispose();
     this.rimMaterial.dispose();
     this.graticuleLines.geometry.dispose();
+    this.graticuleMaterial.dispose();
     this.borderMaterial.dispose();
     this.landMaterial.dispose();
     this.cityMaterial.dispose();
