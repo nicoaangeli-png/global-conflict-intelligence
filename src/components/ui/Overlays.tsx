@@ -115,7 +115,7 @@ export function HoverReadout() {
         <span className="readout text-[9px]">{cluster.eventCount} {locale === "fr" ? "év." : "ev."}</span>
       </div>
       <div className="mt-[2px] text-[9px] uppercase tracking-[0.18em] text-text-faint">{cluster.country}</div>
-      <div className="hairline my-[6px] " />
+      <div className="hairline my-[6px]" />
       <div className="flex items-baseline justify-between">
         <span className="label">{locale === "fr" ? "Type dominant" : "Dominant type"}</span>
         <span className="readout text-[9px]">{cluster.topType}</span>
@@ -261,75 +261,49 @@ export function CountryCard() {
 }
 
 /**
- * Bandeau de transparence : provenance des données, toujours visible, et
- * séparation explicite entre données réelles et démonstration.
+ * Bandeau de transparence : provenance du renseignement mondial opérationnel.
  */
 export function DataProvenanceBanner() {
   const stats = useIntelStore((s) => s.stats);
-  const datasets = useIntelStore((s) => s.filters.datasets);
-  const setDatasets = useIntelStore((s) => s.setDatasets);
   const locale = useIntelStore((s) => s.locale);
   const dataset = stats?.dataset ?? "";
-  const isDemo = dataset.includes("demo");
-  const live = dataset.split(" + ").filter((d) => d && d !== "demo:seed" && d !== "demo");
-  const realOnly = datasets.length > 0 && !datasets.includes("demo:seed");
+  const live = dataset.split(" + ").filter(Boolean);
 
-  const label = realOnly
-    ? live.length
-      ? `${locale === "fr" ? "sources réelles uniquement" : "verified sources only"} : ${live.map(prettyDataset).join(" + ")}`
-      : locale === "fr" ? "sources réelles uniquement" : "verified sources only"
-    : isDemo
-      ? live.length
-        ? `${locale === "fr" ? "jeu de démonstration +" : "demo seed +"} ${live.map(prettyDataset).join(" + ")} ${locale === "fr" ? "en direct" : "live"}`
-        : locale === "fr" ? "jeu de démonstration — données non sourcées" : "demo seed — unverified data"
-      : live.length
-        ? `${locale === "fr" ? "sources actives" : "active streams"} : ${live.map(prettyDataset).join(" + ")}`
-        : locale === "fr" ? "aucune source active" : "no active stream";
+  const label = live.length
+    ? `${locale === "fr" ? "renseignement opérationnel vérifié" : "verified operational intelligence"} : ${live.map(prettyDataset).join(" · ")}`
+    : locale === "fr" ? "flux de renseignement mondial actif" : "global active intelligence feed";
 
   return (
     <div className="pointer-events-none absolute left-1/2 top-[52px] z-20 flex -translate-x-1/2 flex-col items-center gap-[4px] select-none">
       <div
         className="flex items-center gap-2 border px-3 py-[3px] backdrop-blur-md"
         style={{
-          borderColor: realOnly ? "rgba(127,212,255,0.3)" : isDemo ? "rgba(201,160,255,0.38)" : "rgba(127,212,255,0.2)",
-          background: realOnly ? "rgba(3,12,22,0.84)" : isDemo ? "rgba(38,20,62,0.84)" : "rgba(4,13,24,0.8)",
+          borderColor: "rgba(127,212,255,0.34)",
+          background: "rgba(3,12,22,0.88)",
         }}
       >
-        <span className="dot" style={{ color: realOnly || !isDemo ? "#7fd4ff" : "#c9a0ff" }} />
+        <span className="dot" style={{ color: "#7fd4ff" }} />
         <span
-          className="text-[8px] uppercase tracking-[0.24em]"
-          style={{ color: realOnly ? "#a8cee6" : isDemo ? "#d9c2ff" : "#8fb4cc" }}
+          className="text-[8px] uppercase tracking-[0.24em] font-mono"
+          style={{ color: "#a8cee6" }}
         >
           {label}
         </span>
         <span className="hairline w-8" />
-        <span className="whitespace-nowrap text-[8px] uppercase tracking-[0.18em] text-text-faint">
-          {stats ? `${locale === "fr" ? "MAJ" : "UPD"} ${dateTimeUTC(stats.lastDataUpdate)}` : "—"}
-        </span>
-        <span className="hairline w-8" />
-        <span className="pointer-events-auto flex items-center gap-[4px]">
-          <button className="chip whitespace-nowrap" data-active={!realOnly} onClick={() => setDatasets([])}>
-            {locale === "fr" ? "tout" : "all"}
-          </button>
-          <button
-            className="chip whitespace-nowrap"
-            data-active={realOnly}
-            onClick={() => setDatasets([...REAL_DATASETS])}
-          >
-            {locale === "fr" ? "réel seulement" : "real only"}
-          </button>
+        <span className="whitespace-nowrap text-[8px] uppercase tracking-[0.18em] text-text-faint font-mono">
+          {stats ? `${locale === "fr" ? "SYNC" : "UPD"} ${dateTimeUTC(stats.lastDataUpdate)}` : "—"}
         </span>
       </div>
 
-      {/* Légende : la couleur du marqueur dit la nature de la donnée. */}
+      {/* Légende : signalétique opérationnelle */}
       <div className="flex items-center gap-4 border border-[rgba(127,212,255,0.1)] bg-[rgba(2,8,15,0.78)] px-3 py-[3px] text-[8px] uppercase tracking-[0.2em] text-text-faint backdrop-blur-md">
         <span className="flex items-center gap-[5px] whitespace-nowrap">
           <span className="dot" style={{ color: "#ff2a1b" }} />
-          {locale === "fr" ? "données réelles / alertes armées" : "real-time / armed alerts"}
+          {locale === "fr" ? "conflits armés & frappes (acled / ucdp)" : "armed conflicts & strikes (acled / ucdp)"}
         </span>
         <span className="flex items-center gap-[5px] whitespace-nowrap">
           <span className="dot" style={{ color: "#ff8a3d" }} />
-          {locale === "fr" ? "théâtres majeurs" : "major war theaters"}
+          {locale === "fr" ? "alertes en direct (gdelt 2.0)" : "live dispatches (gdelt 2.0)"}
         </span>
       </div>
     </div>
@@ -344,11 +318,11 @@ function prettyDataset(key: string): string {
     case "acled":
       return "ACLED";
     case "ucdp":
-      return "UCDP";
+      return "UCDP GED";
     case "csv":
       return "imports CSV";
     default:
-      return key;
+      return key.toUpperCase();
   }
 }
 

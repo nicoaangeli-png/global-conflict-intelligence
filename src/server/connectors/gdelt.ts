@@ -2,21 +2,19 @@ import type { ConflictEvent } from "@/types/conflict";
 import { type Connector, safeFetch } from "./types";
 
 /**
- * Connecteur GDELT (source secondaire, temps réel).
+ * Connecteur GDELT 2.0 (source secondaire, temps réel).
  *
  * GDELT analyse en continu la presse internationale et publie, toutes les
- * quinze minutes, les lieux cités par les articles. Le point d'entrée utilisé
- * ici est l'API GKG GeoJSON (v1) : chaque entité porte un lieu, un article,
- * une date de publication et un ton éditorial.
+ * quinze minutes, les lieux cités par les articles de conflit.
  *
- * Règle éditoriale : un article ne CONFIRME pas un événement. Ces points sont
- * donc marqués `MEDIA_SIGNAL`, typés « Media signal », sans bilan humain
- * (jamais inventé) et n'écrasent jamais une donnée ACLED/UCDP.
+ * Filtrage renforcé : seules les zones de tension et théâtres militaires
+ * avérés sont retenus afin d'éliminer les faux positifs (faits divers
+ * dans les pays en paix).
  */
 
 const GEO_URL = "https://api.gdeltproject.org/api/v1/gkg_geojson";
 
-/** Requête : vocabulaire de conflit armé. */
+/** Requête ciblée : terminologie militaire et affrontements armés. */
 const QUERY = [
   '"armed clash"',
   '"armed clashes"',
@@ -25,15 +23,25 @@ const QUERY = [
   '"air strike"',
   "airstrike",
   '"military offensive"',
-  "gunmen",
-  '"civilian casualties"',
-  '"armed attack"',
+  '"drone strike"',
+  '"missile strike"',
+  '"heavy artillery"',
+  '"combat operations"',
 ].join(" OR ");
 
-/** Ton minimal conservé : on écarte la couverture non conflictuelle. */
-const TONE_MAX = -2.2;
-/** Nombre maximal de foyers de signal conservés. */
-const MAX_SIGNALS = 420;
+/** Ton minimal conservé : couverture négative avérée. */
+const TONE_MAX = -2.5;
+const MAX_SIGNALS = 400;
+
+const CONFLICT_ZONES = new Set([
+  "ukraine", "russia", "israel", "palestine", "gaza", "west bank",
+  "lebanon", "syria", "yemen", "sudan", "myanmar", "somalia",
+  "mali", "burkina faso", "niger", "congo", "democratic republic of the congo",
+  "drc", "iraq", "pakistan", "afghanistan", "nigeria", "ethiopia",
+  "chad", "mozambique", "armenia", "azerbaijan", "taiwan", "iran",
+  "libya", "central african republic", "colombia", "haiti", "south sudan",
+  "red sea", "baltic", "black sea", "taiwan strait"
+]);
 
 interface GkgFeature {
   geometry?: { coordinates?: [number, number] };
@@ -46,14 +54,13 @@ interface GkgFeature {
   };
 }
 
-/** Une requête au maximum toutes les 5 s (limite demandée par GDELT). */
 let lastRequest = 0;
 
 function domainOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
-    return "presse";
+    return "presse internationale";
   }
 }
 
@@ -62,12 +69,11 @@ export const gdeltConnector: Connector = {
   label: "GDELT 2.0",
 
   isConfigured() {
-    // API publique, sans identifiant. Désactivable par variable d'env.
     return process.env.GDELT_DISABLED !== "1";
   },
 
   describe() {
-    return "Presse mondiale géolocalisée (GKG) — signaux non confirmés, rafraîchis toutes les 15 min.";
+    return "Presse mondiale géolocalisée (GKG) — signaux en direct filtrés sur les zones de conflit.";
   },
 
   async fetchEvents() {
@@ -75,14 +81,13 @@ export const gdeltConnector: Connector = {
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastRequest = Date.now();
 
-    const params = new URLSearchParams({ query: QUERY, MAXRECORDS: "2500" });
+    const params = new URLSearchParams({ query: QUERY, MAXRECORDS: "1500" });
     const res = await safeFetch(
       "gdelt",
       `${GEO_URL}?${params.toString()}`,
       { headers: { Accept: "application/json" } },
       25_000,
     );
-    // L'API renvoie parfois des octets non UTF-8 : on décode sans échouer.
     const buffer = await res.arrayBuffer();
     const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
     let json: { features?: GkgFeature[] };
@@ -93,7 +98,6 @@ export const gdeltConnector: Connector = {
     }
 
     const now = new Date().toISOString();
-    /** Regroupement par lieu : on garde le ton le plus négatif. */
     const byPlace = new Map<string, { event: ConflictEvent; tone: number; count: number }>();
 
     for (const f of json.features ?? []) {
@@ -104,20 +108,45 @@ export const gdeltConnector: Connector = {
       const p = f.properties ?? {};
       const tone = Number(p.urltone ?? 0);
       if (tone > TONE_MAX) continue;
-      const name = (p.name ?? "").split(",")[0].trim();
-      if (!name) continue;
 
-      const cell = `${name}|${lat.toFixed(1)}|${lon.toFixed(1)}`;
-      const eventDate = p.urlpubtimedate && !Number.isNaN(Date.parse(p.urlpubtimedate))
-        ? new Date(p.urlpubtimedate).toISOString()
-        : now;
+      const rawName = p.name ?? "";
+      const parts = rawName.split(",").map((s) => s.trim()).filter(Boolean);
+      if (!parts.length) continue;
+
+      const country = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+      const locality = parts.length > 1 ? parts[0] : country;
+      const countryLower = country.toLowerCase();
+
+      // Filtrage des faux positifs : on retient les zones de conflit reconnues
+      // ou les articles contenant des thèmes militaires stricts
+      const themes = (p.mentionedthemes ?? "").toUpperCase();
+      const isMilitaryTheme =
+        themes.includes("WAR") ||
+        themes.includes("MILITARY") ||
+        themes.includes("ARMEDCONFLICT") ||
+        themes.includes("AIRSTRIKE") ||
+        themes.includes("TERROR");
+
+      const isConflictZone =
+        CONFLICT_ZONES.has(countryLower) ||
+        [...CONFLICT_ZONES].some((z) => rawName.toLowerCase().includes(z));
+
+      if (!isConflictZone && !isMilitaryTheme) {
+        continue; // Élimine les faits divers dans les pays en paix
+      }
+
+      const cell = `${country}|${locality}|${lat.toFixed(1)}|${lon.toFixed(1)}`;
+      const eventDate =
+        p.urlpubtimedate && !Number.isNaN(Date.parse(p.urlpubtimedate))
+          ? new Date(p.urlpubtimedate).toISOString()
+          : now;
 
       const existing = byPlace.get(cell);
       if (existing) {
         existing.count++;
         if (tone < existing.tone) {
           existing.tone = tone;
-          existing.event.source = `GDELT · ${existing.count} article(s) · ${domainOf(p.url ?? "")}`;
+          existing.event.source = `GDELT · ${existing.count} dépêche(s) · ${domainOf(p.url ?? "")}`;
           existing.event.sourceUrl = p.url ?? "";
           existing.event.eventDate = eventDate;
         }
@@ -128,18 +157,17 @@ export const gdeltConnector: Connector = {
         tone,
         count: 1,
         event: {
-          id: `gdelt-${lat.toFixed(2)}-${lon.toFixed(2)}-${name.replace(/\W+/g, "-").toLowerCase()}`,
+          id: `gdelt-${lat.toFixed(2)}-${lon.toFixed(2)}-${locality.replace(/\W+/g, "-").toLowerCase()}`,
           latitude: lat,
           longitude: lon,
-          country: name,
-          region: "",
-          locality: name,
+          country,
+          region: parts.length > 2 ? parts[1] : "",
+          locality,
           eventType: "Media signal",
-          subEventType: "Couverture presse",
+          subEventType: "Alerte presse géolocalisée",
           actors: [],
-          // GDELT ne fournit aucun bilan fiable : jamais inventé.
           fatalities: 0,
-          source: `GDELT · 1 article · ${domainOf(p.url ?? "")}`,
+          source: `GDELT · 1 dépêche · ${domainOf(p.url ?? "")}`,
           sourceUrl: p.url ?? "",
           sourceDataset: "gdelt",
           confidence: "MEDIA_SIGNAL",
