@@ -10,6 +10,7 @@ import type {
   StatsResponse,
   TimeRangeKey,
 } from "@/types/conflict";
+import type { Locale } from "@/lib/i18n";
 
 /**
  * État global de l'application.
@@ -34,7 +35,19 @@ export interface LayerToggles {
   particles: boolean;
 }
 
+export type ReconTarget = {
+  locality: string;
+  country: string;
+  lat: number;
+  lon: number;
+} | null;
+
 interface IntelStore {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  reconTarget: ReconTarget;
+  setReconTarget: (target: ReconTarget) => void;
+
   filters: EventFilters;
   /** Rayon d'agrégation courant (dérivé du zoom caméra). */
   degrees: number;
@@ -128,6 +141,11 @@ function resolveSelection(prev: ConflictCluster, clusters: ConflictCluster[]): C
 }
 
 export const useIntelStore = create<IntelStore>((set, get) => ({
+  locale: "fr",
+  setLocale: (locale) => set({ locale }),
+  reconTarget: null,
+  setReconTarget: (reconTarget) => set({ reconTarget }),
+
   filters: DEFAULT_FILTERS,
   degrees: 2.4,
   clusters: [],

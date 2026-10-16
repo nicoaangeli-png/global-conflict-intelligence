@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { compact, dateTimeUTC, int, relative } from "@/lib/format";
 import { useIntelStore } from "@/store/useIntelStore";
+import { getCountryGeopolitics } from "@/data/geopolitics";
+import { t } from "@/lib/i18n";
 import type { ConflictEvent } from "@/types/conflict";
 import type { ViewKey } from "./Header";
 
 /**
- * Panneaux de vue (nav) : LIVE EVENTS, REGIONS, SOURCES.
- * Chaque vue consomme une API différente — aucune donnée de démonstration
- * n'est fabriquée côté client.
+ * Panneaux de vue (nav) : LIVE EVENTS, REGIONS, SOURCES, CONFLICTS.
+ * Intégration du profil géopolitique et du bilinguisme FR/EN.
  */
 
 function useDebouncedRefresh(key: string, ms = 400) {
@@ -61,6 +62,7 @@ function Shell({
 
 function LiveEventsView({ onClose }: { onClose: () => void }) {
   const filters = useIntelStore((s) => s.filters);
+  const locale = useIntelStore((s) => s.locale);
   const [events, setEvents] = useState<ConflictEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -78,48 +80,40 @@ function LiveEventsView({ onClose }: { onClose: () => void }) {
     fetch(`/api/latest?${params}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d: { events: ConflictEvent[] }) => {
-        if (alive) {
-          setEvents(d.events ?? []);
-          setLoading(false);
-        }
+        if (!alive) return;
+        setEvents(d.events ?? []);
+        setLoading(false);
       })
-      .catch(() => alive && setLoading(false));
+      .catch(() => {
+        if (alive) setLoading(false);
+      });
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, tick]);
+  }, [filters, tick]);
 
   return (
-    <Shell title="Live Events" hint={loading ? "chargement…" : `${events.length} derniers événements`} onClose={onClose}>
+    <Shell
+      title={locale === "fr" ? "Événements en direct" : "Live Events Stream"}
+      hint={`${events.length} ${locale === "fr" ? "incidents récents indexés" : "recent incidents indexed"}`}
+      onClose={onClose}
+    >
       {events.map((e) => (
-        <div key={e.id} className="border-b border-[rgba(127,212,255,0.07)] py-[6px]">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="truncate text-[11px] font-light text-text">
-              {e.locality || e.region || e.country || "—"}
-            </span>
-            <span className="readout shrink-0 text-[9px] text-text-dim">{dateTimeUTC(e.eventDate)}</span>
+        <div key={e.id} className="border-b border-[rgba(127,212,255,0.08)] py-2 text-[10px]">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-light text-text">{e.country} · {e.locality || e.region || "—"}</span>
+            <span className="readout text-[9px] text-alert">{e.fatalities > 0 ? `${e.fatalities} †` : "0 †"}</span>
           </div>
-          <div className="mt-[2px] flex items-baseline justify-between gap-3">
-            <span className="truncate text-[9px] uppercase tracking-[0.14em] text-text-faint">
-              {e.country} · {e.subEventType || e.eventType}
-            </span>
-            <span className="readout shrink-0 text-[9px]" style={{ color: e.fatalities ? "#ff9a80" : undefined }}>
-              {e.fatalities} †
-            </span>
-          </div>
-          <div className="mt-[2px] flex items-center justify-between gap-2">
-            <span className="truncate text-[8px] uppercase tracking-[0.14em] text-text-faint">
-              {e.source || e.sourceDataset}
-            </span>
-            <span className="readout shrink-0 text-[8px]">
-              {e.confidence} · {relative(e.updatedAt)}
-            </span>
+          <div className="mt-0.5 flex items-baseline justify-between text-[9px] text-text-faint">
+            <span>{e.eventType}</span>
+            <span className="readout">{relative(e.eventDate)}</span>
           </div>
         </div>
       ))}
       {!events.length && !loading ? (
-        <div className="py-4 text-[10px] text-text-faint">aucun événement pour ces filtres</div>
+        <div className="py-4 text-[10px] text-text-faint">
+          {locale === "fr" ? "aucun événement pour ces filtres" : "no events matching filters"}
+        </div>
       ) : null}
     </Shell>
   );
@@ -128,6 +122,7 @@ function LiveEventsView({ onClose }: { onClose: () => void }) {
 function RegionsView({ onClose }: { onClose: () => void }) {
   const clusters = useIntelStore((s) => s.clusters);
   const select = useIntelStore((s) => s.select);
+  const locale = useIntelStore((s) => s.locale);
 
   const regions = useMemo(() => {
     const map = new Map<string, { country: string; events: number; fatalities: number; zones: number; intensity: number; best: (typeof clusters)[number] }>();
@@ -157,35 +152,52 @@ function RegionsView({ onClose }: { onClose: () => void }) {
   const max = Math.max(1, ...regions.map((r) => r.fatalities));
 
   return (
-    <Shell title="Regions" hint={`${regions.length} pays dans la fenêtre analysée`} onClose={onClose}>
-      {regions.map((r) => (
-        <button
-          key={r.country}
-          type="button"
-          className="row-button flex items-center justify-between gap-3"
-          onClick={() => void select(r.best)}
-        >
-          <span className="min-w-0 flex-1">
-            <span className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-[11px] font-light text-text">{r.country}</span>
-              <span className="readout shrink-0 text-[9px]">{int(r.fatalities)} †</span>
+    <Shell
+      title={locale === "fr" ? "Géopolitique Régionale" : "Regional Geopolitics"}
+      hint={`${regions.length} ${locale === "fr" ? "pays dans la fenêtre analysée" : "countries in observed window"}`}
+      onClose={onClose}
+    >
+      {regions.map((r) => {
+        const geo = getCountryGeopolitics(r.country);
+        return (
+          <button
+            key={r.country}
+            type="button"
+            className="row-button flex items-center justify-between gap-3 text-left"
+            onClick={() => void select(r.best)}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline justify-between gap-2">
+                <span className="truncate text-[11px] font-light text-text">{r.country}</span>
+                <span className="readout shrink-0 text-[9px]">{int(r.fatalities)} †</span>
+              </span>
+
+              {/* Régime du pays */}
+              <span className="mt-0.5 block truncate text-[8px] font-mono text-cyan">
+                {locale === "fr" ? geo.regime.labelFr : geo.regime.labelEn}
+              </span>
+
+              <span className="mt-[3px] block h-[2px] w-full bg-[rgba(127,212,255,0.08)]">
+                <span
+                  className="block h-full"
+                  style={{
+                    width: `${Math.round((r.fatalities / max) * 100)}%`,
+                    background: "linear-gradient(90deg, #ff8a3d, #ff3b30)",
+                  }}
+                />
+              </span>
+              <span className="mt-[3px] block text-[9px] uppercase tracking-[0.14em] text-text-faint">
+                {r.zones} {locale === "fr" ? "foyers" : "hotspots"} · {r.events} {locale === "fr" ? "événements" : "events"}
+              </span>
             </span>
-            <span className="mt-[3px] block h-[2px] w-full bg-[rgba(127,212,255,0.08)]">
-              <span
-                className="block h-full"
-                style={{
-                  width: `${Math.round((r.fatalities / max) * 100)}%`,
-                  background: "linear-gradient(90deg, #ff8a3d, #ff3b30)",
-                }}
-              />
-            </span>
-            <span className="mt-[3px] block text-[9px] uppercase tracking-[0.14em] text-text-faint">
-              {r.zones} foyers · {r.events} événements
-            </span>
-          </span>
-        </button>
-      ))}
-      {!regions.length ? <div className="py-4 text-[10px] text-text-faint">aucune région active</div> : null}
+          </button>
+        );
+      })}
+      {!regions.length ? (
+        <div className="py-4 text-[10px] text-text-faint">
+          {locale === "fr" ? "aucune région active" : "no active regions"}
+        </div>
+      ) : null}
     </Shell>
   );
 }
@@ -193,15 +205,20 @@ function RegionsView({ onClose }: { onClose: () => void }) {
 function ConflictsView({ onClose }: { onClose: () => void }) {
   const clusters = useIntelStore((s) => s.clusters);
   const select = useIntelStore((s) => s.select);
+  const locale = useIntelStore((s) => s.locale);
 
   return (
-    <Shell title="Conflicts" hint={`${clusters.length} foyers · tri par intensité`} onClose={onClose}>
+    <Shell
+      title={locale === "fr" ? "Théâtres de Guerre" : "Active War Theaters"}
+      hint={`${clusters.length} ${locale === "fr" ? "foyers classés par intensité" : "hotspots ranked by intensity"}`}
+      onClose={onClose}
+    >
       <div className="py-1">
         {clusters.slice(0, 40).map((c, i) => (
           <button
             key={c.id}
             type="button"
-            className="row-button flex items-center gap-2"
+            className="row-button flex items-center gap-2 text-left"
             onClick={() => void select(c)}
           >
             <span className="readout w-5 shrink-0 text-[9px] text-text-faint">{String(i + 1).padStart(2, "0")}</span>
@@ -210,10 +227,10 @@ function ConflictsView({ onClose }: { onClose: () => void }) {
                 <span className="truncate text-[11px] font-light text-text">
                   {c.locality || c.region || c.country}
                 </span>
-                <span className="readout shrink-0 text-[9px]">{(c.intensity * 100).toFixed(0)}%</span>
+                <span className="readout shrink-0 text-[9px] text-alert">{(c.intensity * 100).toFixed(0)}%</span>
               </span>
               <span className="mt-[2px] block truncate text-[9px] uppercase tracking-[0.14em] text-text-faint">
-                {c.country} · {c.topType} · {c.eventCount} év. · {compact(c.fatalities)} †
+                {c.country} · {c.topType} · {c.eventCount} {locale === "fr" ? "év." : "ev."} · {compact(c.fatalities)} †
               </span>
             </span>
           </button>
@@ -226,6 +243,7 @@ function ConflictsView({ onClose }: { onClose: () => void }) {
 function SourcesView({ onClose }: { onClose: () => void }) {
   const stats = useIntelStore((s) => s.stats);
   const refresh = useIntelStore((s) => s.refresh);
+  const locale = useIntelStore((s) => s.locale);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<string | null>(null);
 
@@ -244,7 +262,11 @@ function SourcesView({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Shell title="Sources" hint="connecteurs et état d'ingestion" onClose={onClose}>
+    <Shell
+      title={locale === "fr" ? "Sources de renseignement" : "Intelligence Sources"}
+      hint={locale === "fr" ? "connecteurs et état d'ingestion" : "connectors & ingestion status"}
+      onClose={onClose}
+    >
       <div className="space-y-[6px] py-1">
         {connectors.map((c) => (
           <div key={c.id} className="border border-[rgba(127,212,255,0.1)] bg-[rgba(4,14,26,0.5)] p-[8px]">
@@ -258,7 +280,9 @@ function SourcesView({ onClose }: { onClose: () => void }) {
                 />
                 <span className="text-[11px] font-light tracking-wide text-text">{c.label}</span>
               </span>
-              <span className="readout text-[9px]">{int(c.events)} événements</span>
+              <span className="readout text-[9px]">
+                {int(c.events)} {locale === "fr" ? "événements" : "events"}
+              </span>
             </div>
             <p className="mt-[5px] text-[9px] leading-relaxed text-text-faint">{c.note}</p>
           </div>
@@ -267,12 +291,13 @@ function SourcesView({ onClose }: { onClose: () => void }) {
 
       <div className="hairline my-2" />
       <button type="button" className="chip" data-active={busy} onClick={() => void runIngest()} disabled={busy}>
-        {busy ? "ingestion en cours…" : "lancer une ingestion"}
+        {busy ? (locale === "fr" ? "ingestion en cours…" : "ingesting…") : locale === "fr" ? "lancer une ingestion" : "trigger ingest"}
       </button>
       {report ? <p className="mt-2 text-[9px] leading-relaxed text-text-dim">{report}</p> : null}
       <p className="mt-3 text-[9px] leading-relaxed text-text-faint">
-        Les identifiants restent côté serveur (variables d&apos;environnement). L&apos;interface n&apos;expose jamais un
-        jeton, et GDELT n&apos;est jamais présenté comme une confirmation.
+        {locale === "fr"
+          ? "Les identifiants restent côté serveur (variables d'environnement). L'interface n'expose jamais un jeton, et GDELT n'est jamais présenté comme une confirmation."
+          : "Credentials remain strictly server-side. The interface never exposes tokens, and GDELT press signals are never marked as definitive confirmations."}
       </p>
     </Shell>
   );

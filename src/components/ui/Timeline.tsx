@@ -10,8 +10,7 @@ import { int } from "@/lib/format";
  *
  * La frise de fond couvre toujours les douze derniers mois (référence stable).
  * Le curseur choisit la FIN de la fenêtre analysée : les bandes de temps
- * sélectionnables (24 H → 1 AN) définissent sa largeur. Le bouton de lecture
- * rejoue la situation pas à pas — chaque pas réinterroge l'agrégat serveur.
+ * sélectionnables (24 H → 1 AN) définissent sa largeur.
  */
 
 export function Timeline() {
@@ -19,6 +18,7 @@ export function Timeline() {
   const setRange = useIntelStore((s) => s.setRange);
   const setAt = useIntelStore((s) => s.setAt);
   const stats = useIntelStore((s) => s.stats);
+  const locale = useIntelStore((s) => s.locale);
 
   const [year, setYear] = useState<DailyBucket[]>([]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -27,7 +27,7 @@ export function Timeline() {
   const scrubbing = useRef(false);
   const lastIngest = stats?.lastIngestAt;
 
-  // Frise de référence : 12 mois (indépendante des filtres de fenêtre)
+  // Frise de référence : 12 mois
   useEffect(() => {
     let alive = true;
     fetch("/api/stats?range=1y", { cache: "no-store" })
@@ -64,7 +64,8 @@ export function Timeline() {
       const el = trackRef.current;
       if (!el) return null;
       const rect = el.getBoundingClientRect();
-      return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const x = Math.min(rect.right, Math.max(rect.left, clientX));
+      return (x - rect.left) / rect.width;
     },
     [],
   );
@@ -72,17 +73,19 @@ export function Timeline() {
   const commit = useCallback(
     (ratio: number) => {
       if (!span) return;
+      if (ratio >= 0.99) {
+        setAt(null);
+        return;
+      }
       const t = span.start + ratio * span.total;
-      // curseur à moins d'une journée de « maintenant » → retour au temps réel
-      const isLive = Date.now() - t < 12 * 3600e3;
-      setAt(isLive ? null : new Date(t).toISOString());
+      setAt(new Date(t).toISOString());
     },
     [setAt, span],
   );
 
   const onPointerDown = (e: React.PointerEvent) => {
     scrubbing.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     const r = ratioFromEvent(e.clientX);
     if (r != null) commit(r);
   };
@@ -120,7 +123,7 @@ export function Timeline() {
       <div className="flex items-stretch gap-4 px-3 py-2">
         {/* Sélecteurs de fenêtre */}
         <div className="flex flex-col justify-between">
-          <span className="label">Fenêtre</span>
+          <span className="label">{locale === "fr" ? "Fenêtre temporelle" : "Time window"}</span>
           <div className="mt-1 flex items-center gap-[6px]">
             {TIME_RANGES.map((r) => (
               <button
@@ -142,14 +145,22 @@ export function Timeline() {
         <div className="relative min-w-0 flex-1">
           <div className="flex items-center justify-between">
             <span className="label">
-              {span ? `Frise 12 mois · ${year.length} intervalles` : "chargement de la frise…"}
+              {span
+                ? locale === "fr"
+                  ? `Frise 12 mois · ${year.length} intervalles`
+                  : `12-month track · ${year.length} intervals`
+                : locale === "fr"
+                ? "chargement de la frise…"
+                : "loading timeline…"}
             </span>
             <span className="readout text-[9px]">
               {hovered
-                ? `${hovered.day} · ${int(hovered.events)} événements · ${int(hovered.fatalities)} †`
+                ? `${hovered.day} · ${int(hovered.events)} ${locale === "fr" ? "événements" : "events"} · ${int(hovered.fatalities)} †`
                 : filters.at
                   ? `archive ${filters.at.slice(0, 10)}`
-                  : "temps réel"}
+                  : locale === "fr"
+                  ? "temps réel"
+                  : "real-time"}
             </span>
           </div>
 
@@ -216,16 +227,16 @@ export function Timeline() {
 
         {/* Commandes */}
         <div className="flex w-[132px] flex-col justify-between">
-          <span className="label">Reconstruction</span>
+          <span className="label">{locale === "fr" ? "Reconstruction" : "Playback"}</span>
           <div className="mt-1 flex items-center gap-[6px]">
             <button
               type="button"
               className="chip"
               data-active={playing}
               onClick={() => setPlaying((p) => !p)}
-              title="Rejouer la situation dans le temps"
+              title={locale === "fr" ? "Rejouer la situation dans le temps" : "Playback history"}
             >
-              {playing ? "pause" : "lecture"}
+              {playing ? (locale === "fr" ? "pause" : "pause") : locale === "fr" ? "lecture" : "play"}
             </button>
             <button
               type="button"
@@ -240,7 +251,11 @@ export function Timeline() {
             </button>
           </div>
           <span className="readout mt-1 text-[9px]">
-            {filters.at ? `fin ${filters.at.slice(0, 10)}` : "fin maintenant"}
+            {filters.at
+              ? `${locale === "fr" ? "fin" : "end"} ${filters.at.slice(0, 10)}`
+              : locale === "fr"
+              ? "fin maintenant"
+              : "live current"}
           </span>
         </div>
       </div>

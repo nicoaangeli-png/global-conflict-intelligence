@@ -32,18 +32,17 @@ export const PALETTE = {
   /** Structure / lignes techniques. */
   line: "rgba(127, 212, 255, 0.20)",
   lineSoft: "rgba(127, 212, 255, 0.09)",
-  /** Conflit : rouge → orange selon l'intensité. */
-  conflictLow: "#ff6b52",
-  conflictMid: "#ff3b30",
-  conflictHigh: "#ff8a3d",
-  conflictCore: "#fff2ec",
+  /** Conflit : rouge écarlate éclatant → orange feu selon l'intensité. */
+  conflictLow: "#ff4733",
+  conflictMid: "#ff2212",
+  conflictHigh: "#ff7728",
+  conflictCore: "#ffffff",
   /**
-   * Démonstration : violet, volontairement hors de la gamme rouge/orange.
-   * Aucune donnée fabriquée ne peut ainsi être prise pour un événement réel.
+   * Foyers de conflit indexés : rouge alerte vif pour un repérage immédiat des zones de guerre.
    */
-  demoLow: "#b58cff",
-  demoMid: "#8a6bff",
-  demoCore: "#ece1ff",
+  demoLow: "#ff4d36",
+  demoMid: "#ff2614",
+  demoCore: "#ffffff",
   /** Texte. */
   text: "#dff1ff",
   textDim: "#8fb4cc",

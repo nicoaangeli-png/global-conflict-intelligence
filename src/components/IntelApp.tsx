@@ -9,6 +9,7 @@ import { FiltersPanel } from "@/components/ui/FiltersPanel";
 import { Timeline } from "@/components/ui/Timeline";
 import { ViewPanel } from "@/components/ui/ViewPanel";
 import { SettingsPanel } from "@/components/ui/SettingsPanel";
+import { TacticalReconModal } from "@/components/ui/TacticalReconModal";
 import {
   BootOverlay,
   CountryCard,
@@ -73,6 +74,10 @@ export function IntelApp() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (useIntelStore.getState().reconTarget) {
+        useIntelStore.getState().setReconTarget(null);
+        return;
+      }
       if (view !== "OVERVIEW") {
         setView("OVERVIEW");
         return;
@@ -142,6 +147,8 @@ export function IntelApp() {
           <Timeline />
         </div>
       </div>
+
+      <TacticalReconModal />
 
       {error ? (
         <div className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2">

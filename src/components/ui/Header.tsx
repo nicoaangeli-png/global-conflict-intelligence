@@ -1,13 +1,20 @@
 "use client";
 
 import { useIntelStore } from "@/store/useIntelStore";
+import { t } from "@/lib/i18n";
 
-const VIEWS = ["OVERVIEW", "LIVE EVENTS", "CONFLICTS", "TIMELINE", "REGIONS", "SOURCES"] as const;
-export type ViewKey = (typeof VIEWS)[number] | "SETUP";
+export type ViewKey =
+  | "OVERVIEW"
+  | "LIVE EVENTS"
+  | "CONFLICTS"
+  | "TIMELINE"
+  | "REGIONS"
+  | "SOURCES"
+  | "SETUP";
 
 /**
- * En-tête : identité du système, navigation, état du flux.
- * Le voyant de flux reflète réellement la connexion SSE (pas une décoration).
+ * En-tête : identité du système, navigation, état du flux et sélecteur bilingue (FR/EN).
+ * Le voyant de flux reflète réellement la connexion SSE.
  */
 export function Header({
   view,
@@ -19,6 +26,19 @@ export function Header({
   const streamStatus = useIntelStore((s) => s.streamStatus);
   const stats = useIntelStore((s) => s.stats);
   const loading = useIntelStore((s) => s.loading);
+  const locale = useIntelStore((s) => s.locale);
+  const setLocale = useIntelStore((s) => s.setLocale);
+
+  const dict = t(locale);
+
+  const navItems: { key: ViewKey; label: string }[] = [
+    { key: "OVERVIEW", label: dict.nav.overview },
+    { key: "LIVE EVENTS", label: dict.nav.liveEvents },
+    { key: "CONFLICTS", label: dict.nav.conflicts },
+    { key: "TIMELINE", label: dict.nav.timeline },
+    { key: "REGIONS", label: dict.nav.regions },
+    { key: "SOURCES", label: dict.nav.sources },
+  ];
 
   return (
     <header className="pointer-events-none absolute inset-x-0 top-0 z-20 select-none">
@@ -26,47 +46,93 @@ export function Header({
         <div className="boot">
           <div className="flex items-baseline gap-3">
             <span className="text-[13px] font-extralight tracking-[0.5em] text-ice">ORBITAL</span>
-            <span className="label-strong translate-y-[-1px]">Conflict Intelligence</span>
+            <span className="label-strong translate-y-[-1px]">{dict.system.subtitle}</span>
           </div>
           <div className="mt-1 flex items-center gap-3">
-            <span className="label">Global Conflict Intelligence System</span>
+            <span className="label">{dict.system.tagline}</span>
             <span className="hairline w-24" />
-            <span className="readout">v0.1</span>
+            <span className="readout">{dict.system.version}</span>
           </div>
         </div>
 
-        <nav className="pointer-events-auto hidden items-center gap-6 md:flex">
-          {VIEWS.map((v) => (
+        <nav className="pointer-events-auto hidden items-center gap-5 md:flex">
+          {navItems.map((item) => (
             <button
-              key={v}
+              key={item.key}
               className="nav-item"
-              data-active={v === view}
-              onClick={() => onView(v)}
+              data-active={item.key === view}
+              onClick={() => onView(item.key)}
               type="button"
             >
-              {v}
+              {item.label}
             </button>
           ))}
-          <button className="nav-item" data-active={view === "SETUP"} onClick={() => onView("SETUP")} type="button">
-            config
+          <button
+            className="nav-item"
+            data-active={view === "SETUP"}
+            onClick={() => onView("SETUP")}
+            type="button"
+          >
+            {dict.nav.setup}
           </button>
+
+          {/* Commutateur de langue FR / EN */}
+          <div className="ml-2 flex items-center border border-cyan/30 bg-[#020b18]/80 p-[2px]">
+            <button
+              type="button"
+              className={`px-2 py-0.5 text-[9px] font-mono tracking-wider transition-colors ${
+                locale === "fr"
+                  ? "bg-cyan/25 text-ice font-bold"
+                  : "text-text-faint hover:text-text"
+              }`}
+              onClick={() => setLocale("fr")}
+            >
+              FR
+            </button>
+            <span className="text-[8px] text-cyan/30">|</span>
+            <button
+              type="button"
+              className={`px-2 py-0.5 text-[9px] font-mono tracking-wider transition-colors ${
+                locale === "en"
+                  ? "bg-cyan/25 text-ice font-bold"
+                  : "text-text-faint hover:text-text"
+              }`}
+              onClick={() => setLocale("en")}
+            >
+              EN
+            </button>
+          </div>
         </nav>
 
         <div className="flex flex-col items-end gap-1.5">
           <div className="flex items-center gap-2">
             <span
-              className={`dot blink ${streamStatus === "open" ? "text-cyan" : streamStatus === "connecting" ? "text-alert-soft" : "text-alert"}`}
+              className={`dot blink ${
+                streamStatus === "open"
+                  ? "text-cyan"
+                  : streamStatus === "connecting"
+                  ? "text-alert-soft"
+                  : "text-alert"
+              }`}
             />
             <span className="label">
-              {streamStatus === "open" ? "flux actif" : streamStatus === "connecting" ? "connexion" : "flux interrompu"}
+              {streamStatus === "open"
+                ? dict.system.streamActive
+                : streamStatus === "connecting"
+                ? dict.system.streamConnecting
+                : dict.system.streamClosed}
             </span>
           </div>
           <div className="flex items-center gap-2">
             <span className={`dot ${loading ? "text-alert-soft blink" : "text-cyan-dim"}`} />
-            <span className="label">{loading ? "agrégation" : "synchronisé"}</span>
+            <span className="label">
+              {loading ? dict.system.aggregating : dict.system.synced}
+            </span>
           </div>
           <div className="readout text-right">
-            {stats ? `${stats.totalInStore.toLocaleString("fr-FR")} événements indexés` : "—"}
+            {stats
+              ? `${stats.totalInStore.toLocaleString(locale === "fr" ? "fr-FR" : "en-US")} ${dict.system.indexedEvents}`
+              : "—"}
           </div>
         </div>
       </div>
