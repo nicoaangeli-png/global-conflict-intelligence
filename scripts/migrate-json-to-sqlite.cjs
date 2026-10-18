@@ -3,7 +3,7 @@ const { chmod, mkdir, readFile } = require("node:fs/promises");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 
-const SCHEMA_SQL = `
+const TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS conflict_events (
   id              TEXT PRIMARY KEY,
   source_dataset  TEXT NOT NULL,
@@ -13,16 +13,20 @@ CREATE TABLE IF NOT EXISTS conflict_events (
   confidence      TEXT NOT NULL,
   fatalities      INTEGER NOT NULL DEFAULT 0,
   event_date      TEXT NOT NULL,
+  event_ts        INTEGER,
   lat             REAL NOT NULL,
   lon             REAL NOT NULL,
   updated_at      TEXT NOT NULL,
   payload         TEXT NOT NULL CHECK (json_valid(payload))
 ) STRICT;
-CREATE INDEX IF NOT EXISTS conflict_events_date_idx ON conflict_events (event_date);
-CREATE INDEX IF NOT EXISTS conflict_events_dataset_date_idx ON conflict_events (source_dataset, event_date);
-CREATE INDEX IF NOT EXISTS conflict_events_type_date_idx ON conflict_events (event_type, event_date);
-CREATE INDEX IF NOT EXISTS conflict_events_country_date_idx ON conflict_events (country, event_date);
-CREATE INDEX IF NOT EXISTS conflict_events_country_iso3_date_idx ON conflict_events (country_iso3, event_date);
+`;
+
+const INDEX_SQL = `
+CREATE INDEX IF NOT EXISTS conflict_events_event_ts_idx ON conflict_events (event_ts);
+CREATE INDEX IF NOT EXISTS conflict_events_dataset_event_ts_idx ON conflict_events (source_dataset, event_ts);
+CREATE INDEX IF NOT EXISTS conflict_events_type_event_ts_idx ON conflict_events (event_type, event_ts);
+CREATE INDEX IF NOT EXISTS conflict_events_country_event_ts_idx ON conflict_events (country, event_ts);
+CREATE INDEX IF NOT EXISTS conflict_events_country_iso3_event_ts_idx ON conflict_events (country_iso3, event_ts);
 CREATE INDEX IF NOT EXISTS conflict_events_geo_idx ON conflict_events (lat, lon);
 CREATE INDEX IF NOT EXISTS conflict_events_updated_idx ON conflict_events (updated_at);
 `;
@@ -52,6 +56,23 @@ function countRows(database) {
   return Number(database.prepare("SELECT COUNT(*) AS count FROM conflict_events").get().count);
 }
 
+function timestampOf(value) {
+  const timestamp = typeof value === "string" ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function ensureTimestampSchema(database) {
+  const columns = database.prepare("PRAGMA table_info('conflict_events')").all();
+  if (!columns.some((column) => column.name === "event_ts")) {
+    database.exec("ALTER TABLE conflict_events ADD COLUMN event_ts INTEGER;");
+  }
+  const pending = database.prepare("SELECT id, payload FROM conflict_events WHERE event_ts IS NULL").all();
+  const update = database.prepare("UPDATE conflict_events SET event_ts = ? WHERE id = ?");
+  for (const row of pending) {
+    update.run(timestampOf(JSON.parse(row.payload).eventDate), row.id);
+  }
+}
+
 async function migrateJsonToSqlite(sourceFilename, targetFilename) {
   const source = path.resolve(sourceFilename);
   const target = path.resolve(targetFilename);
@@ -69,33 +90,36 @@ async function migrateJsonToSqlite(sourceFilename, targetFilename) {
     database.exec("PRAGMA journal_mode = WAL;");
     database.exec("PRAGMA busy_timeout = 5000;");
     database.exec("PRAGMA synchronous = NORMAL;");
-    database.exec(SCHEMA_SQL);
-    database.exec("CREATE TEMP TABLE migration_expected (id TEXT PRIMARY KEY, payload TEXT NOT NULL) WITHOUT ROWID;");
-    const before = countRows(database);
-    const exists = database.prepare("SELECT 1 AS present FROM conflict_events WHERE id = ?");
-    const expected = database.prepare("INSERT OR REPLACE INTO migration_expected (id, payload) VALUES (?, ?)");
-    const upsert = database.prepare(`
-      INSERT INTO conflict_events (
-        id, source_dataset, event_type, country, country_iso3, confidence,
-        fatalities, event_date, lat, lon, updated_at, payload
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        source_dataset = excluded.source_dataset,
-        event_type = excluded.event_type,
-        country = excluded.country,
-        country_iso3 = excluded.country_iso3,
-        confidence = excluded.confidence,
-        fatalities = excluded.fatalities,
-        event_date = excluded.event_date,
-        lat = excluded.lat,
-        lon = excluded.lon,
-        updated_at = excluded.updated_at,
-        payload = excluded.payload
-    `);
     let inserted = 0;
     let updated = 0;
     database.exec("BEGIN IMMEDIATE;");
     try {
+      database.exec(TABLE_SQL);
+      ensureTimestampSchema(database);
+      database.exec(INDEX_SQL);
+      database.exec("CREATE TEMP TABLE migration_expected (id TEXT PRIMARY KEY, payload TEXT NOT NULL) WITHOUT ROWID;");
+      const before = countRows(database);
+      const exists = database.prepare("SELECT 1 AS present FROM conflict_events WHERE id = ?");
+      const expected = database.prepare("INSERT OR REPLACE INTO migration_expected (id, payload) VALUES (?, ?)");
+      const upsert = database.prepare(`
+        INSERT INTO conflict_events (
+          id, source_dataset, event_type, country, country_iso3, confidence,
+          fatalities, event_date, event_ts, lat, lon, updated_at, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          source_dataset = excluded.source_dataset,
+          event_type = excluded.event_type,
+          country = excluded.country,
+          country_iso3 = excluded.country_iso3,
+          confidence = excluded.confidence,
+          fatalities = excluded.fatalities,
+          event_date = excluded.event_date,
+          event_ts = excluded.event_ts,
+          lat = excluded.lat,
+          lon = excluded.lon,
+          updated_at = excluded.updated_at,
+          payload = excluded.payload
+      `);
       for (const event of events) {
         const payload = JSON.stringify(event);
         if (exists.get(event.id)) updated++;
@@ -110,56 +134,56 @@ async function migrateJsonToSqlite(sourceFilename, targetFilename) {
           event.confidence,
           event.fatalities,
           event.eventDate,
+          timestampOf(event.eventDate),
           event.latitude,
           event.longitude,
           event.updatedAt,
           payload,
         );
       }
+      const after = countRows(database);
+      const distinctSourceRecords = Number(database.prepare("SELECT COUNT(*) AS count FROM migration_expected").get().count);
+      const missing = Number(database.prepare(`
+        SELECT COUNT(*) AS count
+        FROM migration_expected expected
+        LEFT JOIN conflict_events stored ON stored.id = expected.id
+        WHERE stored.id IS NULL
+      `).get().count);
+      const payloadMismatches = Number(database.prepare(`
+        SELECT COUNT(*) AS count
+        FROM migration_expected expected
+        JOIN conflict_events stored ON stored.id = expected.id
+        WHERE stored.payload <> expected.payload
+      `).get().count);
+      const integrity = database.prepare("PRAGMA integrity_check").get().integrity_check;
+      const sourceAfterSha256 = sha256(await readFile(source));
+      const verified = missing === 0
+        && payloadMismatches === 0
+        && integrity === "ok"
+        && sourceSha256 === sourceAfterSha256;
+      if (!verified) throw new Error("Migration integrity verification failed");
       database.exec("COMMIT;");
+      report = {
+        source,
+        target,
+        sourceRecords: events.length,
+        distinctSourceRecords,
+        before,
+        after,
+        inserted,
+        updated,
+        missing,
+        payloadMismatches,
+        sqliteIntegrity: integrity,
+        sourceUnchanged: true,
+        sourceSha256,
+        verified,
+      };
     } catch (error) {
       database.exec("ROLLBACK;");
       throw error;
     }
-
-    const after = countRows(database);
-    const distinctSourceRecords = Number(database.prepare("SELECT COUNT(*) AS count FROM migration_expected").get().count);
-    const missing = Number(database.prepare(`
-      SELECT COUNT(*) AS count
-      FROM migration_expected expected
-      LEFT JOIN conflict_events stored ON stored.id = expected.id
-      WHERE stored.id IS NULL
-    `).get().count);
-    const payloadMismatches = Number(database.prepare(`
-      SELECT COUNT(*) AS count
-      FROM migration_expected expected
-      JOIN conflict_events stored ON stored.id = expected.id
-      WHERE stored.payload <> expected.payload
-    `).get().count);
-    const integrity = database.prepare("PRAGMA integrity_check").get().integrity_check;
-    const sourceAfterSha256 = sha256(await readFile(source));
-    const verified = missing === 0
-      && payloadMismatches === 0
-      && integrity === "ok"
-      && sourceSha256 === sourceAfterSha256;
-    if (!verified) throw new Error("Migration integrity verification failed");
     database.exec("PRAGMA wal_checkpoint(TRUNCATE);");
-    report = {
-      source,
-      target,
-      sourceRecords: events.length,
-      distinctSourceRecords,
-      before,
-      after,
-      inserted,
-      updated,
-      missing,
-      payloadMismatches,
-      sqliteIntegrity: integrity,
-      sourceUnchanged: true,
-      sourceSha256,
-      verified,
-    };
   } finally {
     database.close();
   }

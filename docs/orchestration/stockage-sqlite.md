@@ -7,12 +7,15 @@ Périmètre : dépôt d'événements, sélection du stockage, migration et tests
 
 - `SqliteRepository` implémente l'interface `Repository` existante : initialisation, upsert, requête, lecture par identifiants, compteurs et vidage.
 - Chaque événement reste stocké intégralement dans `payload` au format JSON. Les champs additifs présents ou futurs (`title`, `geoPrecision`, provenance, etc.) sont donc restitués sans projection destructive.
-- Les colonnes SQL dédiées sont : `id` (clé primaire), `source_dataset`, `event_type`, `country`, `country_iso3`, `confidence`, `fatalities`, `event_date`, `lat`, `lon`, `updated_at`. Les index couvrent date, dataset/date, type/date, pays/date, ISO3/date, coordonnées et mise à jour.
-- Les filtres de l'interface existante (dates, pays ou ISO3, type, dataset, confiance, mortalité minimale) sont exécutés en SQL avant l'hydratation du JSON.
-- SQLite utilise WAL, `synchronous=NORMAL`, un `busy_timeout` de 5 secondes par défaut, des fichiers locaux en mode `0600` et une transaction `BEGIN IMMEDIATE` pour chaque lot d'upsert. Il n'y a plus de fichier `.lock` applicatif susceptible de devenir orphelin.
+- Les colonnes SQL dédiées sont : `id` (clé primaire), `source_dataset`, `event_type`, `country`, `country_iso3`, `confidence`, `fatalities`, `event_date`, `event_ts`, `lat`, `lon`, `updated_at`. `event_ts` contient `Date.parse(eventDate)` en millisecondes UTC ou `NULL` pour une date invalide. Les index temporels utilisent cet entier.
+- Les filtres de l'interface existante (dates inclusives, pays ou ISO3, type, dataset, confiance, mortalité minimale) sont exécutés en SQL avant l'hydratation du JSON. Leur sémantique temporelle est maintenant identique à `LocalRepository`, y compris pour les fuseaux et les formats ISO équivalents.
+- Une base existante sans `event_ts` est mise à niveau de façon idempotente par `ALTER TABLE`, puis rétroremplie depuis le payload JSON. Une date invalide reste stockée, n'entre dans aucune requête temporelle et n'est jamais supprimée par la rétention.
+- SQLite utilise WAL, `synchronous=NORMAL`, un `busy_timeout` de 5 secondes par défaut, des fichiers locaux en mode `0600` et une transaction `BEGIN IMMEDIATE` pour chaque lot d'upsert. Les gros upserts sont découpés en lots de 500, avec restitution de la main à la boucle Node.js entre les lots. Il n'y a plus de fichier `.lock` applicatif susceptible de devenir orphelin.
 - La rétention automatique s'exécute à l'ouverture et après chaque upsert : uniquement `source_dataset = 'gdelt'` au-delà de 30 jours et uniquement `source_dataset = 'firms'` au-delà de 14 jours. UCDP, ACLED et `import:csv` ne sont jamais visés, même si leur `eventType` ressemble à une mention presse ou à une détection thermique.
 - `createRepository()` conserve PostgreSQL lorsque `DATABASE_URL` est défini, choisit le JSON uniquement avec `ORBITAL_STORAGE=json`, et choisit SQLite dans les autres cas. `pickRepository()` utilise cette fabrique.
-- Le migrateur `scripts/migrate-json-to-sqlite.cjs` est idempotent, ne modifie pas le JSON source, contrôle son hash avant/après, compare tous les payloads attendus et exécute `PRAGMA integrity_check`.
+- Au premier démarrage, une base vide importe automatiquement le fichier `intel-events.json` voisin s'il existe et contient des événements. La validation et toutes les écritures sont transactionnelles ; une erreur annule l'import et remonte explicitement. Le JSON n'est pas modifié.
+- Le migrateur `scripts/migrate-json-to-sqlite.cjs` est idempotent, ne modifie pas le JSON source, contrôle son hash avant/après, compare tous les payloads attendus et exécute `PRAGMA integrity_check` avant `COMMIT`. Tout échec déclenche `ROLLBACK`.
+- Le contrat `Repository` expose désormais `close()` de façon optionnelle ; `SqliteRepository` ferme effectivement sa connexion.
 - `.gitignore` ignore `data/*.sqlite*` (base, WAL et SHM).
 
 ## Configuration
@@ -43,20 +46,22 @@ Pour obtenir un compte strictement stable en production, exécuter la migration 
 
 ### Tests et typage
 
-- `pnpm typecheck` : une exécution complète a réussi après les changements du lot. Les reruns finaux sur l'arbre partagé échouent ensuite dans des changements concurrents hors périmètre (`tests/aura-live-feeds.test.ts:43`, puis `src/server/briefing/collect.ts` et `write.ts`) ; aucun fichier du lot stockage n'est signalé. Un `tsc --noEmit` ciblé sur le dépôt SQLite, la fabrique et leurs tests réussit.
-- `pnpm test` : 15 fichiers réussis, 1 ignoré ; 138 tests réussis, 1 ignoré.
-- `pnpm vitest run tests/sqlite-repository.test.ts` : 6 tests réussis.
-- Le fichier dédié couvre : choix du backend, WAL/index, atomicité transactionnelle, insertion, mise à jour/dédoublonnage, conservation des champs JSON additifs, filtres SQL, rétention par dataset et migration idempotente sur fixture sans réseau.
+- `pnpm typecheck` : réussi.
+- `pnpm vitest run tests/sqlite-repository.test.ts` : 12 tests réussis.
+- `pnpm test` : 205 tests réussis, 2 ignorés, 1 échec concurrent hors périmètre dans `tests/aura-live-feeds.test.ts:101` ; les 12 tests SQLite exécutés sont réussis.
+- Le fichier dédié couvre notamment : mise à niveau de schéma, `Z` sans millisecondes, fuseau `-05:00`, borne exacte inclusive, date invalide, import initial et rollback, lots de 500, rétention, migration idempotente et rollback d'un échec d'intégrité simulé.
 
 ### Migration sur copie temporaire
 
-Le script n'a pas été exécuté sur `data/intel-events.json`. Le fichier a d'abord été copié vers `/tmp/orbital-sqlite-migration.71V8x9/intel-events-copy.json`, puis cette copie a été migrée.
+Le script n'a pas été exécuté sur `data/intel-events.json`. Le fichier a d'abord été copié vers `/tmp/orbital-sqlite-correctifs.ovbgea/intel-events.json`, puis cette copie a été migrée et importée au premier démarrage dans deux bases temporaires distinctes.
 
-- Source : 22 755 enregistrements, tous avec un identifiant distinct.
-- SQLite après première migration : 22 755 (`inserted=22755`, `updated=0`).
+- Source : 22 887 enregistrements, tous avec un identifiant distinct.
+- SQLite après première migration : 22 887 (`inserted=22887`, `updated=0`).
+- SQLite après import initial : 22 887.
 - Vérification : `missing=0`, `payloadMismatches=0`, `sqliteIntegrity=ok`, `sourceUnchanged=true`.
-- Seconde exécution : 22 755 avant et après (`inserted=0`, `updated=22755`).
-- SHA-256 du fichier du dépôt et de sa copie après migration : `e2afcba4328dfa47e57ebc4eb924c171824268e7e22958826cc746b4614eb075`.
+- SHA-256 de la copie avant/après migration : `c9b3026b6ae4df9307df753a2d71c44f2eb40978264a7eb4a1d453a26450434d`.
+
+Comparaison réelle entre `LocalRepository` et `SqliteRepository` sur la copie, avec borne haute au dernier événement (`2026-10-18T13:45:00.000Z`) : 5 668 événements sur 24 h, 9 228 sur 7 jours et 9 228 sur 30 jours dans les deux dépôts.
 
 ### Temps de requête avant/après
 
@@ -73,7 +78,7 @@ La médiane observée est environ 1,75 fois plus rapide. Le gain augmente pour l
 
 - Aucun benchmark de concurrence multi-processus ni de durée longue n'a été exécuté.
 - Le chemin PostgreSQL n'a pas été connecté à une base réelle ; son implémentation n'a pas été modifiée.
-- Le dernier état global du typecheck reste à reverdir dans les lots AURA/briefing concurrents indiqués plus haut.
+- La suite globale reste à reverdir dans le lot AURA concurrent (`tests/aura-live-feeds.test.ts:101`) ; le typecheck global est vert.
 - Aucune requête HTTP n'a été envoyée au serveur sur le port 3005 ; il n'a été ni arrêté ni redémarré.
 - `next build` n'a pas été lancé, conformément aux règles communes.
 
@@ -82,7 +87,7 @@ La médiane observée est environ 1,75 fois plus rapide. Le gain augmente pour l
 - SQLite duplique certaines valeurs indexées et le JSON canonique : la base temporaire mesurée occupe environ 24,4 Mo contre 12,5 Mo pour le JSON. C'est le coût assumé des index et de la suppression des réécritures intégrales.
 - Un processus Next déjà présent dans ce répertoire a ouvert la nouvelle cible ignorée `data/intel-events.sqlite` pendant le travail. Il n'a pas été interrompu. L'orchestrateur doit donc coordonner sa migration finale avec cette cible potentiellement active ; la preuve chiffrée ci-dessus reste celle de la copie isolée sous `/tmp`.
 - `country_iso3` est rempli lorsqu'un connecteur fournit `countryIso3`, `country_iso3` ou `iso3`. Les anciens enregistrements qui ne portent qu'un nom de pays gardent un ISO3 nul ; le filtre historique par nom reste indexé et fonctionnel.
-- Les appels restent synchrones au niveau du module natif `node:sqlite`, derrière l'interface asynchrone existante. À cette volumétrie, les mesures restent inférieures au chemin JSON, mais une charge concurrente élevée devra être mesurée avant de fixer les seuils de passage à PostgreSQL.
+- Les appels restent synchrones au niveau du module natif `node:sqlite`, derrière l'interface asynchrone existante. Le lot de 500 borne chaque section bloquante et rend la main entre les transactions ; une charge concurrente élevée devra encore être mesurée avant de fixer les seuils de passage à PostgreSQL.
 - La purge supprime les lignes brutes expirées ; aucun agrégat historique longue durée n'est créé dans ce lot.
 
 ## Fichiers du lot

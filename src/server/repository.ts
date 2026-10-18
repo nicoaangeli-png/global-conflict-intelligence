@@ -38,6 +38,7 @@ export interface Repository {
   byIds(ids: string[]): Promise<ConflictEvent[]>;
   counts(): Promise<{ total: number; byDataset: Record<string, number>; lastUpdated: string | null }>;
   clear(): Promise<void>;
+  close?(): void | Promise<void>;
 }
 
 /** Sélectionne le stockage sans changer la priorité historique de PostgreSQL. */
