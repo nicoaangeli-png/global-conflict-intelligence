@@ -189,16 +189,16 @@ export function BriefingModal({ onClose }: { onClose: () => void }) {
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       const voices = window.speechSynthesis.getVoices();
       const targetLang = locale === "fr" ? "fr" : "en";
-      const jarvisVoice = voices.find(
+      const fridayVoice = voices.find(
         (v) =>
-          (v.lang.toLowerCase().startsWith(targetLang) || v.lang.toLowerCase().startsWith("en-gb")) &&
-          /daniel|ryan|george|arthur|oliver|henri|thomas|r[eé]my|nicolas/i.test(v.name) &&
+          v.lang.toLowerCase().startsWith(targetLang) &&
+          /audrey|am[eé]lie|aur[eé]lie|denise|vivienne|eloise|brigitte|marie|c[eé]line|julie|samantha|female|femme/i.test(v.name) &&
           !/sandy|grandpa|zarvox/i.test(v.name)
       );
-      if (jarvisVoice) utterance.voice = jarvisVoice;
-      utterance.lang = jarvisVoice?.lang ?? (locale === "fr" ? "fr-FR" : "en-US");
-      utterance.rate = 0.96;
-      utterance.pitch = 0.94;
+      if (fridayVoice) utterance.voice = fridayVoice;
+      utterance.lang = fridayVoice?.lang ?? (locale === "fr" ? "fr-FR" : "en-US");
+      utterance.rate = 0.98;
+      utterance.pitch = 1.0;
 
       utterance.onend = () => {
         playFrom(chapterIdx, sentenceIdx + 1);

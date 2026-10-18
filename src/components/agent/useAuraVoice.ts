@@ -3,43 +3,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Voix d'AURA — Profil J.A.R.V.I.S. (Iron Man)
+ * Voix d'AURA : synthèse vocale du navigateur (Web Speech API).
  *
- * Sélectionne la voix qui se rapproche le plus de l'archétype J.A.R.V.I.S.
- * (majordome / IA britannique posée, voix masculine calme, articulée et grave).
- * Élimine les voix de synthèse gadget ou stridentes (Sandy, Zarvox, etc.).
+ * Choisit une voix féminine douce (voix Copilot / Edge : Denise, Vivienne, Eloise,
+ * ou macOS : Audrey, Amélie, Céline), lit le texte phrase par phrase et anime
+ * la bouche de l'hologramme.
  */
 
-const JARVIS_PREF = /daniel|ryan|george|arthur|oliver|henri|thomas|r[eé]my|nicolas|paul|brian|guy/i;
-const FEMALE_HINTS = /vivienne|denise|eloise|brigitte|audrey|aur[eé]lie|am[eé]lie|marie|c[eé]line|julie|hortense|virginie|chantal|sylvie|l[eé]a|samantha|female|femme|karen|moira|tessa|fiona|veena|victoria|kathy|princess/i;
-const MALE_HINTS = /male\b|homme|man\b|mr\b/i;
-const NOVELTY_HINTS = /sandy|grandpa|grandma|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|pipe organ|trinoids|whisper|zarvox|wobble|albert|fred|junior|ralph/i;
-const STORAGE_KEY = "orbital.aura.voice.v3";
+const FEMALE_HINTS =
+  /vivienne|denise|eloise|celeste|charline|brigitte|audrey|aur[eé]lie|am[eé]lie|marie|c[eé]line|julie|hortense|virginie|chantal|sylvie|l[eé]a|google fran[cç]ais|samantha|female|femme/i;
+const MALE_HINTS =
+  /thomas|jacques|daniel|nicolas|henri|paul|r[eé]my|claude|alain|antoine|jean|male\b|homme|grandpa|reed|rocko|eddy/i;
+const NOVELTY_HINTS = /sandy|grandpa|grandma|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|pipe organ|trinoids|whisper|zarvox/i;
+const STORAGE_KEY = "orbital.aura.voice.v5";
 
 function rank(voice: SpeechSynthesisVoice, lang: string) {
   let score = 0;
-  const vName = voice.name.toLowerCase();
+  const name = voice.name.toLowerCase();
   const vLang = voice.lang.toLowerCase();
 
-  // Pénalité éliminatoire pour les voix gadgets ou comiques de macOS / Windows
-  if (NOVELTY_HINTS.test(vName)) return -1000;
-
-  // Concordance de langue (français ou anglais)
   if (vLang.startsWith(lang)) score += 100;
-
-  // Bonus accent britannique (timbre emblématique de J.A.R.V.I.S. / Paul Bettany)
-  if (vLang.includes("en-gb") || /uk|british/i.test(vName)) score += 50;
-
-  // Voix emblématiques du style J.A.R.V.I.S. (Daniel UK, Henri, Thomas, etc.)
-  if (JARVIS_PREF.test(vName)) score += 120;
-  if (MALE_HINTS.test(vName)) score += 40;
-
-  // Voix enrichies / neurales de haute qualité
-  if (/premium|enhanced|am[eé]lior[eé]e|natural|neural|online/i.test(vName)) score += 35;
-
-  // Pénalité pour les voix féminines (l'utilisateur demande expressément la voix J.A.R.V.I.S.)
-  if (FEMALE_HINTS.test(vName)) score -= 150;
-
+  if (vLang === `${lang}-fr` || vLang === "en-us") score += 10;
+  if (FEMALE_HINTS.test(name)) score += 60;
+  if (MALE_HINTS.test(name)) score -= 100;
+  if (NOVELTY_HINTS.test(name)) score -= 250;
+  if (/premium|enhanced|am[eé]lior[eé]e|natural|neural|online/i.test(name)) score += 30;
   return score;
 }
 
@@ -81,7 +69,6 @@ export function useAuraVoice(locale: "fr" | "en") {
     if (!supported) return;
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      // Ignore si la valeur stockée était une ancienne voix novelty
       if (stored && !NOVELTY_HINTS.test(stored)) {
         setVoiceName(stored);
       }
@@ -99,7 +86,7 @@ export function useAuraVoice(locale: "fr" | "en") {
 
   const lang = locale === "en" ? "en" : "fr";
   const candidates = voices
-    .filter((v) => v.lang.toLowerCase().startsWith(lang) || (lang === "fr" && v.lang.toLowerCase().startsWith("en-gb")))
+    .filter((v) => v.lang.toLowerCase().startsWith(lang))
     .sort((a, b) => rank(b, lang) - rank(a, lang));
   const voice = candidates.find((v) => v.name === voiceName) ?? candidates[0] ?? null;
 
@@ -112,7 +99,7 @@ export function useAuraVoice(locale: "fr" | "en") {
     }
   }, []);
 
-  // Décroissance du niveau entre deux mots pour l'animation
+  // Décroissance du niveau entre deux mots.
   useEffect(() => {
     if (!speaking) {
       levelRef.current = 0;
@@ -132,9 +119,8 @@ export function useAuraVoice(locale: "fr" | "en") {
       const utterance = new SpeechSynthesisUtterance(clean);
       if (voice) utterance.voice = voice;
       utterance.lang = voice?.lang ?? (lang === "fr" ? "fr-FR" : "en-US");
-      // Profil vocal J.A.R.V.I.S. : débit posé et timbre chaud légèrement grave
-      utterance.rate = 0.96;
-      utterance.pitch = 0.94;
+      utterance.rate = 0.98;
+      utterance.pitch = 1.04;
       utterance.volume = 1;
       utterance.onstart = () => {
         setSpeaking(true);
