@@ -123,7 +123,7 @@ export function AnswerText({ turn, fr }: { turn: Turn; fr: boolean }) {
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="ml-[1px] align-super text-[8px] text-cyan hover:underline"
+          className="ml-[1px] align-super text-[11px] text-cyan hover:underline"
           aria-label={`Source ${number} : ${host(url)}`}
           title={host(url)}
         >
@@ -149,7 +149,7 @@ function ProvenanceList({ items, fr }: { items: Provenance[]; fr: boolean }) {
     error: fr ? "erreur" : "error",
   };
   return (
-    <details className="mt-2 text-[9px] text-text-faint">
+    <details className="mt-2 text-[11px] text-text-faint">
       <summary className="cursor-pointer hover:text-cyan">{`Provenance (${items.length})`}</summary>
       <ul className="mt-1 space-y-1">
         {items.map((item, index) => (
@@ -190,6 +190,8 @@ export function AgentPanel() {
 
   const open = useIntelStore((state) => state.agentOpen);
   const setOpen = useIntelStore((state) => state.setAgentOpen);
+  const auraPrompt = useIntelStore((state) => state.auraPrompt);
+  const consumeAuraPrompt = useIntelStore((state) => state.consumeAuraPrompt);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
@@ -198,6 +200,14 @@ export function AgentPanel() {
   const [listening, setListening] = useState(false);
   const [showVoices, setShowVoices] = useState(false);
   const [limits, setLimits] = useState<Limits>(DEFAULT_LIMITS);
+
+  // Question pré-remplie par la fiche pays : placée dans le champ, jamais envoyée sans action (coût, contrôle).
+  useEffect(() => {
+    if (open && auraPrompt) {
+      setDraft(auraPrompt);
+      consumeAuraPrompt();
+    }
+  }, [open, auraPrompt, consumeAuraPrompt]);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<Recognition | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -413,7 +423,7 @@ export function AgentPanel() {
 
   if (!open) {
     return (
-      <div className="pointer-events-none absolute bottom-[128px] right-[64px] z-20">
+      <div className="aura-launcher">
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -423,7 +433,7 @@ export function AgentPanel() {
         <AuraCore state={holoState} levelRef={voice.levelRef} width={64} height={64} />
         <span className="flex flex-col items-start">
           <span className="label-strong">AURA</span>
-          <span className="text-[9px] text-text-faint">{fr ? "Analyste IA · voix" : "AI analyst · voice"}</span>
+          <span className="text-[11px] text-text-faint">{fr ? "Analyste IA · voix" : "AI analyst · voice"}</span>
         </span>
       </button>
       </div>
@@ -431,15 +441,15 @@ export function AgentPanel() {
   }
 
   return (
-    <div className="pointer-events-none absolute bottom-[128px] right-[62px] top-[86px] z-30 flex w-[340px]">
+    <div className="aura-column">
     <section className="panel corners boot pointer-events-auto flex w-full flex-col bg-[#020b14]/90" aria-label="AURA">
       <span className="corner" />
       <header className="relative border-b border-cyan/15">
-        <AuraCore state={holoState} levelRef={voice.levelRef} width={338} height={236} className="mx-auto" />
-        <div className="absolute left-3 top-2">
+        <AuraCore state={holoState} levelRef={voice.levelRef} width={330} height={190} className="mx-auto" />
+        <div className="absolute left-3 top-2 max-w-[calc(100%-140px)]">
           <div className="label-strong">AURA</div>
-          <div className="text-[9px] text-text-faint">{fr ? "Analyste géopolitique · sources ouvertes" : "Geopolitical analyst · open sources"}</div>
-          <div className="readout mt-[2px] text-[9px] text-cyan">
+          <div className="text-[11px] text-text-faint">{fr ? "Analyste géopolitique · sources ouvertes" : "Geopolitical analyst · open sources"}</div>
+          <div className="readout mt-[2px] text-[11px] text-cyan">
             {holoState === "speaking" ? (fr ? "● transmission vocale" : "● speaking") : holoState === "thinking" ? (status ?? (listening ? (fr ? "● écoute…" : "● listening…") : "…")) : (fr ? "● en veille" : "● standby")}
           </div>
         </div>
@@ -467,16 +477,16 @@ export function AgentPanel() {
           {voice.candidates.length ? (
             <select
               id="aura-voice"
-              className="mt-1 w-full border border-cyan/20 bg-[#020b14] px-2 py-1 text-[10px] text-text"
+              className="mt-1 w-full border border-cyan/20 bg-[#020b14] px-2 py-1 text-[11px] text-text"
               value={voice.voice?.name ?? ""}
               onChange={(event) => voice.chooseVoice(event.target.value)}
             >
               {voice.candidates.map((candidate) => <option key={candidate.name} value={candidate.name}>{candidate.name} · {candidate.lang}</option>)}
             </select>
           ) : (
-            <p className="mt-1 text-[9px] text-text-faint">{fr ? "Aucune voix française installée sur ce système." : "No matching voice installed."}</p>
+            <p className="mt-1 text-[11px] text-text-faint">{fr ? "Aucune voix française installée sur ce système." : "No matching voice installed."}</p>
           )}
-          <p className="mt-1 text-[9px] text-text-faint">
+          <p className="mt-1 text-[11px] text-text-faint">
             {fr ? "Astuce Mac : Réglages › Accessibilité › Contenu énoncé › Voix du système › Gérer les voix — télécharge « Audrey (Premium) » ou « Amélie (Premium) » pour une voix bien plus douce." : "Mac tip: install a Premium voice in System Settings › Accessibility › Spoken Content."}
           </p>
         </div>
@@ -484,17 +494,17 @@ export function AgentPanel() {
 
       <div ref={scrollRef} className="scroll-thin flex-1 space-y-3 overflow-y-auto px-3 py-3" aria-live="polite">
         {configured === false ? (
-          <p className="text-[10px] text-alert-soft">{fr ? "Agente non configurée : ajoute OPENAI_API_KEY dans .env.local puis redémarre le serveur." : "Agent not configured: add OPENAI_API_KEY to .env.local and restart."}</p>
+          <p className="text-[11px] text-alert-soft">{fr ? "Agente non configurée : ajoute OPENAI_API_KEY dans .env.local puis redémarre le serveur." : "Agent not configured: add OPENAI_API_KEY to .env.local and restart."}</p>
         ) : null}
         {turns.length === 0 ? (
           <div className="space-y-2">
-            <p className="text-[10px] leading-relaxed text-text-dim">
+            <p className="text-[11px] leading-relaxed text-text-dim">
               {fr
                 ? "Pose une question géopolitique : dirigeants, fronts, cessez-le-feu, acteurs, contexte d'un foyer. AURA vérifie en direct sur le web, Wikidata, la Banque mondiale et la base ORBITAL, et cite ses sources."
                 : "Ask a geopolitical question. AURA checks the live web, Wikidata, the World Bank and the ORBITAL database, and cites sources."}
             </p>
             {suggestions.map((suggestion) => (
-              <button key={suggestion} type="button" className="row-button block w-full text-left text-[10px] text-text" onClick={() => void ask(suggestion)}>
+              <button key={suggestion} type="button" className="row-button block w-full text-left text-[11px] text-text" onClick={() => void ask(suggestion)}>
                 › {suggestion}
               </button>
             ))}
@@ -508,19 +518,19 @@ export function AgentPanel() {
           const failed = turn.status === "error";
           return (
             <div key={turn.id} className={turn.role === "user" ? "ml-6 border-r border-cyan/40 pr-2 text-right" : "border-l border-cyan/25 pl-2"}>
-              <div className="label mb-1 text-[8px]">{turn.role === "user" ? (fr ? "Vous" : "You") : "AURA"}</div>
+              <div className="label mb-1 text-[11px]">{turn.role === "user" ? (fr ? "Vous" : "You") : "AURA"}</div>
               {turn.role === "assistant" && !turn.content && busy && last ? (
-                <div className="readout text-[10px] text-cyan">{status ?? "…"}</div>
+                <div className="readout text-[11px] text-cyan">{status ?? "…"}</div>
               ) : (
                 <div className={`whitespace-pre-wrap text-[11px] leading-relaxed ${failed ? "text-alert-soft" : turn.role === "user" ? "text-ice" : "text-text"}`}>
                   {turn.role === "assistant" ? <AnswerText turn={turn} fr={fr} /> : turn.content}
                 </div>
               )}
               {turn.role === "assistant" && last && busy && turn.content && status ? (
-                <div className="readout mt-1 text-[9px] text-cyan">{status}</div>
+                <div className="readout mt-1 text-[11px] text-cyan">{status}</div>
               ) : null}
               {turn.notice ? (
-                <div className="mt-1 text-[9px] text-alert-soft" role="status">
+                <div className="mt-1 text-[11px] text-alert-soft" role="status">
                   ⚠ {turn.notice}
                 </div>
               ) : null}
@@ -529,7 +539,7 @@ export function AgentPanel() {
                   {numbered.map(([url, number]) => {
                     const href = safeHref(url);
                     return href ? (
-                      <a key={url} href={href} target="_blank" rel="noopener noreferrer" title={turn.sources?.find((source) => source.url === url)?.title ?? url} className="chip max-w-full truncate text-[8px]">
+                      <a key={url} href={href} target="_blank" rel="noopener noreferrer" title={turn.sources?.find((source) => source.url === url)?.title ?? url} className="chip max-w-full truncate text-[11px]">
                         [{number}] {host(url)}
                       </a>
                     ) : null;
@@ -537,7 +547,7 @@ export function AgentPanel() {
                   {others.map((source) => {
                     const href = safeHref(source.url);
                     return href ? (
-                      <a key={source.url} href={href} target="_blank" rel="noopener noreferrer" title={source.title} className="chip max-w-full truncate text-[8px]">
+                      <a key={source.url} href={href} target="_blank" rel="noopener noreferrer" title={source.title} className="chip max-w-full truncate text-[11px]">
                         {host(source.url)}
                       </a>
                     ) : null;
@@ -577,7 +587,7 @@ export function AgentPanel() {
           </div>
         </div>
         {turns.length ? (
-          <button type="button" className="mt-1 text-[9px] text-text-faint hover:text-cyan" onClick={() => { abortRef.current?.abort(); setBusy(false); setStatus(null); voice.stop(); setTurns([]); }}>
+          <button type="button" className="mt-1 text-[11px] text-text-faint hover:text-cyan" onClick={() => { abortRef.current?.abort(); setBusy(false); setStatus(null); voice.stop(); setTurns([]); }}>
             {fr ? "Nouvelle conversation" : "New conversation"}
           </button>
         ) : null}

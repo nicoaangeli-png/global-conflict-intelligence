@@ -2,25 +2,16 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { Header, type ViewKey, type MobileDrawerKey } from "@/components/ui/Header";
-import { GlobalSituationPanel } from "@/components/ui/GlobalSituationPanel";
-import { LiveConflictPanel } from "@/components/ui/LiveConflictPanel";
-import { FiltersPanel } from "@/components/ui/FiltersPanel";
-import { Timeline } from "@/components/ui/Timeline";
-import { ViewPanel } from "@/components/ui/ViewPanel";
+import { Header } from "@/components/ui/Header";
 import { SettingsPanel } from "@/components/ui/SettingsPanel";
-import { TacticalReconModal } from "@/components/ui/TacticalReconModal";
-import {
-  BootOverlay,
-  CountryCard,
-  DataProvenanceBanner,
-  FrameCorners,
-  HoverCountryBadge,
-  HoverReadout,
-  SystemReadout,
-} from "@/components/ui/Overlays";
+import { BriefingModal } from "@/components/briefing/BriefingModal";
+import { BootOverlay, FrameCorners, HoverCountryBadge, HoverFeedReadout, HoverReadout } from "@/components/ui/Overlays";
+import { ThemeBar } from "@/components/feeds/ThemeBar";
+import { WorldFeedPanel } from "@/components/feeds/WorldFeedPanel";
+import { Inspector, hasInspection } from "@/components/feeds/Inspector";
 import { useIntelStore } from "@/store/useIntelStore";
 import { AgentPanel } from "@/components/agent/AgentPanel";
+import { tr } from "@/lib/i18n";
 
 /** La scène 3D est chargée uniquement côté navigateur (WebGL). */
 const GlobeScene = dynamic(() => import("@/components/globe/GlobeScene").then((m) => m.GlobeScene), {
@@ -28,66 +19,66 @@ const GlobeScene = dynamic(() => import("@/components/globe/GlobeScene").then((m
   loading: () => null,
 });
 
+/** Polling des flux mondiaux (en plus du rafraîchissement manuel). */
+const FEEDS_POLL_MS = 2 * 60_000;
+
 /** Détermine si l'utilisateur est en train de saisir dans un champ texte / zone éditable */
 function isTypingContext(e: KeyboardEvent): boolean {
   if (e.isComposing) return true;
   const target = e.target as HTMLElement | null;
-  if (
-    target &&
-    (target.closest?.("input, textarea, select, [contenteditable='true'], [role='textbox']") ||
-      target.isContentEditable)
-  ) {
+  if (target && (target.closest?.("input, textarea, select, [contenteditable='true'], [role='textbox']") || target.isContentEditable)) {
     return true;
   }
   const active = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
-  if (
+  return Boolean(
     active &&
-    (active.tagName === "INPUT" ||
-      active.tagName === "TEXTAREA" ||
-      active.tagName === "SELECT" ||
-      active.isContentEditable ||
-      active.getAttribute("role") === "textbox")
-  ) {
-    return true;
-  }
-  return false;
+      (active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.tagName === "SELECT" ||
+        active.isContentEditable ||
+        active.getAttribute("role") === "textbox"),
+  );
 }
 
+type MobilePane = "globe" | "feed" | "inspector";
+
 export function IntelApp() {
-  const [view, setView] = useState<ViewKey>("OVERVIEW");
-  const [mobileDrawer, setMobileDrawer] = useState<MobileDrawerKey>("globe");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [briefingOpen, setBriefingOpen] = useState(false);
+  const [mobilePane, setMobilePane] = useState<MobilePane>("globe");
   const refresh = useIntelStore((s) => s.refresh);
+  const refreshFeeds = useIntelStore((s) => s.refreshFeeds);
   const setStreamStatus = useIntelStore((s) => s.setStreamStatus);
-  const setAt = useIntelStore((s) => s.setAt);
-  const setCountry = useIntelStore((s) => s.setCountry);
-  const select = useIntelStore((s) => s.select);
-  const selected = useIntelStore((s) => s.selected);
-  const country = useIntelStore((s) => s.country);
+  const locale = useIntelStore((s) => s.locale);
   const error = useIntelStore((s) => s.error);
   const agentOpen = useIntelStore((s) => s.agentOpen);
+  const inspecting = useIntelStore(hasInspection);
 
-  // Premier chargement
+  // Langue du document synchronisée (évite la « traduction » automatique de Chrome).
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  // Premier chargement : conflits (store) puis flux mondiaux, et polling des flux.
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void refreshFeeds();
+    const id = setInterval(() => void refreshFeeds(), FEEDS_POLL_MS);
+    return () => clearInterval(id);
+  }, [refresh, refreshFeeds]);
 
-  // Sur mobile : basculer automatiquement sur le tiroir conflit lors d'une sélection
+  // Sur mobile : une inspection ouvre le volet correspondant.
   useEffect(() => {
-    if (selected || country) {
-      setMobileDrawer("conflict");
-    }
-  }, [selected, country]);
+    if (inspecting) setMobilePane("inspector");
+  }, [inspecting]);
 
-  // Flux temps réel : le serveur pousse les changements, le client réinterroge
-  // uniquement l'agrégat filtré (jamais de rechargement complet).
+  // Flux temps réel : le serveur pousse les ingestions, le client réinterroge l'agrégat filtré.
   useEffect(() => {
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
-
     const connect = () => {
       setStreamStatus("connecting");
       source = new EventSource("/api/stream");
-
       source.addEventListener("ready", () => setStreamStatus("open"));
       source.addEventListener("heartbeat", () => setStreamStatus("open"));
       source.addEventListener("ingest", () => {
@@ -100,7 +91,6 @@ export function IntelApp() {
         retry = setTimeout(connect, 6000);
       };
     };
-
     connect();
     return () => {
       source?.close();
@@ -108,7 +98,7 @@ export function IntelApp() {
     };
   }, [refresh, setStreamStatus]);
 
-  // Échap : ferme la vue ou la sélection sans interférer avec la saisie active
+  // Échap : ferme dans l'ordre AURA, bilan, réglages, inspection — sans interférer avec la saisie.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -116,174 +106,88 @@ export function IntelApp() {
         (document.activeElement as HTMLElement)?.blur?.();
         return;
       }
-      if (useIntelStore.getState().reconTarget) {
-        useIntelStore.getState().setReconTarget(null);
-        return;
-      }
-      if (useIntelStore.getState().agentOpen) {
+      const s = useIntelStore.getState();
+      if (s.agentOpen) {
         window.speechSynthesis?.cancel();
-        useIntelStore.getState().setAgentOpen(false);
+        s.setAgentOpen(false);
         return;
       }
-      if (view !== "OVERVIEW") {
-        setView("OVERVIEW");
+      if (briefingOpen) {
+        setBriefingOpen(false);
         return;
       }
-      if (useIntelStore.getState().country) {
-        setCountry(null);
+      if (settingsOpen) {
+        setSettingsOpen(false);
         return;
       }
-      void select(null);
+      if (s.selectedFeedItem) return s.selectFeedItem(null);
+      if (s.selected) return void s.select(null);
+      if (s.country) return s.setCountry(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [select, setCountry, view]);
-
-  // Raccourcis 1–6 : navigation (strictement ignorés pendant la saisie)
-  useEffect(() => {
-    const views: ViewKey[] = ["OVERVIEW", "LIVE EVENTS", "CONFLICTS", "TIMELINE", "REGIONS", "SOURCES"];
-    const onKey = (e: KeyboardEvent) => {
-      if (isTypingContext(e)) return;
-      const n = Number(e.key);
-      if (!n || n < 1 || n > views.length) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      setView(views[n - 1]);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const openView = view === "TIMELINE" ? "OVERVIEW" : view;
-  void setAt;
+  }, [briefingOpen, settingsOpen]);
 
   return (
-    <main className="stage">
+    <main className="stage" translate="no">
       <GlobeScene />
       <FrameCorners />
 
       <div className="hud">
         <Header
-          view={view}
-          onView={setView}
-          mobileDrawer={mobileDrawer}
-          onMobileDrawer={setMobileDrawer}
+          settingsOpen={settingsOpen}
+          onSettings={() => setSettingsOpen((v) => !v)}
+          onBriefing={() => setBriefingOpen(true)}
         />
-        <DataProvenanceBanner />
-        <HoverCountryBadge />
-        <CountryCard />
-        <HoverReadout />
-        <SystemReadout />
+        <ThemeBar />
 
-        {/* Colonne gauche : situation globale puis filtres (tiroir unique sur mobile) */}
-        <div
-          className={`scroll-thin absolute top-[86px] flex max-h-[calc(100vh-212px)] flex-col gap-3 overflow-y-auto pr-1 ${
-            mobileDrawer === "situation"
-              ? "left-3 right-3 sm:left-5 sm:right-auto w-[min(300px,calc(100vw-24px))] z-20"
-              : "hidden md:flex left-5 w-[268px]"
-          }`}
-        >
-          <GlobalSituationPanel />
-          <FiltersPanel />
+        <div className="left-column" data-mobile-open={mobilePane === "feed"}>
+          <WorldFeedPanel />
         </div>
 
-        {/* Vues secondaires : adaptées à la largeur mobile sans débordement */}
-        {openView !== "OVERVIEW" ? (
-          <div
-            className="scroll-thin absolute top-[86px] z-30 max-h-[calc(100vh-212px)] overflow-y-auto left-3 right-3 max-w-[340px] mx-auto md:left-[305px] md:right-auto md:mx-0"
-          >
-            {openView === "SETUP" ? (
-              <SettingsPanel onClose={() => setView("OVERVIEW")} />
-            ) : (
-              <ViewPanel view={openView} onClose={() => setView("OVERVIEW")} />
-            )}
-          </div>
-        ) : null}
-
-        {/* Colonne droite : données de conflit (tiroir unique sur mobile) */}
         {agentOpen ? null : (
-          <div
-            className={`absolute top-[86px] flex flex-col gap-3 ${
-              mobileDrawer === "conflict"
-                ? "left-3 right-3 sm:right-5 sm:left-auto w-[min(320px,calc(100vw-24px))] z-20"
-                : "hidden md:flex right-5 w-[300px]"
-            }`}
-          >
-            <LiveConflictPanel />
+          <div className="right-column" data-mobile-open={mobilePane === "inspector"}>
+            <Inspector />
           </div>
         )}
 
-        {/* AURA : analyste IA vocale */}
+        {settingsOpen ? (
+          <div className="settings-anchor">
+            <SettingsPanel onClose={() => setSettingsOpen(false)} />
+          </div>
+        ) : null}
+
+        {briefingOpen ? <BriefingModal onClose={() => setBriefingOpen(false)} /> : null}
+
         <AgentPanel />
+        <HoverCountryBadge />
+        <HoverReadout />
+        <HoverFeedReadout />
 
-        {/* Sélecteur de tiroir mobile au-dessus de la timeline (écran étroit uniquement) */}
-        <div
-          role="group"
-          aria-label="Affichage des panneaux mobiles"
-          className="pointer-events-auto absolute bottom-[72px] left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 border border-cyan/30 bg-[#020b18]/90 px-2 py-1 backdrop-blur md:hidden"
-        >
-          <button
-            type="button"
-            className={`px-2 py-0.5 text-[9px] font-mono tracking-wider transition-colors ${
-              mobileDrawer === "globe"
-                ? "bg-cyan/25 text-ice font-bold border border-cyan/50"
-                : "text-text-faint hover:text-text border border-transparent"
-            }`}
-            onClick={() => setMobileDrawer("globe")}
-            aria-label="Afficher le globe 3D plein écran"
-            aria-pressed={mobileDrawer === "globe"}
-          >
-            🌐 GLOBE
-          </button>
-          <span className="text-[8px] text-cyan/30">|</span>
-          <button
-            type="button"
-            className={`px-2 py-0.5 text-[9px] font-mono tracking-wider transition-colors ${
-              mobileDrawer === "situation"
-                ? "bg-cyan/25 text-ice font-bold border border-cyan/50"
-                : "text-text-faint hover:text-text border border-transparent"
-            }`}
-            onClick={() => setMobileDrawer("situation")}
-            aria-label="Afficher le panneau de situation et filtres"
-            aria-pressed={mobileDrawer === "situation"}
-          >
-            📊 SITUATION
-          </button>
-          <span className="text-[8px] text-cyan/30">|</span>
-          <button
-            type="button"
-            className={`px-2 py-0.5 text-[9px] font-mono tracking-wider transition-colors ${
-              mobileDrawer === "conflict"
-                ? "bg-cyan/25 text-ice font-bold border border-cyan/50"
-                : "text-text-faint hover:text-text border border-transparent"
-            }`}
-            onClick={() => setMobileDrawer("conflict")}
-            aria-label="Afficher le flux des conflits et événements"
-            aria-pressed={mobileDrawer === "conflict"}
-          >
-            ⚡ CONFLITS
-          </button>
-        </div>
-
-        {/* Timeline */}
-        <div className="absolute bottom-4 left-5 right-5">
-          <Timeline />
+        {/* Sélecteur de volet (écran étroit uniquement) */}
+        <div role="group" aria-label={tr(locale, "Volet affiché", "Visible pane")} className="mobile-switch">
+          {(
+            [
+              ["globe", tr(locale, "Globe", "Globe")],
+              ["feed", tr(locale, "Fil", "Feed")],
+              ["inspector", tr(locale, "Détail", "Details")],
+            ] as const
+          ).map(([key, text]) => (
+            <button key={key} type="button" className="chip" data-active={mobilePane === key} aria-pressed={mobilePane === key} onClick={() => setMobilePane(key)}>
+              {text}
+            </button>
+          ))}
         </div>
       </div>
-
-      <TacticalReconModal />
 
       {error ? (
         <div className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2">
           <div className="panel corners px-4 py-3">
             <span className="corner" />
-            <div className="text-[11px] uppercase tracking-wide text-[#ff4d3b]">Anomalie flux</div>
-            <div className="mt-1 text-[9px] text-text-faint">{error}</div>
-            <button
-              type="button"
-              className="chip mt-3 w-full text-center"
-              onClick={() => void refresh()}
-            >
-              Réessayer
+            <div className="text-[13px] text-[#ff8a70]">{tr(locale, "Données de conflit indisponibles", "Conflict data unavailable")}</div>
+            <div className="meta mt-1">{error}</div>
+            <button type="button" className="chip mt-3 w-full text-center" onClick={() => void refresh()}>\
+              {tr(locale, "Réessayer", "Retry")}
             </button>
           </div>
         </div>

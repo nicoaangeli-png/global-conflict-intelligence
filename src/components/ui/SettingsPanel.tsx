@@ -65,10 +65,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // Filtrage strict : données réelles uniquement, exclusion de toute source démo
-  const realConnectors = (stats?.connectors ?? []).filter(
-    (c) => c.id !== "demo" && !c.label.toLowerCase().includes("démo") && !c.label.toLowerCase().includes("demo")
-  );
+  // Connecteurs de la base de conflits (le type peut encore contenir un identifiant historique : exclu).
+  const realConnectors = (stats?.connectors ?? []).filter((c) => (c.id as string) !== "demo");
 
   return (
     <section
@@ -78,7 +76,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       aria-modal="true"
       aria-labelledby="settings-dialog-title"
       onKeyDown={handleKeyDown}
-      className="panel corners boot flex max-h-[62vh] w-[min(340px,calc(100vw-40px))] flex-col"
+      className="panel corners boot flex max-h-[calc(100vh-130px)] w-[min(420px,calc(100vw-40px))] flex-col"
     >
       <span className="corner" />
       <div className="flex items-center justify-between px-3 pt-[10px]">
@@ -89,8 +87,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           ref={closeButtonRef}
           type="button"
           className="chip"
-          style={{ padding: "2px 6px" }}
-          onClick={onClose}
+                    onClick={onClose}
           aria-label={locale === "fr" ? "Fermer les paramètres" : "Close settings"}
         >
           {locale === "fr" ? "fermer" : "close"}
@@ -103,7 +100,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           <pre
             tabIndex={0}
             aria-label="Configuration d'environnement recommandée"
-            className="mt-2 overflow-x-auto border border-[rgba(127,212,255,0.12)] bg-[rgba(2,8,16,0.6)] p-2 text-[9px] leading-relaxed text-text-dim focus:border-cyan focus:outline-none"
+            className="mt-2 overflow-x-auto border border-[rgba(127,212,255,0.12)] bg-[rgba(2,8,16,0.6)] p-2 text-[11px] leading-relaxed text-[#a9c8dc] focus:border-cyan focus:outline-none"
           >
 {`# .env.local (racine du projet)
 ACLED_EMAIL=vous@exemple.org
@@ -128,7 +125,7 @@ UCDP_DISABLED=1`}
 
         <div>
           <span className="label">{locale === "fr" ? "Import de fichiers" : "File imports"}</span>
-          <p className="mt-1 text-[9px] leading-relaxed text-text-dim">
+          <p className="mt-1 text-[11px] leading-relaxed text-[#a9c8dc]">
             {locale === "fr"
               ? "Déposez un export CSV ACLED ou UCDP dans data/imports/ puis lancez POST /api/ingest avec le jeton serveur dans l'en-tête Authorization Bearer. Les secrets restent dans .env.local ; redémarrez le serveur après modification."
               : "Drop an ACLED or UCDP CSV export in data/imports/ then run POST /api/ingest with the server token in Authorization Bearer. Secrets remain in .env.local; restart server after update."}
@@ -140,7 +137,7 @@ UCDP_DISABLED=1`}
           <ul className="mt-1 space-y-[3px]">
             {realConnectors.length > 0 ? (
               realConnectors.map((c) => (
-                <li key={c.id} className="flex items-center justify-between gap-2 text-[9px] text-text-dim">
+                <li key={c.id} className="flex items-center justify-between gap-2 text-[11px] text-[#a9c8dc]">
                   <span>{c.label}</span>
                   <span className="readout" title={c.note}>
                     {c.events} · {c.reachable === false ? (locale === "fr" ? "erreur" : "error") : c.configured ? (locale === "fr" ? "configuré" : "configured") : (locale === "fr" ? "inactif" : "inactive")}
@@ -148,14 +145,14 @@ UCDP_DISABLED=1`}
                 </li>
               ))
             ) : (
-              <li className="text-[9px] text-text-faint">
-                {locale === "fr" ? "Aucun connecteur de démo actif · Sources réelles uniquement" : "No demo connector active · Real sources only"}
+              <li className="text-[11px] text-[#8fb4cc]">
+                {locale === "fr" ? "État des connecteurs en cours de chargement…" : "Loading connector status…"}
               </li>
             )}
           </ul>
         </div>
 
-        <div className="text-[9px] leading-relaxed text-text-dim">
+        <div className="text-[11px] leading-relaxed text-[#a9c8dc]">
           <span className="label">{locale === "fr" ? "Couverture et indicateurs" : "Coverage and indicators"}</span>
           <p className="mt-1">
             {locale === "fr"
@@ -164,7 +161,7 @@ UCDP_DISABLED=1`}
           </p>
         </div>
 
-        <p className="text-[9px] leading-relaxed text-text-faint">
+        <p className="text-[11px] leading-relaxed text-[#8fb4cc]">
           {locale === "fr"
             ? "Règle appliquée dans tout le système : données réelles et sourcées exclusivement. Aucune position n'est déduite ni inventée. Chaque événement affiche sa source, sa date et son niveau de confiance."
             : "System-wide rule: exclusively real and sourced data. No positions are inferred or invented. Each event displays its source, date, and confidence level."}

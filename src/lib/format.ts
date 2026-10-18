@@ -52,3 +52,51 @@ export function coords(lat: number, lon: number): string {
   const lo = `${Math.abs(lon).toFixed(2)}°${lon >= 0 ? "E" : "O"}`;
   return `${la} ${lo}`;
 }
+
+/**
+ * Heure relative bilingue, passé ET futur (lancement planifié : « dans 3 h »).
+ * `now` est injectable pour les tests.
+ */
+export function relativeTime(iso: string | undefined | null, locale: "fr" | "en" = "fr", now = Date.now()): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "—";
+  const diff = (now - t) / 1000;
+  const s = Math.abs(diff);
+  const fr = locale === "fr";
+  let span: string;
+  if (s < 60) return fr ? "à l'instant" : "just now";
+  if (s < 3600) span = `${Math.floor(s / 60)} min`;
+  else if (s < 86400) span = `${Math.floor(s / 3600)} h`;
+  else if (s < 86400 * 31) span = fr ? `${Math.floor(s / 86400)} j` : `${Math.floor(s / 86400)} d`;
+  else if (s < 86400 * 365) span = fr ? `${Math.floor(s / (86400 * 30))} mois` : `${Math.floor(s / (86400 * 30))} mo`;
+  else {
+    const y = Math.floor(s / (86400 * 365));
+    span = fr ? `${y} an${y > 1 ? "s" : ""}` : `${y} yr`;
+  }
+  if (diff >= 0) return fr ? `il y a ${span}` : `${span} ago`;
+  return fr ? `dans ${span}` : `in ${span}`;
+}
+
+/** Date et heure absolues lisibles, en UTC explicite : « 18/10/2026 10:31 UTC ». */
+export function absoluteDateTime(iso: string | undefined | null, locale: "fr" | "en" = "fr"): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return `${d.toLocaleString(locale === "fr" ? "fr-FR" : "en-GB", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })} UTC`;
+}
+
+/** Date seule lisible (UTC) : « 31/08/2026 ». */
+export function shortDate(iso: string | undefined | null, locale: "fr" | "en" = "fr"): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(locale === "fr" ? "fr-FR" : "en-GB", { timeZone: "UTC", day: "2-digit", month: "2-digit", year: "numeric" });
+}

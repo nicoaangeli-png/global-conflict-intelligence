@@ -1,22 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { coords, compact, dateTimeUTC, relative } from "@/lib/format";
+import { useEffect, useState } from "react";
+import { relativeTime } from "@/lib/format";
+import { tr } from "@/lib/i18n";
 import { useIntelStore } from "@/store/useIntelStore";
-import { getCountryGeopolitics } from "@/data/geopolitics";
-import { t } from "@/lib/i18n";
-import { CountryProfileStatus } from "./CountryProfile";
-import { CountryIndicators } from "./CountryIndicators";
-import { countryNamesMatchWhenIsoUnknown, resolveCountryIdentity } from "@/lib/geo/country";
+import { clusterSummary } from "@/components/feeds/conflictModel";
+import { NATURE_LABELS, THEME_COLORS, THEME_LABELS, label } from "@/components/feeds/feedModel";
+import { countryLabel, useCountryReference } from "@/components/feeds/countryReference";
 
 /**
- * Surcouches HUD : équerres de cadre, réticule de survol, fiche pays géopolitique,
- * indicateurs système. Tout est alimenté par l'état réel de l'application.
+ * Surcouches HUD : équerres de cadre, info-bulles de survol (zone de conflit,
+ * élément de flux, pays) et écran d'ouverture. Alimentées par l'état réel.
  */
 
 export function FrameCorners() {
   return (
-    <div className="pointer-events-none absolute inset-3 z-10 select-none">
+    <div className="pointer-events-none absolute inset-3 z-10 select-none" aria-hidden>
       {(
         [
           ["top-0 left-0", "border-t border-l"],
@@ -25,365 +24,119 @@ export function FrameCorners() {
           ["bottom-0 right-0", "border-b border-r"],
         ] as const
       ).map(([pos, edges]) => (
-        <span
-          key={pos}
-          className={`absolute ${pos} ${edges} h-4 w-4`}
-          style={{ borderColor: "rgba(127,212,255,0.34)" }}
-        />
+        <span key={pos} className={`absolute ${pos} ${edges} h-4 w-4`} style={{ borderColor: "rgba(127,212,255,0.34)" }} />
       ))}
-      <span className="absolute left-1/2 top-0 h-[1px] w-16 -translate-x-1/2 bg-[rgba(127,212,255,0.3)]" />
-      <span className="absolute bottom-0 left-1/2 h-[1px] w-16 -translate-x-1/2 bg-[rgba(127,212,255,0.3)]" />
     </div>
   );
 }
 
-/** Compteur d'images réel (mesure par requestAnimationFrame). */
-export function SystemReadout() {
-  const [fps, setFps] = useState(0);
-  const frames = useRef(0);
-  const last = useRef(performance.now());
-  const degrees = useIntelStore((s) => s.degrees);
-  const clusters = useIntelStore((s) => s.clusters);
-  const stats = useIntelStore((s) => s.stats);
-  const at = useIntelStore((s) => s.filters.at);
-  const locale = useIntelStore((s) => s.locale);
-
-  useEffect(() => {
-    let raf = 0;
-    const loop = () => {
-      frames.current++;
-      const now = performance.now();
-      if (now - last.current >= 1000) {
-        setFps(Math.round((frames.current * 1000) / (now - last.current)));
-        frames.current = 0;
-        last.current = now;
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
-  return (
-    <div className="pointer-events-none absolute bottom-[128px] left-[305px] z-10 flex flex-col gap-[3px] select-none border border-[rgba(127,212,255,0.1)] bg-[rgba(2,8,15,0.55)] px-2 py-[5px] backdrop-blur-sm">
-      <div className="flex items-center gap-3">
-        <span className="label">{locale === "fr" ? "Rendu" : "Render"}</span>
-        <span className="readout text-[9px]">
-          {fps} fps · {clusters.length} {locale === "fr" ? "foyers" : "clusters"} · {degrees.toFixed(1)}°
-        </span>
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="label">{locale === "fr" ? "Fenêtre" : "Window"}</span>
-        <span className="readout text-[9px]">
-          {stats?.range ?? "—"} {at ? `· archive ${at.slice(0, 10)}` : locale === "fr" ? "· temps réel" : "· real-time"}
-        </span>
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="label">{locale === "fr" ? "Dépôt" : "Store"}</span>
-        <span className="readout text-[9px]">{stats?.dataset ?? "—"}</span>
-      </div>
-    </div>
-  );
-}
-
-/** Réticule d'identification : suit le curseur sur un foyer. */
-export function HoverReadout() {
-  const hoveredId = useIntelStore((s) => s.hoveredId);
-  const clusters = useIntelStore((s) => s.clusters);
-  const locale = useIntelStore((s) => s.locale);
+function usePointer() {
   const [pos, setPos] = useState({ x: 0, y: 0 });
-  const cluster = clusters.find((c) => c.id === hoveredId) ?? null;
-
   useEffect(() => {
     const onMove = (e: PointerEvent) => setPos({ x: e.clientX, y: e.clientY });
     window.addEventListener("pointermove", onMove);
     return () => window.removeEventListener("pointermove", onMove);
   }, []);
+  return pos;
+}
 
-  if (!cluster) return null;
-  const x = Math.min(pos.x + 16, window.innerWidth - 230);
-  const y = Math.min(pos.y + 14, window.innerHeight - 150);
-
+function Tip({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
+  const left = Math.min(x + 16, window.innerWidth - 300);
+  const top = Math.min(y + 14, window.innerHeight - 140);
   return (
-    <div
-      className="panel corners pointer-events-none absolute z-30 w-[216px] px-3 py-2"
-      style={{ left: x, top: y }}
-    >
-      <span className="corner" />
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[11px] font-light tracking-wide text-ice">
-          {cluster.locality || cluster.region || cluster.country}
-        </span>
-        <span className="readout text-[9px]">{cluster.eventCount} {locale === "fr" ? "év." : "ev."}</span>
-      </div>
-      <div className="mt-[2px] text-[9px] uppercase tracking-[0.18em] text-text-faint">{cluster.country}</div>
-      <div className="hairline my-[6px]" />
-      <div className="flex items-baseline justify-between">
-        <span className="label">{locale === "fr" ? "Type dominant" : "Dominant type"}</span>
-        <span className="readout text-[9px]">{cluster.topType}</span>
-      </div>
-      <div className="mt-[2px] flex items-baseline justify-between">
-        <span className="label">{locale === "fr" ? "Victimes" : "Casualties"}</span>
-        <span className="readout text-[9px]" style={{ color: "#ff9a80" }}>
-          {cluster.confidence === "MEDIA_SIGNAL" ? "N/A" : `${compact(cluster.fatalities)} †`}
-        </span>
-      </div>
-      <div className="mt-[2px] flex items-baseline justify-between">
-        <span className="label">{locale === "fr" ? "Dernier" : "Latest"}</span>
-        <span className="readout text-[9px]">{relative(cluster.lastEventAt)}</span>
-      </div>
-      <div className="mt-[2px] flex items-baseline justify-between">
-        <span className="label">{locale === "fr" ? "Position" : "Coords"}</span>
-        <span className="readout text-[9px]">{coords(cluster.latitude, cluster.longitude)}</span>
-      </div>
-      <div className="hairline my-[6px]" />
-      <div className="flex items-center justify-between">
-        <span className="text-[8px] uppercase tracking-[0.18em] text-text-faint">
-          {cluster.confidence === "MEDIA_SIGNAL" ? (locale === "fr" ? "signal presse" : "media signal") : cluster.confidence.toLowerCase()}
-        </span>
-        <span className="text-[8px] uppercase tracking-[0.18em] text-cyan-dim">
-          {locale === "fr" ? "clic → détail" : "click → details"}
-        </span>
-      </div>
+    <div className="panel hover-tip pointer-events-none absolute z-40" style={{ left, top }}>
+      {children}
     </div>
   );
 }
 
-/** Badge discret au survol d'un pays : ancré sur le côté pour ne jamais obstruer le globe. */
+/** Info-bulle au survol d'une zone de conflit : natures séparées, jamais de bilan pour la presse. */
+export function HoverReadout() {
+  const hoveredId = useIntelStore((s) => s.hoveredId);
+  const clusters = useIntelStore((s) => s.clusters);
+  const locale = useIntelStore((s) => s.locale);
+  const pos = usePointer();
+  const cluster = hoveredId ? clusters.find((c) => c.id === hoveredId) ?? null : null;
+  if (!cluster) return null;
+  return (
+    <Tip x={pos.x} y={pos.y}>
+      <div className="flex items-center gap-2">
+        <span className="category-dot" style={{ background: THEME_COLORS.conflict }} />
+        <span className="break-words text-[13px] text-[#eaf6ff]">{cluster.locality || cluster.region || cluster.country}</span>
+      </div>
+      <p className="mt-1 text-[12px] text-[#cfe6f5]">{clusterSummary(cluster, locale)}</p>
+      <p className="meta mt-1">
+        {cluster.country ? `${cluster.country} · ` : ""}
+        {tr(locale, "dernier", "latest")} {relativeTime(cluster.lastEventAt, locale)} · {tr(locale, "clic → détail", "click → details")}
+      </p>
+    </Tip>
+  );
+}
+
+/** Info-bulle au survol d'un point de flux sur le globe (ou d'une ligne du fil). */
+export function HoverFeedReadout() {
+  const hoveredFeedId = useIntelStore((s) => s.hoveredFeedId);
+  const feeds = useIntelStore((s) => s.feeds);
+  const locale = useIntelStore((s) => s.locale);
+  const pos = usePointer();
+  const item = hoveredFeedId ? feeds.find((f) => f.id === hoveredFeedId) ?? null : null;
+  // Survol d'une ligne du fil : le pointeur est sur le panneau, pas d'info-bulle doublon.
+  if (!item || pos.x < 420) return null;
+  return (
+    <Tip x={pos.x} y={pos.y}>
+      <div className="flex items-center gap-2">
+        <span className="category-dot" style={{ background: THEME_COLORS[item.category] }} />
+        <span className="meta">
+          {label(THEME_LABELS[item.category], locale)} · {label(NATURE_LABELS[item.nature], locale)}
+        </span>
+      </div>
+      <p className="mt-1 line-clamp-3 text-[13px] leading-snug text-[#eaf6ff]">{item.title}</p>
+      <p className="meta mt-1">
+        {item.sourceName} · {relativeTime(item.occurredAt ?? item.publishedAt, locale)} · {tr(locale, "clic → détail", "click → details")}
+      </p>
+    </Tip>
+  );
+}
+
+/** Badge discret au survol d'un pays (bas du globe, ne masque aucun panneau). */
 export function HoverCountryBadge() {
   const hoveredCountry = useIntelStore((s) => s.hoveredCountry);
   const country = useIntelStore((s) => s.country);
   const locale = useIntelStore((s) => s.locale);
-
-  if (!hoveredCountry || country) return null;
-
-  const geo = getCountryGeopolitics(hoveredCountry.iso || hoveredCountry.name);
-
+  const { ref } = useCountryReference();
+  if (!hoveredCountry || country?.iso === hoveredCountry.iso) return null;
+  const name = hoveredCountry.iso ? countryLabel(hoveredCountry.iso, ref, locale) : hoveredCountry.name;
   return (
-    <div className="pointer-events-none fixed right-[330px] top-[74px] z-10 flex items-center gap-3 border border-cyan/30 bg-[#020b14]/90 px-3 py-1.5 backdrop-blur-md shadow-[0_0_20px_rgba(0,180,255,0.12)]">
-      <div className="h-1.5 w-1.5 rounded-full bg-cyan animate-pulse" />
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-[11px] font-mono font-medium tracking-wider text-ice uppercase">
-          {hoveredCountry.name}
-        </span>
-        <span className="text-[9px] font-mono text-cyan-dim">
-          [{hoveredCountry.iso || geo.iso}]
-        </span>
-        <span className="text-[8px] font-mono text-text-faint">
-          {coords(hoveredCountry.lat, hoveredCountry.lon)}
-        </span>
-      </div>
-      <span className="text-[8px] uppercase tracking-wider text-cyan/70 font-mono">
-        {locale === 'fr' ? 'Clic → Fiche pays' : 'Click → Country profile'}
-      </span>
+    <div className="hover-country pointer-events-none absolute z-20">
+      <span className="status-dot" data-tone="ok" />
+      <span className="text-[13px] text-[#eaf6ff]">{name}</span>
+      <span className="meta">{tr(locale, "clic → fiche pays", "click → country profile")}</span>
     </div>
   );
-}
-
-/** Fiche géopolitique du pays pointé (ouvert uniquement au clic sur le pays). */
-export function CountryCard() {
-  const country = useIntelStore((s) => s.country);
-  const clusters = useIntelStore((s) => s.clusters);
-  const setCountry = useIntelStore((s) => s.setCountry);
-  const select = useIntelStore((s) => s.select);
-  const setReconTarget = useIntelStore((s) => s.setReconTarget);
-  const locale = useIntelStore((s) => s.locale);
-
-  if (!country || country.source === "explorer") return null;
-
-  const dict = t(locale);
-  const geo = getCountryGeopolitics(country.iso || country.name);
-  const iso = resolveCountryIdentity(country.iso || country.name)?.iso3;
-  const local = clusters.filter((c) => {
-    const clusterIso = resolveCountryIdentity(c.country)?.iso3;
-    if (iso && clusterIso) return clusterIso === iso;
-    return countryNamesMatchWhenIsoUnknown(country.name, c.country);
-  });
-  const events = local.reduce((a, c) => a + c.eventCount, 0);
-  const fatalities = local.reduce((a, c) => a + c.fatalities, 0);
-  const best = local.slice().sort((a, b) => b.intensity - a.intensity)[0];
-
-  return (
-    <div className="panel corners boot pointer-events-auto absolute left-1/2 top-[86px] z-20 max-h-[calc(100dvh-180px)] w-[310px] -translate-x-1/2 overflow-y-auto px-3.5 py-3 shadow-[0_0_40px_rgba(0,180,255,0.15)] bg-[#020b14]/95 backdrop-blur-md">
-      <span className="corner" />
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="text-[13px] font-extralight tracking-[0.2em] text-ice">{country.name.toUpperCase()}</div>
-          <div className="mt-[2px] readout text-[9px]">
-            {coords(country.lat, country.lon)} · {country.iso || geo.iso}
-          </div>
-        </div>
-        <button type="button" className="chip" style={{ padding: "2px 6px" }} onClick={() => setCountry(null)}>
-          esc
-        </button>
-      </div>
-
-      <CountryProfileStatus country={country.name} locale={locale} />
-      <CountryIndicators iso={country.iso || geo.iso} locale={locale} />
-
-      <div className="mt-2.5 border border-cyan/20 bg-cyan/5 p-2">
-        <p className="text-[9px] leading-relaxed text-text-dim">
-          {locale === "fr"
-            ? "Les anciennes assertions statiques sur la population, les dirigeants, le régime et l’économie ne sont pas datées ni sourcées : elles sont masquées. Les indicateurs ci-dessus affichent leur source et leur année lorsqu’elles sont disponibles."
-            : "Legacy static claims about population, leaders, regime and the economy are undated and unsourced, so they are hidden. Indicators above show their source and year when available."}
-        </p>
-      </div>
-
-      {/* Métriques de conflit */}
-      <div className="mt-2 space-y-1">
-        <p className="text-[9px] leading-relaxed text-text-faint">
-          {locale === "fr" ? "Comptages limités aux sources et filtres actifs. Les mentions presse ne sont pas des incidents confirmés ; zéro n’établit pas une absence de conflit." : "Counts cover active sources and filters only. Media mentions are not confirmed incidents; zero does not establish absence of conflict."}
-        </p>
-        <div className="flex items-baseline justify-between">
-          <span className="label">{dict.countryCard.associatedHotspots}</span>
-          <span className="readout text-[9px]">{local.length}</span>
-        </div>
-        <div className="flex items-baseline justify-between">
-          <span className="label">{dict.countryCard.eventsCount}</span>
-          <span className="readout text-[9px]">{events}</span>
-        </div>
-        <div className="flex items-baseline justify-between">
-          <span className="label">{dict.countryCard.fatalitiesCount}</span>
-          <span className="readout text-[9px]" style={{ color: "#ff9a80" }}>
-            {local.length && local.some((cluster) => cluster.confidence !== "MEDIA_SIGNAL") ? `${compact(fatalities)} †` : "N/A"}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-col gap-1.5">
-        {best ? (
-          <button
-            type="button"
-            className="chip w-full text-center py-1 text-[9px]"
-            onClick={() => {
-              void select(best);
-              setCountry(null);
-            }}
-          >
-            🎯 {dict.countryCard.openMainCluster} ({best.locality || best.country})
-          </button>
-        ) : null}
-
-        <button
-          type="button"
-          className="chip w-full text-center py-1 text-[9px] border-cyan/40 bg-cyan/10 text-cyan hover:bg-cyan/20"
-          onClick={() => {
-            setReconTarget({
-              locality: country.name,
-              country: country.name,
-              lat: country.lat,
-              lon: country.lon,
-            });
-            setCountry(null);
-          }}
-        >
-          🛰️ {dict.countryCard.reconAction} & STREET VIEW
-        </button>
-      </div>
-
-      <p className="mt-2 text-[8px] leading-relaxed text-text-faint">
-        {dict.countryCard.disclaimer}
-      </p>
-    </div>
-  );
-}
-
-/**
- * Bandeau de transparence : provenance du renseignement mondial opérationnel.
- */
-export function DataProvenanceBanner() {
-  const stats = useIntelStore((s) => s.stats);
-  const locale = useIntelStore((s) => s.locale);
-  const dataset = stats?.dataset ?? "";
-  const live = dataset.split(" + ").filter(Boolean);
-  const hasDemo = live.some((source) => source.startsWith("demo"));
-  const coverage = stats?.coverage;
-
-  const label = live.length
-    ? `${hasDemo ? (locale === "fr" ? "DÉMONSTRATION FICTIVE" : "FICTIONAL DEMONSTRATION") : (locale === "fr" ? "Sources disponibles — non exhaustives" : "Available sources — incomplete coverage")} : ${live.map(prettyDataset).join(" · ")}`
-    : locale === "fr" ? "Aucune donnée pour les filtres sélectionnés" : "No data for selected filters";
-
-  return (
-    <div className="pointer-events-none absolute left-1/2 top-[52px] z-20 flex -translate-x-1/2 flex-col items-center gap-[4px] select-none">
-      <div
-        className="flex items-center gap-2 border px-3 py-[3px] backdrop-blur-md"
-        style={{
-          borderColor: "rgba(127,212,255,0.34)",
-          background: "rgba(3,12,22,0.88)",
-        }}
-      >
-        <span className="dot" style={{ color: "#7fd4ff" }} />
-        <span
-          className="text-[8px] uppercase tracking-[0.24em] font-mono"
-          style={{ color: "#a8cee6" }}
-        >
-          {label}
-        </span>
-        <span className="hairline w-8" />
-        <span className="whitespace-nowrap text-[8px] uppercase tracking-[0.18em] text-text-faint font-mono">
-          {stats ? `${locale === "fr" ? "SYNC" : "UPD"} ${dateTimeUTC(stats.lastDataUpdate)}` : "—"}
-        </span>
-      </div>
-
-      {/* Légende : signalétique opérationnelle */}
-      <div className="flex items-center gap-4 border border-[rgba(127,212,255,0.1)] bg-[rgba(2,8,15,0.78)] px-3 py-[3px] text-[8px] uppercase tracking-[0.2em] text-text-faint backdrop-blur-md">
-        {coverage ? <span>{coverage.documented} {locale === "fr" ? "documentés" : "documented"} · {coverage.media} presse · {coverage.demo} démo · {coverage.thermal} anomalies thermiques</span> : null}
-        <span className="flex items-center gap-[5px] whitespace-nowrap">
-          <span className="dot" style={{ color: "#ff2a1b" }} />
-          {locale === "fr" ? "incidents documentés ≠ données fictives" : "documented incidents ≠ fictional data"}
-        </span>
-        <span className="flex items-center gap-[5px] whitespace-nowrap">
-          <span className="dot" style={{ color: "#ff8a3d" }} />
-          {locale === "fr" ? "GDELT : signaux presse, non confirmés" : "GDELT: unconfirmed media signals"}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/** Libellés lisibles des jeux de données. */
-function prettyDataset(key: string): string {
-  switch (key) {
-    case "gdelt":
-      return "GDELT 2.0";
-    case "acled":
-      return "ACLED";
-    case "ucdp":
-      return "UCDP GED";
-    case "firms":
-      return "NASA FIRMS";
-    case "csv":
-    case "import:csv":
-      return "imports CSV";
-    case "demo:seed":
-      return "DÉMO";
-    default:
-      return key.toUpperCase();
-  }
 }
 
 /** Écran d'ouverture : disparaît au premier rendu de données. */
 export function BootOverlay() {
   const stats = useIntelStore((s) => s.stats);
+  const error = useIntelStore((s) => s.error);
   const locale = useIntelStore((s) => s.locale);
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
-    if (!stats) return;
+    if (!stats && !error) return;
     const id = setTimeout(() => setHidden(true), 340);
     return () => clearTimeout(id);
-  }, [stats]);
+  }, [stats, error]);
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center transition-opacity duration-700"
+      className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center transition-opacity duration-700"
       style={{ opacity: hidden ? 0 : 1, background: "rgba(1,4,10,0.82)" }}
+      aria-hidden={hidden}
     >
       <div className="flex flex-col items-center gap-3">
-        <span className="text-[13px] font-extralight tracking-[0.6em] text-ice">ORBITAL</span>
-        <span className="label">
-          {locale === "fr" ? "initialisation du système de renseignement" : "initializing intelligence system"}
-        </span>
+        <span className="brand text-[15px]">ORBITAL</span>
+        <span className="meta">{tr(locale, "connexion aux sources…", "connecting to sources…")}</span>
       </div>
     </div>
   );

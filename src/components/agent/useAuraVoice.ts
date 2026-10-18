@@ -24,13 +24,27 @@ function rank(voice: SpeechSynthesisVoice, lang: string) {
   return score;
 }
 
-/** Nettoie le texte pour la lecture : liens, markdown, URL. */
+/**
+ * Texte prononçable : la voix ne lit jamais le markdown, les marqueurs de
+ * citation [n], les URL ni les noms de domaine.
+ */
 export function speakable(text: string) {
   return text
+    .replace(/```[\s\S]*?```/g, " ")
     .replace(/\(\s*\[[^\]]*\]\([^)]*\)\s*\)/g, "")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/[*_#`>]+/g, "")
+    .replace(/!?\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\[\s*\d+(?:\s*[,;–-]\s*\d+)*\s*\]/g, "")
+    .replace(/\[\^?\d+\]/g, "")
+    .replace(/<?https?:\/\/[^\s>)\]]+>?/g, "")
+    .replace(/\bwww\.[^\s)\]]+/g, "")
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+•]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/(\*\*|__|~~|`)/g, "")
+    .replace(/(^|\s)[*_](\S[^*_]*\S|\S)[*_](?=\s|[.,;:!?]|$)/g, "$1$2")
+    .replace(/^\s*\|?[-:| ]{3,}\|?\s*$/gm, "")
+    .replace(/\|/g, ", ")
+    .replace(/[*_#>`~]+/g, "")
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s+([.,])/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
 }

@@ -252,34 +252,34 @@ export function AuraCore({
       // 8. Lectures techniques latérales.
       if (!compact) {
         ctx.globalCompositeOperation = "source-over";
-        ctx.font = "8px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
         ctx.textBaseline = "middle";
         const status = s === "speaking" ? "VOX TX" : s === "thinking" ? "ANALYSE" : "STANDBY";
+        // Uniquement des lectures réelles : état de l'agente, niveau vocal mesuré,
+        // sources consultables, heure UTC (aucune métrique décorative inventée).
         const left = [
-          ["NEURAL", `${(92 + Math.sin(t * 0.7) * 3 + think * 4).toFixed(1)}%`],
-          ["VOX", `${Math.round(energy * 100).toString().padStart(3, "0")}`],
           ["MODE", status],
+          ["VOX", `${Math.round(energy * 100).toString().padStart(3, "0")}`],
         ];
         const right = [
           ["SRC", "WEB·WD·WB"],
-          ["LINK", s === "idle" ? "SECURE" : "ACTIVE"],
           ["UTC", new Date().toISOString().slice(11, 19)],
         ];
-        const lx = Math.max(6, cx - R - 70);
+        const lx = Math.max(6, cx - R - 78);
         const rx = cx + R + 14;
         left.forEach(([k, v], i) => {
-          const y = cy - 22 + i * 22;
+          const y = cy - 12 + i * 26;
           ctx.fillStyle = `rgba(${CYAN}, 0.45)`;
-          ctx.fillText(k, lx, y - 4);
+          ctx.fillText(k, lx, y - 6);
           ctx.fillStyle = `rgba(${s === "thinking" && k === "MODE" ? AMBER : ICE}, 0.85)`;
-          ctx.fillText(v, lx, y + 4);
+          ctx.fillText(v, lx, y + 6);
         });
         right.forEach(([k, v], i) => {
-          const y = cy - 22 + i * 22;
+          const y = cy - 12 + i * 26;
           ctx.fillStyle = `rgba(${CYAN}, 0.45)`;
-          ctx.fillText(k, rx, y - 4);
+          ctx.fillText(k, rx, y - 6);
           ctx.fillStyle = `rgba(${ICE}, 0.85)`;
-          ctx.fillText(v, rx, y + 4);
+          ctx.fillText(v, rx, y + 6);
         });
         // Traits de liaison vers le réacteur.
         ctx.strokeStyle = `rgba(${CYAN}, 0.3)`;

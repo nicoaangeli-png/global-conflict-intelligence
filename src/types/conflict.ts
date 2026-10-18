@@ -135,6 +135,8 @@ export interface ConflictCluster {
    * de démonstration, 1 = entièrement réel. Le rendu s'en sert pour teinter.
    */
   realShare: number;
+  /** Additif : niveau de précision de localisation de l agrégat. */
+  geoPrecision?: GeoPrecision;
 }
 
 /** Charge utile servie au client (colonne compacte, prête pour le GPU). */

@@ -5,6 +5,7 @@ import {
   type ConflictCluster,
   type ConflictEvent,
   type EventType,
+  type GeoPrecision,
   EVENT_TYPES,
 } from "@/types/conflict";
 
@@ -126,6 +127,17 @@ export function aggregateClusters(events: ConflictEvent[], options: ClusterOptio
     const longitude = lonSum / wSum;
     const lastEventAt = new Date(last).toISOString();
 
+    let hasCity = false;
+    let hasRegion = false;
+    let hasCountry = false;
+    for (const e of list) {
+      const p = e.geoPrecision ?? "city";
+      if (p === "city") hasCity = true;
+      else if (p === "region") hasRegion = true;
+      else if (p === "country") hasCountry = true;
+    }
+    const geoPrecision: GeoPrecision = hasCity ? "city" : hasRegion ? "region" : "country";
+
     // Le pays affiché est celui de l'événement le plus grave (proxy de foyer).
     const anchor = list.reduce((a, b) => (b.fatalities > a.fatalities ? b : a), list[0]);
 
@@ -147,6 +159,7 @@ export function aggregateClusters(events: ConflictEvent[], options: ClusterOptio
       lastEventAt,
       eventIds,
       realShare: list.length ? realCount / list.length : 0,
+      geoPrecision,
     });
   }
 

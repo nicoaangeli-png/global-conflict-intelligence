@@ -1,0 +1,276 @@
+{
+ "_note": "Extrait réel réduit de GET /api/feeds (serveur de dev :3011, 18/10/2026 ~10:30 UTC) pour tests/ui-feeds.test.ts.",
+ "generatedAt": "2026-10-18T10:30:51.563Z",
+ "items": [
+  {
+   "id": "gdelt-events:545058731cf8704fdd0b28ad",
+   "category": "social",
+   "nature": "press_article",
+   "title": "Moment French rioters attack shopkeeper and distraught woman begs them not to loot store as police admit they've 'lost control' of violent protests that saw 143-year-old town hall incinerated",
+   "summary": "Émeute / manifestation violente — Sebastopol, France (dailymail.com)",
+   "url": "https://www.dailymail.com/news/article-16218361/Moment-French-rioters-attack-shopkeeper.html",
+   "sourceId": "gdelt-events",
+   "sourceName": "GDELT 2.0 (presse mondiale)",
+   "publishedAt": "2026-10-18T10:30:00.000Z",
+   "occurredAt": "2026-10-18T10:30:00.000Z",
+   "fetchedAt": "2026-10-18T10:30:51.557Z",
+   "countries": [
+    "FRA"
+   ],
+   "lat": 47.4269,
+   "lon": 4.49839,
+   "severity": null,
+   "metric": null,
+   "caveat": "Signal presse GDELT, non confirmé"
+  },
+  {
+   "id": "gdelt-events:727327688d06cc396a24ca17",
+   "category": "social",
+   "nature": "press_article",
+   "title": "​​Libya: Racism and 'resettlement' conspiracies fuel fear among Tripoli's migrants",
+   "summary": "Manifestation — Tripoli, LBY (middleeasteye.net)",
+   "url": "https://www.middleeasteye.net/news/libya-racism-and-resettlement-conspiracies-fuel-fear-among-tripolis-sub-saharan-migrants",
+   "sourceId": "gdelt-events",
+   "sourceName": "GDELT 2.0 (presse mondiale)",
+   "publishedAt": "2026-10-18T10:30:00.000Z",
+   "occurredAt": "2026-10-18T10:30:00.000Z",
+   "fetchedAt": "2026-10-18T10:30:51.557Z",
+   "countries": [
+    "LBY"
+   ],
+   "lat": 32.8925,
+   "lon": 13.18,
+   "severity": null,
+   "metric": null,
+   "caveat": "Signal presse GDELT, non confirmé"
+  },
+  {
+   "id": "usgs:us6000u34e",
+   "category": "disaster",
+   "nature": "sensor_measurement",
+   "title": "Séisme de magnitude 5.2 — 55 km NNW of Ruteng, Indonesia",
+   "summary": "Magnitude 5.2 (mb), profondeur 10 km. Statut USGS : reviewed.",
+   "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us6000u34e",
+   "sourceId": "usgs",
+   "sourceName": "USGS Earthquake Hazards Program",
+   "publishedAt": "2026-10-18T08:14:46.040Z",
+   "occurredAt": "2026-10-18T08:00:06.054Z",
+   "fetchedAt": "2026-10-18T10:28:38.932Z",
+   "countries": [
+    "IDN"
+   ],
+   "lat": -8.1449,
+   "lon": 120.2734,
+   "severity": "minor",
+   "metric": {
+    "label": "Magnitude",
+    "value": 5.2,
+    "unit": "Mmb"
+   },
+   "caveat": null
+  },
+  {
+   "id": "gdacs:EQ:1572327",
+   "category": "disaster",
+   "nature": "official_alert",
+   "title": "Earthquake in Indonesia — alerte verte",
+   "summary": "Green M 5.2 Earthquake in Indonesia at: 18 Oct 2026 08:00:06. — Magnitude 5.2M, Depth:10km",
+   "url": "https://www.gdacs.org/report.aspx?eventid=1572327&episodeid=1740903&eventtype=EQ",
+   "sourceId": "gdacs",
+   "sourceName": "GDACS (ONU / Commission européenne)",
+   "publishedAt": "2026-10-18T08:40:24.000Z",
+   "occurredAt": "2026-10-18T08:00:06.000Z",
+   "fetchedAt": "2026-10-18T10:28:38.932Z",
+   "countries": [
+    "IDN"
+   ],
+   "lat": -8.1449,
+   "lon": 120.2734,
+   "severity": "minor",
+   "metric": {
+    "label": "Magnitude",
+    "value": 5.2,
+    "unit": "M"
+   },
+   "caveat": "Niveau d'alerte GDACS issu de modèles automatiques d'impact potentiel, non d'un bilan constaté."
+  },
+  {
+   "id": "un-press:https://press.un.org/en/2026/gal3751.doc.htm",
+   "category": "un",
+   "nature": "official_publication",
+   "title": "States Must Reaffirm Commitment to International Humanitarian Law as Conflict Evolves, Sixth Committee Hears",
+   "summary": "As armed conflict increases and evolves with the advent of new technologies, the Sixth Committee (Legal) continued today its debate on the status of the protocols additional to the Geneva Conventions, as speakers outlined national efforts to strengthen compliance with international law designed to protect those trapped by violence.",
+   "url": "https://press.un.org/en/2026/gal3751.doc.htm",
+   "sourceId": "un-press",
+   "sourceName": "ONU — Couverture des réunions et communiqués",
+   "publishedAt": "2026-10-16T21:50:12.000Z",
+   "occurredAt": null,
+   "fetchedAt": "2026-10-18T10:28:38.933Z",
+   "countries": [],
+   "lat": null,
+   "lon": null,
+   "severity": null,
+   "metric": null,
+   "caveat": "Compte rendu officiel de l'ONU (en anglais) : résume les déclarations faites en séance, sans les valider."
+  },
+  {
+   "id": "yahoo-indices:^GSPC:2026-10-16",
+   "category": "economy",
+   "nature": "market_quote",
+   "title": "S&P 500 : 7 659,44 (-1.09 %)",
+   "summary": "Dernier cours 7 659,44 USD, séance du 2026-10-16, contre 7 744,06 à la séance précédente.",
+   "url": "https://finance.yahoo.com/quote/%5EGSPC",
+   "sourceId": "yahoo-indices",
+   "sourceName": "Yahoo Finance (indices boursiers)",
+   "publishedAt": "2026-10-16T13:30:00.000Z",
+   "occurredAt": "2026-10-16T13:30:00.000Z",
+   "fetchedAt": "2026-10-18T10:28:38.933Z",
+   "countries": [
+    "USA"
+   ],
+   "lat": null,
+   "lon": null,
+   "severity": "info",
+   "metric": {
+    "label": "Variation vs séance précédente",
+    "value": -1.093,
+    "unit": "%"
+   },
+   "caveat": "Cotation via Yahoo Finance (source non officielle, différée)."
+  },
+  {
+   "id": "ecb-fx:USD:2026-10-16",
+   "category": "economy",
+   "nature": "market_quote",
+   "title": "EUR/USD : 1.1253 (+0.40 %)",
+   "summary": "1 euro = 1.1253 USD (dollar américain) au fixing de la BCE du 2026-10-16, contre 1.1208 le 2026-10-15.",
+   "url": "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html",
+   "sourceId": "ecb-fx",
+   "sourceName": "BCE via Frankfurter",
+   "publishedAt": "2026-10-16T14:15:00.000Z",
+   "occurredAt": "2026-10-16T14:15:00.000Z",
+   "fetchedAt": "2026-10-18T10:28:38.933Z",
+   "countries": [
+    "USA"
+   ],
+   "lat": null,
+   "lon": null,
+   "severity": "info",
+   "metric": {
+    "label": "Variation vs fixing précédent",
+    "value": 0.401,
+    "unit": "%"
+   },
+   "caveat": "Taux de référence de la BCE (fixing quotidien vers 16 h CET), pas un cours temps réel de marché."
+  },
+  {
+   "id": "who-don:2026-DON618",
+   "category": "health",
+   "nature": "official_alert",
+   "title": "Middle East respiratory syndrome coronavirus - Kingdom of Saudi Arabia",
+   "summary": "Between 1 January and 5 October 2026, the Kingdom of Saudi Arabia reported eight laboratory-confirmed cases of Middle East Respiratory Syndrome Coronavirus (MERS-CoV) infection, including one death. Cases were detected across six locations: Al Jouf (1), Arar (1), Hafr Al-Batin (1), Riyadh (2), Tabuk (1) and Taif (2). No epidemiological links were identified between any of the cases. All eight cases were symptomatic, most commonly presenting with…",
+   "url": "https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON618",
+   "sourceId": "who-don",
+   "sourceName": "OMS — Disease Outbreak News",
+   "publishedAt": "2026-10-15T16:00:00.000Z",
+   "occurredAt": null,
+   "fetchedAt": "2026-10-18T10:28:38.932Z",
+   "countries": [
+    "SAU"
+   ],
+   "lat": null,
+   "lon": null,
+   "severity": null,
+   "metric": null,
+   "caveat": "Publication de l'OMS à la date indiquée ; la situation a pu évoluer depuis."
+  },
+  {
+   "id": "geipan:2026-04-51742",
+   "category": "uap",
+   "nature": "published_report",
+   "title": "Cas GEIPAN A — VERNOIL-LE-FOURRIER (49) 07.04.2026",
+   "summary": "Classification GEIPAN A (phénomène identifié). Observation du déplacement d'un PAN en forme de \"segment\" blanc dans le ciel nocturne : observation de flares sur tout ou partie des 18 satellites \" Qianfan SpaceSail 109 - 116 \" lancés moins de sept heures auparavant par une fusée \" Long March 8 \".",
+   "url": "https://www.cnes-geipan.fr/fr/cas/2026-04-51742",
+   "sourceId": "geipan",
+   "sourceName": "GEIPAN (CNES, France)",
+   "publishedAt": null,
+   "occurredAt": "2026-04-07T00:00:00.000Z",
+   "fetchedAt": "2026-10-18T10:28:38.933Z",
+   "countries": [
+    "FRA"
+   ],
+   "lat": 47.38,
+   "lon": 0.1,
+   "severity": null,
+   "metric": null,
+   "caveat": "Classification GEIPAN : A (phénomène identifié) — un cas D signifie non expliqué, pas d'origine extraterrestre établie. Témoignage publié après enquête, non un fait établi."
+  },
+  {
+   "id": "ll2:db3500ac-965b-4ad8-b417-cb8d8d005586",
+   "category": "space",
+   "nature": "scheduled_event",
+   "title": "Electron | The Mountain God Rises (iQPS Launch 10)",
+   "summary": "Statut : To Be Determined. Opérateur : Rocket Lab. Lanceur : Electron. Site : Rocket Lab Launch Complex 1, Mahia Peninsula, New Zealand. Orbite : Low Earth Orbit. Synthetic aperture radar Earth observation satellite for Japanese Earth imaging company iQPS.",
+   "url": "https://ll.thespacedevs.com/2.2.0/launch/db3500ac-965b-4ad8-b417-cb8d8d005586/",
+   "sourceId": "ll2",
+   "sourceName": "Launch Library 2 (The Space Devs)",
+   "publishedAt": "2026-10-12T23:40:41.000Z",
+   "occurredAt": "2026-11-10T00:00:00.000Z",
+   "fetchedAt": "2026-10-18T10:28:38.932Z",
+   "countries": [
+    "NZL"
+   ],
+   "lat": -39.260881,
+   "lon": 177.865826,
+   "severity": null,
+   "metric": null,
+   "caveat": "Date prévue (NET, « pas avant »), susceptible d'être repoussée ; le pays est celui du site de lancement."
+  }
+ ],
+ "sources": [
+  {
+   "sourceId": "gdacs",
+   "sourceName": "GDACS (ONU / Commission européenne)",
+   "category": "disaster",
+   "homepage": "https://www.gdacs.org",
+   "license": "Domaine public (GDACS)",
+   "status": "ok",
+   "message": null,
+   "fetchedAt": "2026-10-18T10:28:38.932Z",
+   "itemCount": 100
+  },
+  {
+   "sourceId": "usgs",
+   "sourceName": "USGS Earthquake Hazards Program",
+   "category": "disaster",
+   "homepage": "https://earthquake.usgs.gov",
+   "license": "Domaine public (USGS)",
+   "status": "ok",
+   "message": null,
+   "fetchedAt": "2026-10-18T10:28:38.932Z",
+   "itemCount": 10
+  },
+  {
+   "sourceId": "aaro",
+   "sourceName": "AARO (Pentagone, États-Unis)",
+   "category": "uap",
+   "homepage": "https://www.aaro.mil",
+   "license": null,
+   "status": "error",
+   "message": "www.aaro.mil refuse l'accès automatisé (HTTP 403) ; aucun contournement n'est tenté.",
+   "fetchedAt": null,
+   "itemCount": 0
+  },
+  {
+   "sourceId": "nasa-uap",
+   "sourceName": "NASA — étude sur les PAN/UAP",
+   "category": "uap",
+   "homepage": "https://science.nasa.gov/uap/",
+   "license": "Domaine public (NASA)",
+   "status": "not_configured",
+   "message": "La page officielle de la NASA est statique (rapport final de l'équipe d'étude indépendante, septembre 2023) : aucun flux daté, donc aucune publication récente à lister.",
+   "fetchedAt": null,
+   "itemCount": 0
+  }
+ ]
+}

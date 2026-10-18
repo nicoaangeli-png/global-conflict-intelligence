@@ -11,7 +11,17 @@ import { HolographicEarth } from './HolographicEarth';
 import { OrbitLayer } from './OrbitLayer';
 import { Starfield } from './Starfield';
 import { ConflictLayer } from '../conflicts/ConflictLayer';
+import { FeedLayer } from './FeedLayer';
 import { useIntelStore } from '@/store/useIntelStore';
+import { tr } from '@/lib/i18n';
+import type { LiveItem } from '@/types/feeds';
+import { itemsForTheme, type ThemeKey } from '../feeds/feedModel';
+import { isPointPrecise } from '../feeds/conflictModel';
+
+/** Éléments de flux visibles pour un thème (« conflict » : aucun, « all » : tous). */
+function feedItemsFor(theme: ThemeKey, feeds: LiveItem[]): LiveItem[] {
+  return itemsForTheme(feeds, theme);
+}
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -21,6 +31,7 @@ export function GlobeScene() {
   const orbitLayerRef = useRef<OrbitLayer | null>(null);
   const starfieldRef = useRef<Starfield | null>(null);
   const conflictLayerRef = useRef<ConflictLayer | null>(null);
+  const feedLayerRef = useRef<FeedLayer | null>(null);
 
   const clusters = useIntelStore((s) => s.clusters);
   const selected = useIntelStore((s) => s.selected);
@@ -31,6 +42,11 @@ export function GlobeScene() {
   const setDegrees = useIntelStore((s) => s.setDegrees);
   const setCountry = useIntelStore((s) => s.setCountry);
   const setHoveredCountry = useIntelStore((s) => s.setHoveredCountry);
+  const theme = useIntelStore((s) => s.theme);
+  const feeds = useIntelStore((s) => s.feeds);
+  const selectedFeedId = useIntelStore((s) => s.selectedFeedItem?.id ?? null);
+  const hoveredFeedId = useIntelStore((s) => s.hoveredFeedId);
+  const locale = useIntelStore((s) => s.locale);
 
   const sphericalRef = useRef<{
     distance: number;
@@ -102,6 +118,16 @@ export function GlobeScene() {
     globeGroup.add(conflictLayer.group);
     conflictLayerRef.current = conflictLayer;
 
+    // Calque des flux mondiaux : au-dessus des foyers, sans toucher au rendu de la Terre.
+    const feedLayer = new FeedLayer(GLOBE.radius);
+    globeGroup.add(feedLayer.group);
+    feedLayerRef.current = feedLayer;
+
+    /** Foyer de conflit sous le pointeur, seulement si son calque est allumé. */
+    const conflictHit = (rect: DOMRect) =>
+      conflictLayerRef.current?.group.visible ? conflictLayerRef.current.hitTest(camera, mouse, rect.width, rect.height) : null;
+    const feedHit = (rect: DOMRect) => feedLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? null;
+
     // Raycasting & picking analytique exact sur la sphère terrestre
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
@@ -161,18 +187,23 @@ export function GlobeScene() {
         lastInteractionTimeRef.current = Date.now();
         hover(null);
         setHoveredCountry(null);
+        useIntelStore.getState().hoverFeed(null);
       } else {
         if (e.target !== renderer.domElement || Math.abs(mouse.x) > 1 || Math.abs(mouse.y) > 1) {
           container.style.cursor = 'default';
           hover(null);
           setHoveredCountry(null);
+          // Le survol d'une ligne du fil (hors canevas) garde la main sur le point surligné.
+          if (e.target === renderer.domElement) useIntelStore.getState().hoverFeed(null);
           return;
         }
         raycaster.setFromCamera(mouse, camera);
-        const hit = conflictLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) || null;
-        if (hit) {
+        const hit = conflictHit(rect);
+        const itemHit = hit ? null : feedHit(rect);
+        useIntelStore.getState().hoverFeed(itemHit?.id ?? null);
+        if (hit || itemHit) {
           container.style.cursor = 'pointer';
-          hover(hit.id);
+          hover(hit?.id ?? null);
           setHoveredCountry(null);
         } else {
           hover(null);
@@ -218,9 +249,12 @@ export function GlobeScene() {
 
       // Clic stationnaire intentionnel (totalDist <= 5)
       raycaster.setFromCamera(mouse, camera);
-      const hit = conflictLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) || null;
+      const hit = conflictHit(rect);
+      const itemHit = hit ? null : feedHit(rect);
       if (hit) {
         void select(hit);
+      } else if (itemHit) {
+        useIntelStore.getState().selectFeedItem(itemHit);
       } else {
         // Clic sur un pays pour ouvrir la fiche détaillée Pentagone
         if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
@@ -362,6 +396,7 @@ export function GlobeScene() {
       if (orbitLayerRef.current) orbitLayerRef.current.update(elapsedTime, delta);
       if (starfieldRef.current) starfieldRef.current.update(elapsedTime);
       if (conflictLayerRef.current) conflictLayerRef.current.update(elapsedTime, delta, fov, height, dpr);
+      if (feedLayerRef.current) feedLayerRef.current.update(elapsedTime, dpr);
 
       renderer.render(scene, camera);
     };
@@ -384,6 +419,7 @@ export function GlobeScene() {
       orbitLayer.dispose();
       starfield.dispose();
       conflictLayer.dispose();
+      feedLayer.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -394,9 +430,27 @@ export function GlobeScene() {
   // Synchronisation des foyers
   useEffect(() => {
     if (conflictLayerRef.current) {
-      conflictLayerRef.current.setClusters(clusters);
+      // Un foyer localisé au niveau pays/région n'est pas dessiné comme un point précis
+      // (il reste dans les compteurs et la liste des zones, avec sa mention).
+      conflictLayerRef.current.setClusters(clusters.filter(isPointPrecise));
     }
   }, [clusters]);
+
+  // Calques par thème : « Conflits » n'allume que les foyers, une catégorie que ses points.
+  useEffect(() => {
+    if (conflictLayerRef.current) conflictLayerRef.current.group.visible = theme === 'all' || theme === 'conflict';
+    const layer = feedLayerRef.current;
+    if (!layer) return;
+    const apply = () => layer.setItems(feedItemsFor(theme, feeds));
+    apply();
+    // Les halos « < 2 h » et l'éclat suivent l'âge réel : recalcul chaque minute.
+    const id = setInterval(apply, 60_000);
+    return () => clearInterval(id);
+  }, [theme, feeds]);
+
+  useEffect(() => {
+    feedLayerRef.current?.setHighlight(selectedFeedId, hoveredFeedId);
+  }, [selectedFeedId, hoveredFeedId, feeds, theme]);
 
   // Synchronisation sélection et survol
   useEffect(() => {
@@ -465,39 +519,18 @@ export function GlobeScene() {
     <div className="relative h-full w-full select-none">
       <div ref={containerRef} className="h-full w-full" />
 
-      {/* Widget de Contrôles Tactiques Pentagone (Zoom / Reset / Boussole) */}
-      <div className="pointer-events-auto absolute bottom-[128px] right-5 z-20 flex flex-col gap-1 border border-cyan/20 bg-[#020b14]/85 p-1 backdrop-blur-md shadow-[0_0_20px_rgba(0,180,255,0.1)]">
-        <button
-          type="button"
-          onClick={handleZoomIn}
-          title="Zoom avant (+)"
-          className="flex h-7 w-7 items-center justify-center border border-cyan/20 bg-cyan/5 text-[14px] font-mono font-bold text-ice transition hover:border-cyan hover:bg-cyan/20 active:scale-95"
-        >
+      {/* Contrôles de caméra : dock bas-centre (aucune collision avec les colonnes latérales). */}
+      <div className="globe-dock" role="group" aria-label={tr(locale, 'Contrôles du globe', 'Globe controls')}>
+        <button type="button" onClick={handleZoomIn} title={tr(locale, 'Zoom avant', 'Zoom in')} aria-label={tr(locale, 'Zoom avant', 'Zoom in')}>
           +
         </button>
-        <button
-          type="button"
-          onClick={handleZoomOut}
-          title="Zoom arrière (-)"
-          className="flex h-7 w-7 items-center justify-center border border-cyan/20 bg-cyan/5 text-[14px] font-mono font-bold text-ice transition hover:border-cyan hover:bg-cyan/20 active:scale-95"
-        >
+        <button type="button" onClick={handleZoomOut} title={tr(locale, 'Zoom arrière', 'Zoom out')} aria-label={tr(locale, 'Zoom arrière', 'Zoom out')}>
           −
         </button>
-        <div className="my-0.5 h-[1px] w-full bg-cyan/20" />
-        <button
-          type="button"
-          onClick={handleNorthUp}
-          title="Orienter vers le Nord (Boussole)"
-          className="flex h-7 w-7 items-center justify-center border border-cyan/20 bg-cyan/5 text-[10px] font-mono font-bold text-cyan transition hover:border-cyan hover:bg-cyan/20 active:scale-95"
-        >
+        <button type="button" onClick={handleNorthUp} title={tr(locale, 'Nord en haut', 'North up')} aria-label={tr(locale, 'Nord en haut', 'North up')}>
           N
         </button>
-        <button
-          type="button"
-          onClick={handleResetView}
-          title="Réinitialiser vue globale"
-          className="flex h-7 w-7 items-center justify-center border border-cyan/20 bg-cyan/5 text-[11px] font-mono text-cyan-dim transition hover:border-cyan hover:bg-cyan/20 active:scale-95"
-        >
+        <button type="button" onClick={handleResetView} title={tr(locale, 'Vue globale initiale', 'Reset global view')} aria-label={tr(locale, 'Vue globale initiale', 'Reset global view')}>
           ⟳
         </button>
       </div>

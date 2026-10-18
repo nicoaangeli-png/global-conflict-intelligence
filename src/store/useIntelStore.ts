@@ -12,6 +12,8 @@ import type {
 } from "@/types/conflict";
 import type { Locale } from "@/lib/i18n";
 import { REAL_DATASETS } from "@/types/conflict";
+import type { FeedCategory, FeedSourceState, FeedsResponse, LiveItem } from "@/types/feeds";
+import { FETCH_CATEGORIES, mergeCategoryResults, type CategoryResult, type ThemeKey } from "@/components/feeds/feedModel";
 
 /**
  * État global de l'application.
@@ -24,30 +26,40 @@ import { REAL_DATASETS } from "@/types/conflict";
 
 export type CountryFocus = { name: string; iso: string; lat: number; lon: number; source?: "globe" | "explorer" } | null;
 
-/** Interrupteurs de couches du globe (contrôle « digital twin »). */
-export interface LayerToggles {
-  land: boolean;
-  borders: boolean;
-  cities: boolean;
-  graticule: boolean;
-  orbits: boolean;
-  stars: boolean;
-  heat: boolean;
-  particles: boolean;
-}
-
-export type ReconTarget = {
-  locality: string;
-  country: string;
-  lat: number;
-  lon: number;
-} | null;
+/** État de chargement des flux mondiaux (`/api/feeds`). */
+export type FeedsStatus = "idle" | "loading" | "ready" | "error";
 
 interface IntelStore {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  reconTarget: ReconTarget;
-  setReconTarget: (target: ReconTarget) => void;
+
+  /**
+   * Thème de navigation : filtre le FIL MONDIAL et n'allume sur le globe que
+   * le calque correspondant (« all » = tous les calques).
+   */
+  theme: ThemeKey;
+  setTheme: (theme: ThemeKey) => void;
+
+  /** Flux mondiaux (hors conflits armés), fusionnés depuis une requête par catégorie. */
+  feeds: LiveItem[];
+  feedSources: FeedSourceState[];
+  feedsStatus: FeedsStatus;
+  /** Catégories dont la requête a échoué (route absente, erreur serveur…). */
+  feedFailures: { category: FeedCategory; error: string }[];
+  /** Date de génération de la réponse serveur la plus récente. */
+  feedsGeneratedAt: string | null;
+  /** Fin du dernier rafraîchissement côté client (réussi ou non). */
+  feedsCheckedAt: string | null;
+  refreshFeeds: () => Promise<void>;
+  /** Élément de flux inspecté (clic sur un point du globe ou dans le fil). */
+  selectedFeedItem: LiveItem | null;
+  selectFeedItem: (item: LiveItem | null) => void;
+  hoveredFeedId: string | null;
+  hoverFeed: (id: string | null) => void;
+  /** Question pré-remplie pour AURA (consommée par le panneau AURA). */
+  auraPrompt: string | null;
+  openAura: (prompt?: string | null) => void;
+  consumeAuraPrompt: () => void;
 
   filters: EventFilters;
   /** Rayon d'agrégation courant (dérivé du zoom caméra). */
@@ -71,11 +83,9 @@ interface IntelStore {
   dataEpoch: number;
   /** Demande de recentrage caméra (consommée par la scène 3D). */
   focusRequest: { lat: number; lon: number; at: number } | null;
-  layers: LayerToggles;
-  /** Panneau AURA (analyste IA) ouvert : masque la colonne droite. */
+  /** Panneau AURA (analyste IA) ouvert : occupe la colonne droite. */
   agentOpen: boolean;
   setAgentOpen: (open: boolean) => void;
-  setLayer: (key: keyof LayerToggles, value: boolean) => void;
 
   setRange: (range: TimeRangeKey) => void;
   /** Curseur temporel : reconstruit la situation à une date donnée. */
@@ -83,7 +93,7 @@ interface IntelStore {
   toggleType: (type: EventType) => void;
   /**
    * Restreint l'affichage à certains jeux de données. Passer un tableau vide
-   * affiche tout ; `REAL_DATASETS` masque la démonstration.
+   * affiche tout ; `REAL_DATASETS` = toutes les sources réelles.
    */
   setDatasets: (d: string[]) => void;
   setConfidences: (c: Confidence[]) => void;
@@ -122,6 +132,23 @@ const queryOf = (filters: EventFilters, degrees: number) => {
 };
 
 let inFlight: AbortController | null = null;
+let feedsInFlight: AbortController | null = null;
+
+/** Une requête par catégorie : une catégorie volumineuse n'évince jamais les autres. */
+const FEEDS_PER_CATEGORY = 150;
+
+async function fetchCategory(category: FeedCategory, signal: AbortSignal): Promise<CategoryResult> {
+  try {
+    const res = await fetch(`/api/feeds?category=${category}&limit=${FEEDS_PER_CATEGORY}`, { signal, cache: "no-store" });
+    if (!res.ok) return { category, ok: false, error: res.status === 404 ? "service des flux absent (HTTP 404)" : `HTTP ${res.status}` };
+    const body = (await res.json()) as FeedsResponse;
+    if (!body || !Array.isArray(body.items)) return { category, ok: false, error: "réponse invalide" };
+    return { category, ok: true, body };
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    return { category, ok: false, error: "réseau indisponible" };
+  }
+}
 let refreshSequence = 0;
 let detailSequence = 0;
 
@@ -152,8 +179,65 @@ function resolveSelection(prev: ConflictCluster, clusters: ConflictCluster[]): C
 export const useIntelStore = create<IntelStore>((set, get) => ({
   locale: "fr",
   setLocale: (locale) => set({ locale }),
-  reconTarget: null,
-  setReconTarget: (reconTarget) => set({ reconTarget }),
+
+  theme: "all",
+  setTheme: (theme) => {
+    const { selectedFeedItem, selected } = get();
+    // Changer de thème ferme l'inspection qui n'appartient plus au calque visible.
+    const keepItem = selectedFeedItem && (theme === "all" || selectedFeedItem.category === theme);
+    const keepCluster = selected && (theme === "all" || theme === "conflict");
+    set({
+      theme,
+      selectedFeedItem: keepItem ? selectedFeedItem : null,
+      hoveredFeedId: null,
+      ...(keepCluster ? {} : { selected: null, selectedEvents: [] }),
+    });
+  },
+
+  feeds: [],
+  feedSources: [],
+  feedsStatus: "idle",
+  feedFailures: [],
+  feedsGeneratedAt: null,
+  feedsCheckedAt: null,
+  refreshFeeds: async () => {
+    feedsInFlight?.abort();
+    const controller = new AbortController();
+    feedsInFlight = controller;
+    set({ feedsStatus: "loading" });
+    try {
+      const results = await Promise.all(FETCH_CATEGORIES.map((category) => fetchCategory(category, controller.signal)));
+      if (controller.signal.aborted) return;
+      const merged = mergeCategoryResults(results);
+      const allFailed = merged.failedCategories.length === FETCH_CATEGORIES.length;
+      set((s) => ({
+        // Échec total : on garde le dernier état connu plutôt que d'effacer le fil.
+        feeds: allFailed ? s.feeds : merged.items,
+        feedSources: allFailed ? s.feedSources : merged.sources,
+        feedFailures: merged.failedCategories,
+        feedsGeneratedAt: allFailed ? s.feedsGeneratedAt : merged.generatedAt,
+        feedsCheckedAt: new Date().toISOString(),
+        feedsStatus: allFailed ? "error" : "ready",
+      }));
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      set({ feedsStatus: "error", feedsCheckedAt: new Date().toISOString() });
+    }
+  },
+  selectedFeedItem: null,
+  selectFeedItem: (item) => {
+    detailSequence++;
+    // Sélection unique : inspecter un élément ferme la fiche pays et le foyer.
+    set(item ? { selectedFeedItem: item, country: null, selected: null, selectedEvents: [], selecting: false } : { selectedFeedItem: null });
+    if (item && item.lat !== null && item.lon !== null) get().focus(item.lat, item.lon);
+  },
+  hoveredFeedId: null,
+  hoverFeed: (hoveredFeedId) => {
+    if (get().hoveredFeedId !== hoveredFeedId) set({ hoveredFeedId });
+  },
+  auraPrompt: null,
+  openAura: (prompt = null) => set({ agentOpen: true, auraPrompt: prompt }),
+  consumeAuraPrompt: () => set({ auraPrompt: null }),
 
   filters: DEFAULT_FILTERS,
   degrees: 2.4,
@@ -174,18 +258,6 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
   focusRequest: null,
   agentOpen: false,
   setAgentOpen: (agentOpen) => set({ agentOpen }),
-  layers: {
-    land: true,
-    borders: true,
-    cities: true,
-    graticule: true,
-    orbits: true,
-    stars: true,
-    heat: true,
-    particles: true,
-  },
-
-  setLayer: (key, value) => set({ layers: { ...get().layers, [key]: value } }),
 
   setRange: (range) => {
     set({ filters: { ...get().filters, range } });
@@ -273,7 +345,8 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       set({ selected: null, selectedEvents: [], selecting: false });
       return;
     }
-    set({ selected: cluster, selecting: true, selectedEvents: [] });
+    // Sélection unique : un foyer ferme la fiche pays et l'élément de flux inspecté.
+    set({ selected: cluster, selecting: true, selectedEvents: [], country: null, selectedFeedItem: null });
     get().focus(cluster.latitude, cluster.longitude);
     await get().loadClusterDetail(cluster);
   },
@@ -304,7 +377,15 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
 
   hover: (hoveredId) => set({ hoveredId }),
   focus: (lat, lon) => set({ focusRequest: { lat, lon, at: Date.now() } }),
-  setCountry: (country) => set({ country }),
+  setCountry: (country) => {
+    if (!country) {
+      set({ country: null });
+      return;
+    }
+    // Sélection unique : la fiche pays remplace foyer et élément inspectés.
+    detailSequence++;
+    set({ country, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null });
+  },
   setHoveredCountry: (hoveredCountry) => set({ hoveredCountry }),
   setStreamStatus: (streamStatus) => set({ streamStatus }),
 }));
