@@ -21,7 +21,7 @@ import { type Connector } from "./connectors/types";
 import { ucdpConnector } from "./connectors/ucdp";
 import { firmsConnector } from "./connectors/firms";
 import { isRealSourceRecord } from "./dataPolicy";
-import { LocalRepository, PgRepository, type Repository } from "./repository";
+import { createRepository, LocalRepository, type Repository } from "./repository";
 import { ConnectorError } from "./connectors/types";
 
 /**
@@ -65,8 +65,7 @@ const state: IntelState =
   });
 
 function pickRepository(): Repository {
-  const url = process.env.DATABASE_URL;
-  return url ? new PgRepository(url) : new LocalRepository();
+  return createRepository();
 }
 
 /** Abonnés SSE : notifiés à chaque ingestion (partagé entre bundles). */

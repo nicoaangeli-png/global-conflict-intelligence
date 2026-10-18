@@ -3,12 +3,15 @@ import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertRealSourceRecords } from "./dataPolicy";
+import { SqliteRepository } from "./sqliteRepository";
 
 /**
  * Couche de persistance.
  *
- * Deux implémentations derrière la même interface :
- *  - `MemoryRepository` : zéro configuration, utilisée par défaut ;
+ * Quatre implémentations derrière la même interface :
+ *  - `MemoryRepository` : stockage éphémère pour les tests ;
+ *  - `SqliteRepository` : stockage local durable par défaut ;
+ *  - `LocalRepository` : ancien stockage JSON, repli explicite ;
  *  - `PgRepository` : PostgreSQL (PostGIS optionnel), activée par DATABASE_URL.
  *
  * Les requêtes géographiques restent volontairement simples (fenêtre
@@ -28,13 +31,21 @@ export interface EventQuery {
 }
 
 export interface Repository {
-  readonly kind: "memory" | "local" | "postgres";
+  readonly kind: "memory" | "local" | "sqlite" | "postgres";
   init(): Promise<void>;
   upsert(events: ConflictEvent[]): Promise<{ inserted: number; updated: number }>;
   query(q: EventQuery): Promise<ConflictEvent[]>;
   byIds(ids: string[]): Promise<ConflictEvent[]>;
   counts(): Promise<{ total: number; byDataset: Record<string, number>; lastUpdated: string | null }>;
   clear(): Promise<void>;
+}
+
+/** Sélectionne le stockage sans changer la priorité historique de PostgreSQL. */
+export function createRepository(): Repository {
+  const url = process.env.DATABASE_URL;
+  if (url) return new PgRepository(url);
+  if (process.env.ORBITAL_STORAGE?.trim().toLowerCase() === "json") return new LocalRepository();
+  return new SqliteRepository();
 }
 
 const keyOf = (e: ConflictEvent) => `${e.sourceDataset}|${e.id}`;
