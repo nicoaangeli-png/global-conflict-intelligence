@@ -4,9 +4,11 @@ import { queryClusters, queryLatestEvents, queryStats } from "./intel";
 import { getCountryLeaders } from "./leaders";
 import { getCountryIndicators } from "./countryIndicators";
 import { getAirspaceActivity } from "./airspace";
+import { getFeeds } from "./feeds";
 import { loadWorldIndex } from "./world";
 import { canonicalCountryIdentity, normalizeCountryName, resolveCountryIdentity } from "@/lib/geo/country";
 import { REAL_DATASETS, TIME_RANGES } from "@/types/conflict";
+import { FEED_CATEGORIES, type FeedCategory, type LiveItem } from "@/types/feeds";
 import type { WorldIndex } from "@/lib/geo/world";
 
 /**
@@ -86,7 +88,7 @@ export function agentLimits() {
   };
 }
 
-const TOOLS = [
+export const AGENT_TOOLS = [
   { type: "web_search" },
   {
     type: "function",
@@ -113,6 +115,22 @@ const TOOLS = [
         range: { type: "string", enum: RANGE_KEYS },
       },
       required: ["country", "iso3", "range"],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
+    name: "get_live_feeds",
+    description:
+      "Flux mondiaux ORBITAL récents, hors base de conflits : alertes, publications, presse, mesures, lancements, marchés et signalements publiés. À utiliser, avec get_country_activity si pertinent, AVANT web_search pour toute actualité mondiale ou nationale. Renvoie aussi l'état des sources, y compris les indisponibilités. Presse = non confirmée ; signalement UAP publié ≠ fait établi ; cotation Yahoo = indicative, non officielle et différée.",
+    parameters: {
+      type: "object",
+      properties: {
+        category: { type: "string", enum: FEED_CATEGORIES },
+        country_iso3: { type: "string", pattern: "^[A-Z]{3}$", description: "Code ISO alpha-3, par exemple FRA ou UKR" },
+        hours: { type: "integer", minimum: 1, maximum: 720, description: "Fenêtre glissante en heures, au plus 720" },
+        limit: { type: "integer", minimum: 1, maximum: 40, description: "Nombre maximal d'éléments, au plus 40" },
+      },
       additionalProperties: false,
     },
   },
@@ -156,6 +174,7 @@ const TOOLS = [
 const TOOL_STATUS: Record<string, string> = {
   get_platform_overview: "Lecture de la situation mondiale ORBITAL…",
   get_country_activity: "Interrogation de la base d'événements…",
+  get_live_feeds: "Lecture des flux mondiaux…",
   get_country_leaders: "Vérification des dirigeants (Wikidata)…",
   get_country_indicators: "Indicateurs Banque mondiale…",
   get_airspace_activity: "Trafic aérien en direct (OpenSky)…",
@@ -164,6 +183,7 @@ const TOOL_STATUS: Record<string, string> = {
 const TOOL_LABEL: Record<string, string> = {
   get_platform_overview: "Situation mondiale ORBITAL",
   get_country_activity: "Activité pays ORBITAL",
+  get_live_feeds: "Flux mondiaux ORBITAL",
   get_country_leaders: "Dirigeants",
   get_country_indicators: "Indicateurs pays",
   get_airspace_activity: "Espace aérien",
@@ -291,10 +311,12 @@ Fiabilité et provenance :
 - N'affirme avoir fait une recherche web ou consulté un outil que si c'est le cas dans cet échange.
 
 Méthode :
+- Actualité d'un pays ou du monde : appelle d'abord les outils internes pertinents, get_country_activity et get_live_feeds (puis get_platform_overview si la carte est concernée), avant de compléter par web_search. Indique la date propre de chaque élément ; ne transforme jamais une date de collecte en date de fait.
 - Dirigeants : utilise get_country_leaders (Wikidata) puis confirme par la recherche web si l'actualité est mouvante.
 - Situation humanitaire (déplacés, famine, épidémies) : recherche web en privilégiant OCHA / ReliefWeb, en citant l'organisation auteure et la date.
 - Espace aérien (fermeture, reprise des vols, survols) : get_airspace_activity. Un ciel vide n'est pas une preuve d'activité militaire.
 - Questions sur la carte ou un pays affiché : get_platform_overview / get_country_activity. Les anomalies thermiques NASA FIRMS sont des chaleurs anormales détectées par satellite : jamais une frappe confirmée. Les signaux GDELT sont des mentions presse, pas des incidents confirmés. UCDP/ACLED sont des incidents codés par la source, avec un décalage de publication.
+- Flux mondiaux : une alerte ou publication officielle reste attribuée à son émetteur et datée. Un article de presse est rapporté, non confirmé par ORBITAL ; un signalement UAP publié ne prouve pas le phénomène rapporté ; les cotations Yahoo Finance sont indicatives, non officielles et différées. Si l'état d'une source est error, stale ou not_configured, dis-le explicitement et n'en tire pas de conclusion.
 - Distingue clairement : confirmé, rapporté, revendiqué, non vérifié. Donne les dates. Si les sources divergent ou si tu ne sais pas, dis-le.
 - Tu travailles uniquement en sources ouvertes : tu n'as pas accès à des renseignements classifiés et tu ne le prétends jamais.
 - Reste factuelle et neutre ; présente les positions des parties sans prendre parti.
@@ -311,6 +333,56 @@ const realFilters = (range: string) =>
   filtersFromSearchParams(new URLSearchParams({ range, datasets: REAL_DATASETS.join(",") }));
 const isDemoRecord = (record: { sourceDataset?: string; dataset?: string; confidence?: string; provenance?: string }) =>
   (record.sourceDataset ?? record.dataset ?? "").startsWith("demo") || record.confidence === "DEMO" || record.provenance === "demonstration";
+
+const LIVE_FEEDS_DEFAULT_HOURS = 168;
+const LIVE_FEEDS_MAX_HOURS = 720;
+const LIVE_FEEDS_DEFAULT_LIMIT = 16;
+export const LIVE_FEEDS_MAX_LIMIT = 40;
+
+function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const number = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  return Number.isInteger(number) ? Math.min(max, Math.max(min, number)) : fallback;
+}
+
+function liveFeedDate(item: LiveItem): string | null {
+  return item.occurredAt ?? item.publishedAt;
+}
+
+function isWithinHours(item: LiveItem, from: number): boolean {
+  const date = liveFeedDate(item);
+  const time = date ? Date.parse(date) : Number.NaN;
+  return Number.isFinite(time) && time >= from;
+}
+
+function compactLiveFeed(item: LiveItem) {
+  const date = liveFeedDate(item);
+  return {
+    title: cleanText(item.title, 180),
+    summary: item.summary ? cleanText(item.summary, 220) : null,
+    source: cleanText(item.sourceName, 120),
+    nature: item.nature,
+    date,
+    dateKind: item.occurredAt ? "occurredAt" : item.publishedAt ? "publishedAt" : null,
+    countries: item.countries.filter((country) => SELECTED_ISO3.test(country)).slice(0, 8),
+    url: safeHttpUrl(item.url) ?? undefined,
+    caveat: item.caveat ? cleanText(item.caveat, 220) : null,
+    metric: item.metric
+      ? { label: cleanText(item.metric.label, 80), value: item.metric.value, unit: item.metric.unit ? cleanText(item.metric.unit, 32) : null }
+      : null,
+  };
+}
+
+function compactFeedSource(source: Awaited<ReturnType<typeof getFeeds>>["sources"][number]) {
+  return {
+    sourceId: cleanText(source.sourceId, 64),
+    source: cleanText(source.sourceName, 120),
+    status: source.status,
+    message: source.message ? cleanText(source.message, 180) : null,
+    fetchedAt: source.fetchedAt,
+    itemCount: Math.max(0, Math.floor(source.itemCount)),
+    homepage: safeHttpUrl(source.homepage) ?? undefined,
+  };
+}
 
 const UNIT_LABEL: Record<string, string> = {
   acled: "incident codé par la source",
@@ -460,6 +532,8 @@ async function runTool(name: string, args: ToolArgs, context: AgentContext): Pro
             date: event.eventDate.slice(0, 16),
             type: event.eventType,
             place: [event.locality, event.region].filter(Boolean).join(", "),
+            title: event.title ?? undefined,
+            geoPrecision: event.geoPrecision ?? undefined,
             fatalities: FATALITIES_DATASETS.has(event.sourceDataset) && event.confidence !== "MEDIA_SIGNAL" ? event.fatalities : null,
             confidence: event.confidence,
             dataset: event.sourceDataset,
@@ -469,6 +543,43 @@ async function runTool(name: string, args: ToolArgs, context: AgentContext): Pro
             url: event.sourceUrl || undefined,
           })),
           note: "fatalities = null signifie non applicable ou inconnu, jamais zéro victime.",
+        },
+      };
+    }
+    case "get_live_feeds": {
+      const rawCategory = typeof args.category === "string" ? args.category.trim().toLowerCase() : "";
+      if (rawCategory && !(FEED_CATEGORIES as readonly string[]).includes(rawCategory)) {
+        return { status: "error", source: "Flux mondiaux ORBITAL", data: { error: "Catégorie de flux inconnue" } };
+      }
+      const category = (rawCategory || undefined) as FeedCategory | undefined;
+      const rawCountry = typeof args.country_iso3 === "string" ? args.country_iso3.trim().toUpperCase() : "";
+      if (rawCountry && !SELECTED_ISO3.test(rawCountry)) {
+        return { status: "error", source: "Flux mondiaux ORBITAL", data: { error: "Code pays ISO alpha-3 invalide" } };
+      }
+      const hours = boundedInteger(args.hours, LIVE_FEEDS_DEFAULT_HOURS, 1, LIVE_FEEDS_MAX_HOURS);
+      const limit = boundedInteger(args.limit, LIVE_FEEDS_DEFAULT_LIMIT, 1, LIVE_FEEDS_MAX_LIMIT);
+      const response = await getFeeds({ category, country: rawCountry || undefined, limit });
+      const from = Date.now() - hours * 60 * 60 * 1000;
+      const items = response.items
+        .filter((item) => (!category || item.category === category) && (!rawCountry || item.countries.includes(rawCountry)) && isWithinHours(item, from))
+        .slice(0, limit)
+        .map(compactLiveFeed);
+      const sources = response.sources
+        .filter((source) => !category || source.category === category)
+        .map(compactFeedSource);
+      const usableSource = sources.some((source) => source.status === "ok" || source.status === "stale");
+      return {
+        status: items.length ? "ok" : usableSource ? "empty" : "unavailable",
+        source: "Flux mondiaux ORBITAL",
+        detail: `${category ?? "toutes catégories"} · ${rawCountry || "monde"} · ${hours} h · ${items.length} élément(s)`,
+        data: {
+          category: category ?? null,
+          countryIso3: rawCountry || null,
+          hours,
+          generatedAt: response.generatedAt,
+          items,
+          sources,
+          note: "Les dates sont celles de l'événement ou de la publication selon dateKind. Un article de presse est non confirmé ; un signalement UAP publié n'établit pas le fait signalé ; une cotation Yahoo est indicative, non officielle et différée.",
         },
       };
     }
@@ -847,7 +958,7 @@ async function* orchestrate(
         model,
         instructions: instructions(context),
         input,
-        tools: TOOLS,
+        tools: AGENT_TOOLS,
         tool_choice: lastRound ? "none" : "auto",
         parallel_tool_calls: true,
         max_tool_calls: limits.maxBuiltinToolCalls,
