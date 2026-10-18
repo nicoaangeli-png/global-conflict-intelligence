@@ -487,6 +487,7 @@ export function useAuraVoice(locale: "fr" | "en") {
 
   const setEngine = useCallback((next: VoiceEngine) => {
     stop();
+    engineRef.current = next;
     setEngineState(next);
     writeStorage(ENGINE_KEY, next);
     setNotice(null);
@@ -494,6 +495,7 @@ export function useAuraVoice(locale: "fr" | "en") {
 
   const chooseNeuralVoice = useCallback((id: string) => {
     stop();
+    neuralVoiceRef.current = id;
     setNeuralVoice(id);
     writeStorage(NEURAL_KEY, id);
   }, [stop]);

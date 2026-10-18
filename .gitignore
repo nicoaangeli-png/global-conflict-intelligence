@@ -34,3 +34,6 @@ Thumbs.db
 
 # Bilan du jour (cache quotidien)
 data/briefing/
+
+# Extraits vocaux générés localement (non versionnés)
+public/voice-samples/

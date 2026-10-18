@@ -417,8 +417,12 @@ export function AgentPanel() {
     fr ? "Que montre la carte en ce moment ?" : "What does the map show right now?",
   ].filter((suggestion): suggestion is string => Boolean(suggestion)).slice(0, 4);
 
-  const onSubmit = (event: FormEvent) => { event.preventDefault(); void ask(draft); };
-  const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  /** Phrase d'exemple pour comparer les timbres neuraux (coût négligeable, ~110 caractères). */
+  const voiceSample = fr
+    ? "AURA en ligne. Voici la situation stratégique : les affrontements se concentrent autour de la ville, et un cessez-le-feu local est signalé ce matin."
+    : "AURA online. Here is the strategic picture: fighting is concentrated around the city, and a local ceasefire was reported this morning.";
+
+  const onSubmit = (event: FormEvent) => { event.preventDefault(); void ask(draft); };  const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(draft); }
     event.stopPropagation();
   };
@@ -492,18 +496,34 @@ export function AgentPanel() {
 
           {voice.engine === "neural" ? (
             <div>
-              <label className="label block" htmlFor="aura-neural">{fr ? "Timbre" : "Voice"}</label>
+              <div className="flex items-baseline justify-between">
+                <span className="label">{fr ? "Timbre" : "Voice"}</span>
+                <span className="text-[10px] text-text-faint">{fr ? "cliquer pour écouter et choisir" : "click to listen and pick"}</span>
+              </div>
               {voice.remoteVoices.length ? (
-                <select
-                  id="aura-neural"
-                  className="mt-1 w-full border border-cyan/20 bg-[#020b14] px-2 py-1 text-[11px] text-text"
-                  value={voice.neuralVoice}
-                  onChange={(event) => voice.chooseNeuralVoice(event.target.value)}
-                >
-                  {voice.remoteVoices.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label} — {option.note}</option>
-                  ))}
-                </select>
+                <div className="scroll-thin mt-1 max-h-[186px] overflow-y-auto border border-cyan/20 bg-[#020b14]">
+                  {voice.remoteVoices.map((option) => {
+                    const active = voice.neuralVoice === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => {
+                          voice.primeAudio();
+                          voice.chooseNeuralVoice(option.id);
+                          voice.speak(voiceSample);
+                        }}
+                        className={`flex w-full items-center gap-2 px-2 py-1 text-left text-[11px] transition hover:bg-cyan/10 ${active ? "bg-cyan/10 text-cyan" : "text-text"}`}
+                        aria-pressed={active}
+                        title={fr ? "Écouter un exemple et choisir ce timbre" : "Play a sample and pick this voice"}
+                      >
+                        <span className="w-3 shrink-0 text-text-faint">{active ? "◆" : "▸"}</span>
+                        <span className="w-[72px] shrink-0 font-medium">{option.label}</span>
+                        <span className="truncate text-text-faint">{option.note}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               ) : (
                 <p className="mt-1 text-[11px] text-text-faint">
                   {voice.neuralConfigured === false
@@ -521,11 +541,7 @@ export function AgentPanel() {
                   className="chip"
                   onClick={() => {
                     voice.primeAudio();
-                    voice.speak(
-                      fr
-                        ? "AURA en ligne. Voici la situation : les affrontements se concentrent autour de la ville, et un cessez-le-feu local est signalé."
-                        : "AURA online. Here is the situation: fighting is concentrated around the city, and a local ceasefire is reported.",
-                    );
+                    voice.speak(voiceSample);
                   }}
                 >
                   {fr ? "▶ Écouter un exemple" : "▶ Play sample"}
