@@ -1,0 +1,432 @@
+{
+ "count": 476,
+ "next": null,
+ "previous": null,
+ "results": [
+  {
+   "id": "3b430f81-0ff1-4d85-8a1a-cef0de326198",
+   "url": "https://ll.thespacedevs.com/2.2.0/launch/3b430f81-0ff1-4d85-8a1a-cef0de326198/",
+   "slug": "falcon-9-block-5-bandwagon-5-dedicated-mid-inclina",
+   "name": "Falcon 9 Block 5 | Bandwagon 5 (Dedicated Mid-Inclination Rideshare)",
+   "status": {
+    "id": 1,
+    "name": "Go for Launch",
+    "abbrev": "Go",
+    "description": "Current T-0 confirmed by official or reliable sources."
+   },
+   "last_updated": "2026-10-17T17:51:39Z",
+   "net": "2026-10-19T10:30:00Z",
+   "window_end": "2026-10-19T11:30:00Z",
+   "window_start": "2026-10-19T10:30:00Z",
+   "net_precision": {
+    "id": 1,
+    "name": "Minute",
+    "abbrev": "MIN",
+    "description": "The T-0 is accurate to the minute."
+   },
+   "probability": 55,
+   "weather_concerns": "Liftoff Winds, Cumulus Cloud Rule",
+   "holdreason": "",
+   "failreason": "",
+   "hashtag": null,
+   "launch_service_provider": {
+    "id": 121,
+    "url": "https://ll.thespacedevs.com/2.2.0/agencies/121/",
+    "name": "SpaceX",
+    "type": "Commercial"
+   },
+   "rocket": {
+    "id": 9120,
+    "configuration": {
+     "id": 164,
+     "url": "https://ll.thespacedevs.com/2.2.0/config/launcher/164/",
+     "name": "Falcon 9",
+     "family": "Falcon",
+     "full_name": "Falcon 9 Block 5",
+     "variant": "Block 5"
+    }
+   },
+   "mission": {
+    "id": 7715,
+    "name": "Bandwagon 5 (Dedicated Mid-Inclination Rideshare)",
+    "description": "Dedicated rideshare flight to a mid-inclination orbit with dozens of small microsatellites and nanosatellites for commercial and government customers.\r\n\r\nThis launch also carries the second demonstration mission for SpaceX’s Project Starfall, which aims to mass-produce reentry capsules designed to autonomously transport valuable customer experiments and other payloads safely back from space to Earth, including for in-orbit manufacturing. \r\n\r\nStarfall is a cylindrical shaped capsule approximately 0.75 meters tall with a diameter of 3.1 meters, weighing approximately 2100 kilograms, and capable of carrying 1000 kilograms of payload. It is designed to be carried on Starship flights.",
+    "launch_designator": null,
+    "type": "Dedicated Rideshare",
+    "orbit": {
+     "id": 8,
+     "name": "Low Earth Orbit",
+     "abbrev": "LEO"
+    },
+    "agencies": [
+     {
+      "id": 121,
+      "url": "https://ll.thespacedevs.com/2.2.0/agencies/121/",
+      "name": "SpaceX",
+      "featured": true,
+      "type": "Commercial",
+      "country_code": "USA",
+      "abbrev": "SpX",
+      "description": "Space Exploration Technologies Corp., known as SpaceX, is an American aerospace manufacturer and space transport services company headquartered in Hawthorne, California. It was founded in 2002 by entrepreneur Elon Musk with the goal of reducing space transportation costs and enabling the colonization of Mars. SpaceX operates from many pads, on the East Coast of the US they operate from SLC-40 at Cape Canaveral Space Force Station and historic LC-39A at Kennedy Space Center. They also operate from SLC-4E at Vandenberg Space Force Base, California, usually for polar launches. Another launch site is being developed at Boca Chica, Texas.",
+      "administrator": "CEO: Elon Musk",
+      "founding_year": "2002",
+      "launchers": "Falcon | Starship",
+      "spacecraft": "Dragon",
+      "launch_library_url": null,
+      "total_launch_count": 739,
+      "consecutive_successful_launches": 224,
+      "successful_launches": 724,
+      "failed_launches": 15,
+      "pending_launches": 135,
+      "consecutive_successful_landings": 33,
+      "successful_landings": 684,
+      "failed_landings": 29,
+      "attempted_landings": 712,
+      "info_url": "https://www.spacex.com/",
+      "wiki_url": "https://en.wikipedia.org/wiki/SpaceX",
+      "logo_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/spacex_logo_20220826094919.png",
+      "image_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/falcon_9_image_20230807133459.jpeg",
+      "nation_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/spacex_social_l_image_20260407054626.jpg"
+     }
+    ],
+    "info_urls": [],
+    "vid_urls": []
+   },
+   "pad": {
+    "id": 80,
+    "url": "https://ll.thespacedevs.com/2.2.0/pad/80/",
+    "agency_id": 121,
+    "name": "Space Launch Complex 40",
+    "description": "",
+    "info_url": null,
+    "wiki_url": "https://en.wikipedia.org/wiki/Cape_Canaveral_Air_Force_Station_Space_Launch_Complex_40",
+    "map_url": "https://www.google.com/maps?q=28.56194122,-80.57735736",
+    "latitude": "28.56194122",
+    "longitude": "-80.57735736",
+    "location": {
+     "id": 12,
+     "url": "https://ll.thespacedevs.com/2.2.0/location/12/",
+     "name": "Cape Canaveral SFS, FL, USA",
+     "country_code": "USA",
+     "description": "Cape Canaveral Space Force Station (CCSFS) is an installation of the United States Space Force's Space Launch Delta 45, located on Cape Canaveral in Brevard County, Florida.",
+     "map_image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/map_images/location_12_20200803142519.jpg",
+     "timezone_name": "America/New_York",
+     "total_launch_count": 1131,
+     "total_landing_count": 83
+    },
+    "country_code": "USA",
+    "map_image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/map_images/pad_80_20200803143323.jpg",
+    "total_launch_count": 403,
+    "orbital_launch_attempt_count": 403
+   },
+   "webcast_live": false,
+   "image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/falcon_9_liftof_image_20251102082912.jpg",
+   "infographic": null,
+   "program": [],
+   "orbital_launch_attempt_count": 7417,
+   "location_launch_attempt_count": 1132,
+   "pad_launch_attempt_count": 404,
+   "agency_launch_attempt_count": 740,
+   "orbital_launch_attempt_count_year": 244,
+   "location_launch_attempt_count_year": 56,
+   "pad_launch_attempt_count_year": 50,
+   "agency_launch_attempt_count_year": 121,
+   "type": "normal"
+  },
+  {
+   "id": "69ebbcd2-b257-4070-9ef9-21e7d1f8a883",
+   "url": "https://ll.thespacedevs.com/2.2.0/launch/69ebbcd2-b257-4070-9ef9-21e7d1f8a883/",
+   "slug": "h3-24-martian-moons-exploration-mmx",
+   "name": "H3-24 | Martian Moons eXploration (MMX)",
+   "status": {
+    "id": 1,
+    "name": "Go for Launch",
+    "abbrev": "Go",
+    "description": "Current T-0 confirmed by official or reliable sources."
+   },
+   "last_updated": "2026-10-16T11:53:14Z",
+   "net": "2026-10-19T19:41:03Z",
+   "window_end": "2026-10-19T19:41:03Z",
+   "window_start": "2026-10-19T19:41:03Z",
+   "net_precision": {
+    "id": 0,
+    "name": "Second",
+    "abbrev": "SEC",
+    "description": "The T-0 is accurate to the second."
+   },
+   "probability": null,
+   "weather_concerns": null,
+   "holdreason": "",
+   "failreason": "",
+   "hashtag": null,
+   "launch_service_provider": {
+    "id": 98,
+    "url": "https://ll.thespacedevs.com/2.2.0/agencies/98/",
+    "name": "Mitsubishi Heavy Industries",
+    "type": "Commercial"
+   },
+   "rocket": {
+    "id": 7769,
+    "configuration": {
+     "id": 204,
+     "url": "https://ll.thespacedevs.com/2.2.0/config/launcher/204/",
+     "name": "H3-24",
+     "family": "H3",
+     "full_name": "H3-24",
+     "variant": "24"
+    }
+   },
+   "mission": {
+    "id": 6287,
+    "name": "Martian Moons eXploration (MMX)",
+    "description": "MMX is a Japanese scientific mission to land on Phobos, one of the two moons of Mars, to collect samples before bringing them back to Earth.\r\n\r\nThe mission includes a small French/German rover to explore the surface of Phobos.",
+    "launch_designator": null,
+    "type": "Planetary Science",
+    "orbit": {
+     "id": 19,
+     "name": "Mars Orbit",
+     "abbrev": "Mars"
+    },
+    "agencies": [
+     {
+      "id": 37,
+      "url": "https://ll.thespacedevs.com/2.2.0/agencies/37/",
+      "name": "Japan Aerospace Exploration Agency",
+      "featured": true,
+      "type": "Government",
+      "country_code": "JPN",
+      "abbrev": "JAXA",
+      "description": "The Japan Aerospace Exploration Agency (JAXA) is Japan's national aero-space agency. Through the merger of three previously independent organizations, JAXA was formed on 1 October 2003. JAXA is responsible for research, technology development and the launch of satellites into orbit, and is involved in many more advanced missions, such as asteroid exploration and possible manned exploration of the Moon. JAXA launch their Epsilon vehicle from the Uchinoura Space Center and their H-II vehicles from the Tanegashima Space Center.",
+      "administrator": "Administrator: Hiroshi Yamakawa",
+      "founding_year": "2003",
+      "launchers": "H-II",
+      "spacecraft": "",
+      "launch_library_url": null,
+      "total_launch_count": 37,
+      "consecutive_successful_launches": 2,
+      "successful_launches": 33,
+      "failed_launches": 4,
+      "pending_launches": 2,
+      "consecutive_successful_landings": 0,
+      "successful_landings": 0,
+      "failed_landings": 0,
+      "attempted_landings": 0,
+      "info_url": "https://www.jaxa.jp/",
+      "wiki_url": "https://en.wikipedia.org/wiki/Japan_Aerospace_Exploration_Agency",
+      "logo_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/japan2520aerospace2520exploration2520agency_logo_20190207032440.png",
+      "image_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/japan2520aerospace2520exploration2520agency_image_20190207032440.jpeg",
+      "nation_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/japan2520aerospace2520exploration2520agency_nation_20230531052930.png"
+     }
+    ],
+    "info_urls": [],
+    "vid_urls": []
+   },
+   "pad": {
+    "id": 209,
+    "url": "https://ll.thespacedevs.com/2.2.0/pad/209/",
+    "agency_id": 37,
+    "name": "Yoshinobu Launch Complex LP-2",
+    "description": "",
+    "info_url": null,
+    "wiki_url": "https://en.wikipedia.org/wiki/Yoshinobu_Launch_Complex",
+    "map_url": "https://www.google.com/maps?q=30.400938,130.97564",
+    "latitude": "30.400938",
+    "longitude": "130.97564",
+    "location": {
+     "id": 26,
+     "url": "https://ll.thespacedevs.com/2.2.0/location/26/",
+     "name": "Tanegashima Space Center, Japan",
+     "country_code": "JPN",
+     "description": "The Tanegashima Space Center is the largest rocket-launch complex in Japan. It is located on the southeastern tip of Tanegashima, an island located south of Kyushu, an island and region and Japan. It was established in 1969 when the National Space Development Agency of Japan (NASDA) was formed, and is now run by JAXA. The activities that take place at TNSC include assembly, testing, launching, and tracking satellites, as well as rocket engine firing tests.",
+     "map_image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/map_images/location_26_20200803142507.jpg",
+     "timezone_name": "Asia/Tokyo",
+     "total_launch_count": 99,
+     "total_landing_count": 0
+    },
+    "country_code": "JPN",
+    "map_image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/map_images/pad_yoshinobu_launch_complex_lp-2_20230707124715.jpg",
+    "total_launch_count": 18,
+    "orbital_launch_attempt_count": 18
+   },
+   "webcast_live": false,
+   "image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/h3-24_liftoff__image_20251028184029.jpeg",
+   "infographic": null,
+   "program": [],
+   "orbital_launch_attempt_count": 7418,
+   "location_launch_attempt_count": 100,
+   "pad_launch_attempt_count": 19,
+   "agency_launch_attempt_count": 59,
+   "orbital_launch_attempt_count_year": 245,
+   "location_launch_attempt_count_year": 3,
+   "pad_launch_attempt_count_year": 3,
+   "agency_launch_attempt_count_year": 3,
+   "type": "normal"
+  },
+  {
+   "id": "f6af629d-39b5-4f86-bc0c-f8776444a858",
+   "url": "https://ll.thespacedevs.com/2.2.0/launch/f6af629d-39b5-4f86-bc0c-f8776444a858/",
+   "slug": "falcon-9-block-5-starlink-group-15-15",
+   "name": "Falcon 9 Block 5 | Starlink Group 15-15",
+   "status": {
+    "id": 1,
+    "name": "Go for Launch",
+    "abbrev": "Go",
+    "description": "Current T-0 confirmed by official or reliable sources."
+   },
+   "last_updated": "2026-10-16T16:02:43Z",
+   "net": "2026-10-20T22:14:00Z",
+   "window_end": "2026-10-21T02:14:00Z",
+   "window_start": "2026-10-20T22:14:00Z",
+   "net_precision": {
+    "id": 1,
+    "name": "Minute",
+    "abbrev": "MIN",
+    "description": "The T-0 is accurate to the minute."
+   },
+   "probability": null,
+   "weather_concerns": null,
+   "holdreason": "",
+   "failreason": "",
+   "hashtag": null,
+   "launch_service_provider": {
+    "id": 121,
+    "url": "https://ll.thespacedevs.com/2.2.0/agencies/121/",
+    "name": "SpaceX",
+    "type": "Commercial"
+   },
+   "rocket": {
+    "id": 9271,
+    "configuration": {
+     "id": 164,
+     "url": "https://ll.thespacedevs.com/2.2.0/config/launcher/164/",
+     "name": "Falcon 9",
+     "family": "Falcon",
+     "full_name": "Falcon 9 Block 5",
+     "variant": "Block 5"
+    }
+   },
+   "mission": {
+    "id": 7870,
+    "name": "Starlink Group 15-15",
+    "description": "A batch of 27 satellites for the Starlink mega-constellation - SpaceX's project for space-based Internet communication system.",
+    "launch_designator": null,
+    "type": "Communications",
+    "orbit": {
+     "id": 8,
+     "name": "Low Earth Orbit",
+     "abbrev": "LEO"
+    },
+    "agencies": [
+     {
+      "id": 121,
+      "url": "https://ll.thespacedevs.com/2.2.0/agencies/121/",
+      "name": "SpaceX",
+      "featured": true,
+      "type": "Commercial",
+      "country_code": "USA",
+      "abbrev": "SpX",
+      "description": "Space Exploration Technologies Corp., known as SpaceX, is an American aerospace manufacturer and space transport services company headquartered in Hawthorne, California. It was founded in 2002 by entrepreneur Elon Musk with the goal of reducing space transportation costs and enabling the colonization of Mars. SpaceX operates from many pads, on the East Coast of the US they operate from SLC-40 at Cape Canaveral Space Force Station and historic LC-39A at Kennedy Space Center. They also operate from SLC-4E at Vandenberg Space Force Base, California, usually for polar launches. Another launch site is being developed at Boca Chica, Texas.",
+      "administrator": "CEO: Elon Musk",
+      "founding_year": "2002",
+      "launchers": "Falcon | Starship",
+      "spacecraft": "Dragon",
+      "launch_library_url": null,
+      "total_launch_count": 739,
+      "consecutive_successful_launches": 224,
+      "successful_launches": 724,
+      "failed_launches": 15,
+      "pending_launches": 135,
+      "consecutive_successful_landings": 33,
+      "successful_landings": 684,
+      "failed_landings": 29,
+      "attempted_landings": 712,
+      "info_url": "https://www.spacex.com/",
+      "wiki_url": "https://en.wikipedia.org/wiki/SpaceX",
+      "logo_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/spacex_logo_20220826094919.png",
+      "image_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/falcon_9_image_20230807133459.jpeg",
+      "nation_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/spacex_social_l_image_20260407054626.jpg"
+     }
+    ],
+    "info_urls": [],
+    "vid_urls": []
+   },
+   "pad": {
+    "id": 16,
+    "url": "https://ll.thespacedevs.com/2.2.0/pad/16/",
+    "agency_id": null,
+    "name": "Space Launch Complex 4E",
+    "description": "Space Launch Complex 4 East (SLC-4E) is a launch site at Vandenberg Space Force Base, California, U.S.\r\n\r\nThe pad was previously used by Atlas and Titan rockets between 1963 and 2005. The pad was built for use by Atlas-Agena rockets, but was later rebuilt to handle Titan rockets.",
+    "info_url": null,
+    "wiki_url": "https://en.wikipedia.org/wiki/Vandenberg_Space_Launch_Complex_4#SLC-4E",
+    "map_url": "https://www.google.com/maps?q=34.632,-120.611",
+    "latitude": "34.632",
+    "longitude": "-120.611",
+    "location": {
+     "id": 11,
+     "url": "https://ll.thespacedevs.com/2.2.0/location/11/",
+     "name": "Vandenberg SFB, CA, USA",
+     "country_code": "USA",
+     "description": "Vandenberg Space Force Base is a United States Space Force Base in Santa Barbara County, California. Established in 1941, Vandenberg Space Force Base is a space launch base, launching spacecraft from the Western Range, and also performs missile testing. The United States Space Force's Space Launch Delta 30 serves as the host delta for the base, equivalent to an Air Force air base wing. In addition to its military space launch mission, Vandenberg Space Force Base also hosts space launches for civil and commercial space entities, such as NASA and SpaceX.",
+     "map_image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/map_images/location_11_20200803142416.jpg",
+     "timezone_name": "America/Los_Angeles",
+     "total_launch_count": 919,
+     "total_landing_count": 37
+    },
+    "country_code": "USA",
+    "map_image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/map_images/pad_16_20200803143532.jpg",
+    "total_launch_count": 303,
+    "orbital_launch_attempt_count": 303
+   },
+   "webcast_live": false,
+   "image": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/falcon2520925_image_20221009234147.png",
+   "infographic": null,
+   "program": [
+    {
+     "id": 25,
+     "url": "https://ll.thespacedevs.com/2.2.0/program/25/",
+     "name": "Starlink",
+     "description": "Starlink is a satellite internet constellation operated by American aerospace company SpaceX",
+     "agencies": [
+      {
+       "id": 121,
+       "url": "https://ll.thespacedevs.com/2.2.0/agencies/121/",
+       "name": "SpaceX",
+       "type": "Commercial"
+      }
+     ],
+     "image_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/images/starlink_program_20231228154508.jpeg",
+     "start_date": "2018-02-22T14:17:00Z",
+     "end_date": null,
+     "info_url": "https://starlink.com",
+     "wiki_url": "https://en.wikipedia.org/wiki/Starlink",
+     "mission_patches": [
+      {
+       "id": 7,
+       "name": "Space X Starlink Mission Patch",
+       "priority": 10,
+       "image_url": "https://thespacedevs-prod.nyc3.digitaloceanspaces.com/media/mission_patch_images/space2520x252_mission_patch_20221011205756.png",
+       "agency": {
+        "id": 121,
+        "url": "https://ll.thespacedevs.com/2.2.0/agencies/121/",
+        "name": "SpaceX",
+        "type": "Commercial"
+       }
+      }
+     ],
+     "type": {
+      "id": 3,
+      "name": "Communication Constellation"
+     }
+    }
+   ],
+   "orbital_launch_attempt_count": 7419,
+   "location_launch_attempt_count": 920,
+   "pad_launch_attempt_count": 304,
+   "agency_launch_attempt_count": 741,
+   "orbital_launch_attempt_count_year": 246,
+   "location_launch_attempt_count_year": 68,
+   "pad_launch_attempt_count_year": 66,
+   "agency_launch_attempt_count_year": 122,
+   "type": "normal"
+  }
+ ]
+}

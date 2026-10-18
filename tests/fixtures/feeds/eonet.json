@@ -1,0 +1,148 @@
+{
+ "title": "EONET Events",
+ "events": [
+  {
+   "id": "EONET_25340",
+   "title": "Tropical Cyclone 01P",
+   "description": null,
+   "link": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25340",
+   "closed": null,
+   "categories": [
+    {
+     "id": "severeStorms",
+     "title": "Severe Storms"
+    }
+   ],
+   "sources": [
+    {
+     "id": "JTWC",
+     "url": "https://www.metoc.navy.mil/jtwc/products/sh0127.tcw"
+    }
+   ],
+   "geometry": [
+    {
+     "magnitudeValue": 35.0,
+     "magnitudeUnit": "kts",
+     "date": "2026-10-16T06:00:00Z",
+     "type": "Point",
+     "coordinates": [
+      -163.3,
+      -10.8
+     ]
+    },
+    {
+     "magnitudeValue": 60.0,
+     "magnitudeUnit": "kts",
+     "date": "2026-10-17T12:00:00Z",
+     "type": "Point",
+     "coordinates": [
+      -163.1,
+      -14.4
+     ]
+    },
+    {
+     "magnitudeValue": 65.0,
+     "magnitudeUnit": "kts",
+     "date": "2026-10-17T18:00:00Z",
+     "type": "Point",
+     "coordinates": [
+      -163.2,
+      -14.8
+     ]
+    }
+   ]
+  },
+  {
+   "id": "EONET_25310",
+   "title": "Prescribed Fire Newman Piles RX, Coconino, Arizona",
+   "description": null,
+   "link": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25310",
+   "closed": null,
+   "categories": [
+    {
+     "id": "wildfires",
+     "title": "Wildfires"
+    }
+   ],
+   "sources": [
+    {
+     "id": "IRWIN",
+     "url": "https://irwin.doi.gov/observer/incidents/2026-AZCOF-001566"
+    }
+   ],
+   "geometry": [
+    {
+     "magnitudeValue": 751.0,
+     "magnitudeUnit": "acres",
+     "date": "2026-10-14T10:42:00Z",
+     "type": "Point",
+     "coordinates": [
+      -111.65,
+      35.016667
+     ]
+    },
+    {
+     "magnitudeValue": 751.0,
+     "magnitudeUnit": "acres",
+     "date": "2026-10-14T10:42:00Z",
+     "type": "Point",
+     "coordinates": [
+      -111.65,
+      35.016667
+     ]
+    }
+   ]
+  },
+  {
+   "id": "EONET_6474",
+   "title": "Iceberg D35",
+   "description": null,
+   "link": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_6474",
+   "closed": null,
+   "categories": [
+    {
+     "id": "seaLakeIce",
+     "title": "Sea and Lake Ice"
+    }
+   ],
+   "sources": [
+    {
+     "id": "NATICE",
+     "url": "https://usicecenter.gov/pub/Iceberg_Tabular.csv"
+    }
+   ],
+   "geometry": [
+    {
+     "magnitudeValue": 168.0,
+     "magnitudeUnit": "NM^2",
+     "date": "2024-01-11T00:00:00Z",
+     "type": "Point",
+     "coordinates": [
+      21.01,
+      -69.83
+     ]
+    },
+    {
+     "magnitudeValue": 90.0,
+     "magnitudeUnit": "NM^2",
+     "date": "2026-10-09T00:00:00Z",
+     "type": "Point",
+     "coordinates": [
+      -44.86,
+      -60.01
+     ]
+    },
+    {
+     "magnitudeValue": 90.0,
+     "magnitudeUnit": "NM^2",
+     "date": "2026-10-15T00:00:00Z",
+     "type": "Point",
+     "coordinates": [
+      -43.77,
+      -60.14
+     ]
+    }
+   ]
+  }
+ ]
+}

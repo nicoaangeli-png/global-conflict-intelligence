@@ -1,0 +1,355 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "bbox": [
+    142.3,
+    13.1,
+    142.3,
+    13.1
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     142.3,
+     13.1
+    ]
+   },
+   "properties": {
+    "eventtype": "TC",
+    "eventid": 1001338,
+    "episodeid": 16,
+    "eventname": "CHAMPI-26",
+    "glide": "TC-2026-000192-GUM",
+    "name": "Tropical Cyclone CHAMPI-26",
+    "description": "Tropical Cyclone CHAMPI-26",
+    "htmldescription": "Red Tropical Cyclone CHAMPI-26 in Guam, Northern Mariana Islands from: 14 Oct 2026  to: 18 Oct 2026 .",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/TC.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Red/TC.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=TC&eventid=1001338&episodeid=16",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1001338&episodeid=16&eventtype=TC",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=TC&eventid=1001338"
+    },
+    "alertlevel": "Red",
+    "alertscore": 3,
+    "episodealertlevel": "Green",
+    "episodealertscore": 1.0,
+    "istemporary": "false",
+    "iscurrent": "true",
+    "country": "Guam, Northern Mariana Islands",
+    "fromdate": "2026-10-14T12:00:00",
+    "todate": "2026-10-18T06:00:00",
+    "datemodified": "2026-10-18T08:01:08",
+    "iso3": "GUM",
+    "source": "JTWC",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "countryonland": "",
+    "affectedcountries": [
+     {
+      "iso2": "GU",
+      "iso3": "GUM",
+      "countryname": "Guam"
+     }
+    ],
+    "severitydata": {
+     "severity": 259.2576,
+     "severitytext": "Hurricane/Typhoon > 74 mph (maximum wind speed of 259 km/h)",
+     "severityunit": "km/h"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "bbox": [
+    -106.3,
+    18.6,
+    -106.3,
+    18.6
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -106.3,
+     18.6
+    ]
+   },
+   "properties": {
+    "eventtype": "TC",
+    "eventid": 1001337,
+    "episodeid": 20,
+    "eventname": "TRUDY-26",
+    "glide": "",
+    "name": "Tropical Cyclone TRUDY-26",
+    "description": "Tropical Cyclone TRUDY-26",
+    "htmldescription": "Green Tropical Cyclone TRUDY-26 in México from: 13 Oct 2026  to: 18 Oct 2026 .",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/TC.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Green/TC.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=TC&eventid=1001337&episodeid=20",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1001337&episodeid=20&eventtype=TC",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=TC&eventid=1001337"
+    },
+    "alertlevel": "Green",
+    "alertscore": 1,
+    "episodealertlevel": "Green",
+    "episodealertscore": 1.0,
+    "istemporary": "false",
+    "iscurrent": "true",
+    "country": "México",
+    "fromdate": "2026-10-13T15:00:00",
+    "todate": "2026-10-18T09:00:00",
+    "datemodified": "2026-10-18T08:54:37",
+    "iso3": "MEX",
+    "source": "NOAA",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "countryonland": "",
+    "affectedcountries": [],
+    "severitydata": {
+     "severity": 194.4432,
+     "severitytext": "Hurricane/Typhoon > 74 mph (maximum wind speed of 194 km/h)",
+     "severityunit": "km/h"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "bbox": [
+    -177.7283,
+    -16.0441,
+    -177.7283,
+    -16.0441
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -177.7283,
+     -16.0441
+    ]
+   },
+   "properties": {
+    "eventtype": "EQ",
+    "eventid": 1572114,
+    "episodeid": 1740677,
+    "eventname": "",
+    "glide": "",
+    "name": "Earthquake in Fiji Islands Region",
+    "description": "Earthquake in Fiji Islands Region",
+    "htmldescription": "Green M 4.8 Earthquake in Fiji Islands Region at: 17 Oct 2026 04:19:05.",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/EQ.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Green/EQ.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=EQ&eventid=1572114&episodeid=1740677",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1572114&episodeid=1740677&eventtype=EQ",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=EQ&eventid=1572114"
+    },
+    "alertlevel": "Green",
+    "alertscore": 1,
+    "episodealertlevel": "Green",
+    "episodealertscore": 0.0,
+    "istemporary": "false",
+    "iscurrent": "true",
+    "country": "Fiji Islands Region",
+    "fromdate": "2026-10-17T04:19:05",
+    "todate": "2026-10-17T04:19:05",
+    "datemodified": "2026-10-17T04:35:29",
+    "iso3": "",
+    "source": "NEIC",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "affectedcountries": [],
+    "severitydata": {
+     "severity": 4.8,
+     "severitytext": "Magnitude 4.8M, Depth:439.394km",
+     "severityunit": "M"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "bbox": [
+    120.2734,
+    -8.1449,
+    120.2734,
+    -8.1449
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     120.2734,
+     -8.1449
+    ]
+   },
+   "properties": {
+    "eventtype": "EQ",
+    "eventid": 1572327,
+    "episodeid": 1740903,
+    "eventname": "",
+    "glide": "",
+    "name": "Earthquake in Indonesia",
+    "description": "Earthquake in Indonesia",
+    "htmldescription": "Green M 5.2 Earthquake in Indonesia at: 18 Oct 2026 08:00:06.",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/EQ.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Green/EQ.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=EQ&eventid=1572327&episodeid=1740903",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1572327&episodeid=1740903&eventtype=EQ",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=EQ&eventid=1572327"
+    },
+    "alertlevel": "Green",
+    "alertscore": 1,
+    "episodealertlevel": "Green",
+    "episodealertscore": 0.0,
+    "istemporary": "false",
+    "iscurrent": "true",
+    "country": "Indonesia",
+    "fromdate": "2026-10-18T08:00:06",
+    "todate": "2026-10-18T08:00:06",
+    "datemodified": "2026-10-18T08:40:24",
+    "iso3": "IDN",
+    "source": "NEIC",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "affectedcountries": [
+     {
+      "iso2": "ID",
+      "iso3": "IDN",
+      "countryname": "Indonesia"
+     }
+    ],
+    "severitydata": {
+     "severity": 5.2,
+     "severitytext": "Magnitude 5.2M, Depth:10km",
+     "severityunit": "M"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "bbox": [
+    112.7269,
+    -2.9503,
+    112.7269,
+    -2.9503
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     112.7269,
+     -2.9503
+    ]
+   },
+   "properties": {
+    "eventtype": "WF",
+    "eventid": 1032887,
+    "episodeid": 3,
+    "eventname": "",
+    "glide": "",
+    "name": "Forest fires in Indonesia",
+    "description": "Forest fires in Indonesia",
+    "htmldescription": "Green Forest fires in Indonesia from: 07 Oct 2026 to: 18 Oct 2026.",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/WF.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Green/WF.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=WF&eventid=1032887&episodeid=3",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1032887&episodeid=3&eventtype=WF",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=WF&eventid=1032887"
+    },
+    "alertlevel": "Green",
+    "alertscore": 1,
+    "episodealertlevel": "Green",
+    "episodealertscore": 0.5,
+    "istemporary": "false",
+    "iscurrent": "true",
+    "country": "Indonesia",
+    "fromdate": "2026-10-07T00:00:00",
+    "todate": "2026-10-18T00:00:00",
+    "datemodified": "2026-10-18T07:10:55",
+    "iso3": "IDN",
+    "source": "GWIS",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "affectedcountries": [
+     {
+      "iso2": "ID",
+      "iso3": "IDN",
+      "countryname": "Indonesia"
+     }
+    ],
+    "severitydata": {
+     "severity": 5690.0,
+     "severitytext": "Green impact for forestfire in 5690 ha",
+     "severityunit": "ha"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "bbox": [
+    13.911,
+    12.7853,
+    13.911,
+    12.7853
+   ],
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     13.911,
+     12.7853
+    ]
+   },
+   "properties": {
+    "eventtype": "WF",
+    "eventid": 1032819,
+    "episodeid": 8,
+    "eventname": "",
+    "glide": "",
+    "name": "Forest fires in Nigeria",
+    "description": "Forest fires in Nigeria",
+    "htmldescription": "Green Forest fires in Nigeria from: 04 Oct 2026 to: 18 Oct 2026.",
+    "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/WF.png",
+    "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Green/WF.png",
+    "url": {
+     "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=WF&eventid=1032819&episodeid=8",
+     "report": "https://www.gdacs.org/report.aspx?eventid=1032819&episodeid=8&eventtype=WF",
+     "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=WF&eventid=1032819"
+    },
+    "alertlevel": "Green",
+    "alertscore": 1,
+    "episodealertlevel": "Green",
+    "episodealertscore": 0.5,
+    "istemporary": "false",
+    "iscurrent": "true",
+    "country": "Nigeria",
+    "fromdate": "2026-10-04T00:00:00",
+    "todate": "2026-10-18T00:00:00",
+    "datemodified": "2026-10-18T07:16:28",
+    "iso3": "NGA",
+    "source": "GWIS",
+    "sourceid": "",
+    "polygonlabel": "Centroid",
+    "Class": "Point_Centroid",
+    "affectedcountries": [
+     {
+      "iso2": "NG",
+      "iso3": "NGA",
+      "countryname": "Nigeria"
+     }
+    ],
+    "severitydata": {
+     "severity": 14783.0,
+     "severitytext": "Green impact for forestfire in 14783 ha",
+     "severityunit": "ha"
+    }
+   }
+  }
+ ]
+}
