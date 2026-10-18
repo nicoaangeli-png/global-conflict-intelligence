@@ -3,6 +3,14 @@ import { createHash } from "node:crypto";
 import { ConnectorError, type Connector, safeFetch, providerDate, validCoordinates } from "./types";
 
 /**
+ * DÉSACTIVÉ (18/10/2026) : ce flux GKG v1 n'est plus enregistré dans CONNECTORS
+ * (`src/server/intel.ts`), remplacé par `gdeltEvents.ts` (GDELT 2.0 Events + CAMEO).
+ * Raisons : requête limitée au vocabulaire militaire (aucune manifestation, émeute
+ * ni grève, donc rien pour la France), aucun titre d'article, géocodage « mention »
+ * sans code d'événement. Fichier conservé pour mémoire et pour ses tests éventuels ;
+ * `isConfigured()` renvoie false afin qu'aucun appel réseau ne parte même si
+ * quelqu'un le rebranche par erreur.
+ *
  * Connecteur GDELT 2.0 (source secondaire, temps réel).
  *
  * GDELT analyse en continu la presse internationale et publie, toutes les
@@ -140,7 +148,7 @@ export const gdeltConnector: Connector = {
   label: "GDELT 2.0",
 
   isConfigured() {
-    return process.env.GDELT_DISABLED !== "1";
+    return false; // désactivé : voir l'en-tête du fichier
   },
 
   describe() {

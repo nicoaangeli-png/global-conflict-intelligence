@@ -15,7 +15,8 @@ import {
 } from "@/types/conflict";
 import { acledConnector } from "./connectors/acled";
 import { csvConnector } from "./connectors/csvImport";
-import { gdeltConnector } from "./connectors/gdelt";
+// L'ancien flux GKG v1 (./connectors/gdelt) est désactivé : voir son en-tête.
+import { gdeltEventsConnector as gdeltConnector } from "./connectors/gdeltEvents";
 import { type Connector } from "./connectors/types";
 import { ucdpConnector } from "./connectors/ucdp";
 import { firmsConnector } from "./connectors/firms";

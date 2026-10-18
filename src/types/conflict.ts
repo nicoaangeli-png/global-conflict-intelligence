@@ -93,7 +93,17 @@ export interface ConflictEvent {
   eventDate: string;
   /** Dernière mise à jour de la donnée côté source (ISO 8601). */
   updatedAt: string;
+  /** Additif : titre réel de l'article (presse). null = non fourni par la source ; jamais construit. */
+  title?: string | null;
+  /**
+   * Additif : précision du positionnement. Absent = point précis (comportement
+   * historique). `region`/`country` : les coordonnées sont un centroïde, à ne
+   * pas représenter comme un lieu exact.
+   */
+  geoPrecision?: GeoPrecision;
 }
+
+export type GeoPrecision = "city" | "region" | "country";
 
 /**
  * Agrégat géographique : un foyer de conflit.
