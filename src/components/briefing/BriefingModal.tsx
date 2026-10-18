@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Briefing, BriefingChapter, BriefingFact, BriefingSentence } from "@/server/briefing/types";
 import { useIntelStore } from "@/store/useIntelStore";
-import { speakable } from "@/components/agent/useAuraVoice";
+import { useAuraVoice } from "@/components/agent/useAuraVoice";
 import { tr } from "@/lib/i18n";
 
 const CHAPTER_ICONS: Record<string, string> = {
@@ -42,7 +42,14 @@ export function BriefingModal({ onClose }: { onClose: () => void }) {
 
   const modalRef = useRef<HTMLElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
-  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // Voix unifiée : moteur neural (OpenAI) ou voix du navigateur, réglé dans le panneau AURA.
+  const voice = useAuraVoice(locale);
+  const voiceRef = useRef(voice);
+  useEffect(() => {
+    voiceRef.current = voice;
+  });
+  const playRunRef = useRef(0);
 
   // Fetch initial briefing
   const loadBriefing = useCallback(async () => {
@@ -134,9 +141,8 @@ export function BriefingModal({ onClose }: { onClose: () => void }) {
 
   // Voice player cleanup on unmount
   const stopVoice = useCallback(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    playRunRef.current += 1;
+    voiceRef.current.stop();
     setIsPlaying(false);
     setIsPaused(false);
     setActiveSentenceIdx(null);
@@ -148,85 +154,58 @@ export function BriefingModal({ onClose }: { onClose: () => void }) {
     };
   }, [stopVoice]);
 
-  // Play a specific chapter and sentence index
+  /**
+   * Lecture suivie du bilan : phrases du chapitre, puis chapitres suivants,
+   * jusqu'à la fin. Chaque phrase est attendue (`speakAsync`) : le moteur neural
+   * et la voix navigateur avancent donc au même rythme, sans chevauchement.
+   */
   const playFrom = useCallback(
-    (chapterIdx: number, sentenceIdx: number) => {
-      if (!briefing || typeof window === "undefined" || !("speechSynthesis" in window)) return;
-      window.speechSynthesis.cancel();
-
-      const chapters = briefing.chapters;
-      if (chapterIdx >= chapters.length) {
-        stopVoice();
-        return;
-      }
-
-      const chapter = chapters[chapterIdx];
-      setActiveChapterKey(chapter.key);
-
-      // Rotate 3D globe to chapter focus if present
-      if (chapter.focus) {
-        focus(chapter.focus.lat, chapter.focus.lon);
-      }
-
-      const sentences = chapter.sentences;
-      if (sentenceIdx >= sentences.length) {
-        // Next chapter
-        playFrom(chapterIdx + 1, 0);
-        return;
-      }
-
-      const currentSentence = sentences[sentenceIdx];
-      setActiveSentenceIdx(sentenceIdx);
+    async (chapterIdx: number, sentenceIdx: number) => {
+      if (!briefing) return;
+      const run = playRunRef.current + 1;
+      playRunRef.current = run;
+      voiceRef.current.stop();
       setIsPlaying(true);
       setIsPaused(false);
 
-      const textToSpeak = speakable(currentSentence.text);
-      if (!textToSpeak) {
-        playFrom(chapterIdx, sentenceIdx + 1);
-        return;
+      const chapters = briefing.chapters;
+      for (let chapter = Math.max(0, chapterIdx); chapter < chapters.length; chapter++) {
+        if (playRunRef.current !== run) return;
+        const current = chapters[chapter];
+        setActiveChapterKey(current.key);
+        if (current.focus) focus(current.focus.lat, current.focus.lon);
+        const start = chapter === chapterIdx ? Math.max(0, sentenceIdx) : 0;
+        for (let sentence = start; sentence < current.sentences.length; sentence++) {
+          if (playRunRef.current !== run) return;
+          setActiveSentenceIdx(sentence);
+          const text = current.sentences[sentence].text;
+          if (!text) continue;
+          await voiceRef.current.speakAsync(text);
+          if (playRunRef.current !== run) return;
+        }
       }
 
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      const voices = window.speechSynthesis.getVoices();
-      const targetLang = locale === "fr" ? "fr" : "en";
-      const fridayVoice = voices.find(
-        (v) =>
-          v.lang.toLowerCase().startsWith(targetLang) &&
-          /audrey|am[eé]lie|aur[eé]lie|denise|vivienne|eloise|brigitte|marie|c[eé]line|julie|samantha|female|femme/i.test(v.name) &&
-          !/sandy|grandpa|zarvox/i.test(v.name)
-      );
-      if (fridayVoice) utterance.voice = fridayVoice;
-      utterance.lang = fridayVoice?.lang ?? (locale === "fr" ? "fr-FR" : "en-US");
-      utterance.rate = 0.98;
-      utterance.pitch = 1.0;
-
-      utterance.onend = () => {
-        playFrom(chapterIdx, sentenceIdx + 1);
-      };
-
-      utterance.onerror = () => {
-        stopVoice();
-      };
-
-      speechRef.current = utterance;
-      window.speechSynthesis.speak(utterance);
+      setIsPlaying(false);
+      setIsPaused(false);
+      setActiveSentenceIdx(null);
     },
-    [briefing, focus, locale, stopVoice],
+    [briefing, focus],
   );
 
   const togglePlayPause = () => {
     if (!briefing) return;
     if (isPlaying) {
       if (isPaused) {
-        window.speechSynthesis.resume();
+        voice.resume();
         setIsPaused(false);
       } else {
-        window.speechSynthesis.pause();
+        voice.pause();
         setIsPaused(true);
       }
     } else {
+      voice.primeAudio();
       const curChapterIdx = briefing.chapters.findIndex((c) => c.key === activeChapterKey);
-      playFrom(Math.max(0, curChapterIdx), activeSentenceIdx ?? 0);
+      void playFrom(Math.max(0, curChapterIdx), activeSentenceIdx ?? 0);
     }
   };
 
@@ -402,7 +381,8 @@ export function BriefingModal({ onClose }: { onClose: () => void }) {
                         key={sIdx}
                         onClick={() => {
                           const chapIdx = briefing.chapters.findIndex((c) => c.key === activeChapter.key);
-                          playFrom(chapIdx, sIdx);
+                          voice.primeAudio();
+                          void playFrom(chapIdx, sIdx);
                         }}
                         className={`cursor-pointer rounded px-1 transition-colors ${
                           isSentenceActive

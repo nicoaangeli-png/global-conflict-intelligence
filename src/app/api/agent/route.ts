@@ -1,4 +1,5 @@
 import { agentConfigured, agentLimits, normalizeContext, runAgent, type AgentMessage } from "@/server/agent";
+import { checkOrbitalOrigin } from "@/server/auraOrigin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,94 +28,6 @@ function json(body: unknown, status: number, headers: Record<string, string> = {
     status,
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers },
   });
-}
-
-function configuredOrigins(): Set<string> {
-  const origins = new Set<string>();
-  for (const entry of (process.env.AURA_ALLOWED_ORIGINS ?? "").split(",")) {
-    try {
-      if (entry.trim()) origins.add(new URL(entry.trim()).origin.toLowerCase());
-    } catch {
-      continue;
-    }
-  }
-  return origins;
-}
-
-function hostnameOf(host: string): string | null {
-  try {
-    return new URL(`http://${host}`).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-function isLocalHostname(hostname: string) {
-  return (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    /^\[.*\]$/.test(hostname) ||
-    /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)
-  );
-}
-
-function checkOrigin(request: Request): Response | null {
-  const allowed = configuredOrigins();
-  const allowedHosts = new Set([...allowed].map((origin) => new URL(origin).host.toLowerCase()));
-  const fwdHost = (request.headers.get("x-forwarded-host") ?? "").toLowerCase();
-  const rawHost = (request.headers.get("host") ?? "").toLowerCase();
-  const candHosts = [fwdHost, rawHost].filter(Boolean);
-
-  const host = fwdHost || rawHost;
-  const hostname = hostnameOf(host);
-  const isAllowedHost =
-    isLocalHostname(hostname ?? "") ||
-    allowedHosts.has(host) ||
-    (hostname?.endsWith(".sslip.io") ?? false) ||
-    candHosts.some((h) => allowedHosts.has(h) || (hostnameOf(h)?.endsWith(".sslip.io") ?? false));
-
-  if (!host || !hostname || !isAllowedHost) {
-    return json({ error: "hôte non autorisé" }, 403);
-  }
-
-  const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none" && fetchSite !== "same-site") {
-    return json({ error: "origine non autorisée" }, 403);
-  }
-
-  const origin = request.headers.get("origin");
-  if (origin) {
-    let originHost: string;
-    let originValue: string;
-    try {
-      const parsed = new URL(origin);
-      originHost = parsed.host.toLowerCase();
-      originValue = parsed.origin.toLowerCase();
-    } catch {
-      return json({ error: "origine invalide" }, 403);
-    }
-
-    const originHostname = hostnameOf(originHost) ?? originHost;
-    const isSameHost =
-      candHosts.some((h) => {
-        const hName = hostnameOf(h) ?? h;
-        return originHost === h || originHostname === hName;
-      }) ||
-      originHostname.endsWith(".sslip.io") ||
-      (candHosts.some((h) => isLocalHostname(hostnameOf(h) ?? h)) &&
-        (originHostname.endsWith(".sslip.io") || isLocalHostname(originHostname)));
-
-    if (!isSameHost && !allowed.has(originValue)) {
-      return json({ error: "origine non autorisée" }, 403);
-    }
-  } else if (fetchSite !== "same-origin" && fetchSite !== "none") {
-    return json({ error: "origine requise" }, 403);
-  }
-
-  if (request.headers.get("x-orbital-client") !== "aura") {
-    return json({ error: "client non autorisé" }, 403);
-  }
-  return null;
 }
 
 function clientKey(request: Request) {
@@ -203,7 +116,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const rejected = checkOrigin(request);
+  const rejected = checkOrbitalOrigin(request);
   if (rejected) return rejected;
 
   const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();

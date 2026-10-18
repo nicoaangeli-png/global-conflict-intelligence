@@ -49,6 +49,19 @@ déploiement. `src/components/ui/Header.tsx` gère son accès,
 `src/components/ui/SettingsPanel.tsx` son contenu. Les accès fournisseurs restent
 côté serveur : modifier `.env.local`, puis redémarrer le processus applicatif.
 
+### Voix d'AURA
+
+Le bouton ♀ du panneau AURA (et du lecteur de bilan) choisit le moteur vocal.
+**Neural** fait lire les réponses par la synthèse OpenAI (`gpt-4o-mini-tts`,
+route `/api/agent/voice`, clé `OPENAI_API_KEY`), segment par segment, avec
+téléchargement en avance et niveau mesuré sur la sortie audio pour animer
+l'hologramme. **Navigateur** garde la voix du système, gratuite et hors ligne.
+Le neural bascule automatiquement sur la voix du navigateur si la clé manque,
+si le budget quotidien est atteint ou en cas d'erreur réseau ; la lecture
+ne bloque donc jamais une réponse. Réglages : `AURA_TTS_MODEL`,
+`AURA_TTS_VOICE`, `AURA_TTS_MAX_CHARS`, `AURA_TTS_MAX_CHARS_PER_DAY`,
+`AURA_TTS_REQUESTS_PER_MINUTE`, `AURA_TTS_DISABLED`.
+
 ## Sources de données en direct
 
 - **Conflits et troubles sociaux** : UCDP GED Candidate public et GDELT Events

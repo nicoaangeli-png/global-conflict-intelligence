@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, typ
 import { useIntelStore } from "@/store/useIntelStore";
 import { canonicalCountryIdentity } from "@/lib/geo/country";
 import { AuraCore, type AuraState } from "./AuraCore";
-import { speakable, useAuraVoice } from "./useAuraVoice";
+import { speakable, useAuraVoice, type VoiceEngine } from "./useAuraVoice";
 
 /**
  * AURA — analyste géopolitique vocale.
@@ -235,6 +235,7 @@ export function AgentPanel() {
     const trimmed = question.trim().slice(0, limits.maxUserChars);
     if (!trimmed || busy) return;
     voice.stop();
+    voice.primeAudio();
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -379,6 +380,7 @@ export function AgentPanel() {
       ?? (window as unknown as { webkitSpeechRecognition?: new () => Recognition }).webkitSpeechRecognition;
     if (!RecognitionCtor) { setStatus(fr ? "Micro non pris en charge par ce navigateur (utilise Chrome)." : "Microphone not supported (use Chrome)."); return; }
     voice.stop();
+    voice.primeAudio();
     const rec = new RecognitionCtor();
     rec.lang = fr ? "fr-FR" : "en-US";
     rec.interimResults = true;
@@ -472,23 +474,101 @@ export function AgentPanel() {
       </header>
 
       {showVoices ? (
-        <div className="border-b border-cyan/15 px-3 py-2">
-          <label className="label block" htmlFor="aura-voice">{fr ? "Voix de synthèse" : "Synthetic voice"}</label>
-          {voice.candidates.length ? (
+        <div className="space-y-2 border-b border-cyan/15 px-3 py-2">
+          <div>
+            <label className="label block" htmlFor="aura-engine">{fr ? "Moteur vocal" : "Voice engine"}</label>
             <select
-              id="aura-voice"
+              id="aura-engine"
               className="mt-1 w-full border border-cyan/20 bg-[#020b14] px-2 py-1 text-[11px] text-text"
-              value={voice.voice?.name ?? ""}
-              onChange={(event) => voice.chooseVoice(event.target.value)}
+              value={voice.engine}
+              onChange={(event) => voice.setEngine(event.target.value as VoiceEngine)}
             >
-              {voice.candidates.map((candidate) => <option key={candidate.name} value={candidate.name}>{candidate.name} · {candidate.lang}</option>)}
+              <option value="neural" disabled={voice.neuralConfigured === false}>
+                {fr ? "Neural — voix naturelle (OpenAI)" : "Neural — natural voice (OpenAI)"}
+              </option>
+              <option value="browser">{fr ? "Navigateur — voix du système" : "Browser — system voice"}</option>
             </select>
+          </div>
+
+          {voice.engine === "neural" ? (
+            <div>
+              <label className="label block" htmlFor="aura-neural">{fr ? "Timbre" : "Voice"}</label>
+              {voice.remoteVoices.length ? (
+                <select
+                  id="aura-neural"
+                  className="mt-1 w-full border border-cyan/20 bg-[#020b14] px-2 py-1 text-[11px] text-text"
+                  value={voice.neuralVoice}
+                  onChange={(event) => voice.chooseNeuralVoice(event.target.value)}
+                >
+                  {voice.remoteVoices.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label} — {option.note}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-1 text-[11px] text-text-faint">
+                  {voice.neuralConfigured === false
+                    ? fr
+                      ? "Synthèse neurale indisponible : ajoute OPENAI_API_KEY dans .env.local puis redémarre le serveur."
+                      : "Neural synthesis unavailable: add OPENAI_API_KEY to .env.local and restart the server."
+                    : fr
+                      ? "Chargement des voix…"
+                      : "Loading voices…"}
+                </p>
+              )}
+              <div className="mt-1 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() => {
+                    voice.primeAudio();
+                    voice.speak(
+                      fr
+                        ? "AURA en ligne. Voici la situation : les affrontements se concentrent autour de la ville, et un cessez-le-feu local est signalé."
+                        : "AURA online. Here is the situation: fighting is concentrated around the city, and a local ceasefire is reported.",
+                    );
+                  }}
+                >
+                  {fr ? "▶ Écouter un exemple" : "▶ Play sample"}
+                </button>
+                {voice.speaking ? <button type="button" className="chip" onClick={voice.stop}>{fr ? "silence" : "mute"}</button> : null}
+              </div>
+              <p className="mt-1 text-[11px] text-text-faint">
+                {fr
+                  ? "Voix de qualité studio servie par le serveur, avec le ton d'un analyste posé. Repli automatique sur la voix du navigateur si la synthèse est indisponible."
+                  : "Studio-grade voice served by the server with a composed analyst tone. Falls back to the browser voice when synthesis is unavailable."}
+              </p>
+            </div>
           ) : (
-            <p className="mt-1 text-[11px] text-text-faint">{fr ? "Aucune voix française installée sur ce système." : "No matching voice installed."}</p>
+            <div>
+              <label className="label block" htmlFor="aura-voice">{fr ? "Voix système" : "System voice"}</label>
+              {voice.candidates.length ? (
+                <select
+                  id="aura-voice"
+                  className="mt-1 w-full border border-cyan/20 bg-[#020b14] px-2 py-1 text-[11px] text-text"
+                  value={voice.browserVoice?.name ?? ""}
+                  onChange={(event) => voice.chooseVoice(event.target.value)}
+                >
+                  {voice.candidates.map((candidate) => (
+                    <option key={candidate.name} value={candidate.name}>
+                      {candidate.name === voice.candidates[0]?.name ? "★ " : ""}{candidate.name} · {candidate.lang}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-1 text-[11px] text-text-faint">{fr ? "Aucune voix française installée sur ce système." : "No matching voice installed."}</p>
+              )}
+              <p className="mt-1 text-[11px] text-text-faint">
+                {fr ? "Astuce : préférer une voix Google (Chrome) ou une voix « Premium » macOS (Audrey, Amélie) — Réglages › Accessibilité › Contenu énoncé › Voix du système › Gérer les voix." : "Tip: prefer a Google voice (Chrome) or a macOS Premium voice (Audrey, Amélie) — Settings › Accessibility › Spoken Content › System Voice › Manage Voices."}
+              </p>
+            </div>
           )}
-          <p className="mt-1 text-[11px] text-text-faint">
-            {fr ? "Astuce : Voix féminine naturelle (Denise, Eloise, Vivienne ou Audrey / Amélie). Sur Mac : Réglages › Accessibilité › Contenu énoncé › Voix du système › Gérer les voix — télécharge « Audrey (Premium) » ou « Amélie (Premium) »." : "Tip: Natural female voice (Denise, Eloise, Vivienne or Audrey / Amélie). On Mac: download Audrey (Premium) in Settings › Accessibility › Spoken Content."}
-          </p>
+
+          {voice.notice ? (
+            <p className="flex items-start gap-2 text-[11px] text-alert-soft">
+              <span>⚠ {voice.notice}</span>
+              <button type="button" className="text-text-faint hover:text-cyan" onClick={voice.clearNotice} aria-label={fr ? "Masquer" : "Dismiss"}>×</button>
+            </p>
+          ) : null}
         </div>
       ) : null}
 
