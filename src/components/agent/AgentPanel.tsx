@@ -103,7 +103,7 @@ function citationNumbering(turn: Turn) {
   return { numbering, ordered };
 }
 
-function AnswerText({ turn, fr }: { turn: Turn; fr: boolean }) {
+export function AnswerText({ turn, fr }: { turn: Turn; fr: boolean }) {
   const { numbering, ordered } = citationNumbering(turn);
   const nodes: ReactNode[] = [];
   let cursor = 0;
@@ -164,7 +164,7 @@ function ProvenanceList({ items, fr }: { items: Provenance[]; fr: boolean }) {
   );
 }
 
-function buildHistory(turns: Turn[], question: string, limits: Limits) {
+export function buildHistory(turns: Turn[], question: string, limits: Limits) {
   const pairs: { role: "user" | "assistant"; content: string }[][] = [];
   for (let index = 0; index + 1 < turns.length; index += 2) {
     const asked = turns[index];
