@@ -31,6 +31,8 @@ export const FEED_SOURCES: FeedSourceDef[] = [
 export interface GetFeedsQuery {
   category?: string | null;
   country?: string | null;
+  /** Borne inférieure UTC, appliquée avant la limite de résultats. */
+  sinceMs?: number | null;
   limit?: number | null;
 }
 
@@ -48,10 +50,14 @@ async function defaultIndex(): Promise<WorldIndex | null> {
 }
 
 const sortKey = (item: LiveItem): string => item.occurredAt ?? item.publishedAt ?? "";
+const sortTime = (item: LiveItem): number => {
+  const time = Date.parse(sortKey(item));
+  return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+};
 
 /** Date propre décroissante ; à égalité, identifiant pour un ordre stable. */
 export function sortItems(items: LiveItem[]): LiveItem[] {
-  return [...items].sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || a.id.localeCompare(b.id));
+  return [...items].sort((a, b) => sortTime(b) - sortTime(a) || a.id.localeCompare(b.id));
 }
 
 export function parseCategory(value: string | null | undefined): FeedCategory | null {
@@ -65,6 +71,7 @@ export async function getFeeds(
 ): Promise<FeedsResponse> {
   const category = parseCategory(query.category);
   const country = query.country?.trim().toUpperCase() || null;
+  const sinceMs = typeof query.sinceMs === "number" && Number.isFinite(query.sinceMs) ? query.sinceMs : null;
   const limit = Math.min(Math.max(Math.floor(Number(query.limit) || DEFAULT_LIMIT), 1), MAX_LIMIT);
   const getIndex = options.getIndex ?? defaultIndex;
   // Une catégorie demandée mais inconnue ne renvoie rien (plutôt que tout).
@@ -95,6 +102,11 @@ export async function getFeeds(
     }
   });
 
-  const filtered = country ? items.filter((item) => item.countries.includes(country)) : items;
+  const filtered = items.filter((item) => {
+    if (country && !item.countries.includes(country)) return false;
+    if (sinceMs === null) return true;
+    const time = sortTime(item);
+    return Number.isFinite(time) && time >= sinceMs;
+  });
   return { generatedAt: new Date().toISOString(), items: sortItems(filtered).slice(0, limit), sources: states };
 }

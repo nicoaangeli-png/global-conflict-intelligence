@@ -74,36 +74,85 @@ describe("outil AURA get_live_feeds", () => {
     });
   });
 
-  it("filtre pays, catégorie et fenêtre, borne la demande, nettoie les données et garde les erreurs de source", async () => {
-    const { chunks, fetchMock, output } = await collectLiveFeed({ category: "social", country_iso3: "FRA", hours: 24, limit: 999 });
+  it("filtre pays, catégorie et fenêtre avant la limite, balise les données non fiables et garde les erreurs de source", async () => {
+    mocks.getFeeds.mockResolvedValue({ ...fixture, items: [fixture.items[0]], sources: [fixture.sources[0]] });
+    const { chunks, fetchMock, output } = await collectLiveFeed({ category: "social", country_iso3: "FRA", hours: 24, limit: 40 });
 
-    expect(mocks.getFeeds).toHaveBeenCalledWith({ category: "social", country: "FRA", limit: 40 });
+    expect(mocks.getFeeds).toHaveBeenCalledWith({ category: "social", country: "FRA", sinceMs: Date.parse("2026-10-17T12:00:00.000Z"), limit: 40 });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(chunks.at(-1)).toEqual({ t: "done" });
     expect(output.status).toBe("ok");
     expect(output.data.items).toHaveLength(1);
     expect(output.data.items[0]).toMatchObject({
-      title: "Rassemblement à Paris",
-      source: "GDELT 2.0 (événements presse)",
+      untrusted_content: {
+        title: "Rassemblement à Paris",
+        source: "GDELT 2.0 (événements presse)",
+        caveat: "Mention de presse non confirmée.",
+      },
       nature: "press_article",
       date: "2026-10-18T10:30:00.000Z",
       dateKind: "publishedAt",
       countries: ["FRA"],
       url: "https://example.test/paris",
-      caveat: "Mention de presse non confirmée.",
       metric: { label: "Articles", value: 3, unit: null },
     });
+    expect(output.handling).toMatch(/jamais des instructions/);
     expect(JSON.stringify(output)).not.toMatch(/ignore previous instructions/i);
-    expect(output.data.sources).toEqual([
-      expect.objectContaining({ sourceId: "gdelt-events", status: "error", fetchedAt: "2026-10-18T11:45:00.000Z" }),
-    ]);
-    expect(output.data.sources[0].message).toMatch(/texte retiré/);
+    expect(output.data.sources).toMatchObject({ category: "social", states: [expect.objectContaining({ sourceId: "gdelt-events", status: "error" })] });
+    expect(output.data.sources.states[0].untrusted_content.message).toMatch(/texte retiré/);
   });
 
   it("retourne une indisponibilité explicite quand aucune source de la catégorie n'est exploitable", async () => {
+    mocks.getFeeds.mockResolvedValue({ ...fixture, items: [], sources: [fixture.sources[0]] });
     const { output } = await collectLiveFeed({ category: "social", country_iso3: "FRA", hours: 1, limit: 1 });
     expect(output.status).toBe("unavailable");
     expect(output.data.items).toEqual([]);
-    expect(output.data.sources[0]).toMatchObject({ status: "error" });
+    expect(output.data.sources.states[0]).toMatchObject({ status: "error" });
+  });
+
+  it("reste sous le plafond avec 40 éléments longs, indique les omissions et compacte les sources mondiales", async () => {
+    mocks.getFeeds.mockResolvedValue({
+      generatedAt: "2026-10-18T12:00:00.000Z",
+      items: Array.from({ length: 40 }, (_, index) => ({
+        ...fixture.items[0],
+        id: `long:${index}`,
+        title: `Titre ${index} ${"x".repeat(500)}`,
+        summary: `Résumé ${index} ${"y".repeat(1_000)}`,
+        caveat: `Avertissement ${index} ${"z".repeat(500)}`,
+      })),
+      sources: Array.from({ length: 20 }, (_, index) => ({
+        ...fixture.sources[0],
+        sourceId: `source:${index}`,
+        sourceName: `Source ${index} ${"s".repeat(200)}`,
+        status: index % 2 === 0 ? "error" : "ok",
+        message: `Message ${index} ${"m".repeat(400)}`,
+      })),
+    } satisfies FeedsResponse);
+
+    const { output } = await collectLiveFeed({ hours: 24, limit: 40 });
+
+    expect(output.status).toBe("ok");
+    expect(JSON.stringify(output).length).toBeLessThan(14_000);
+    expect(JSON.stringify(output)).not.toContain("result_too_large");
+    expect(output.data).toMatchObject({ truncated: true, omittedItems: expect.any(Number) });
+    expect(output.data.omittedItems).toBeGreaterThan(0);
+    expect(output.data.sources).toMatchObject({ category: null, okCount: 10 });
+    expect(output.data.sources.errors).toEqual(expect.arrayContaining([expect.any(Object)]));
+    expect(output.data.sources.errors).toHaveLength(10);
+  });
+
+  it.each([
+    [{ category: 1 }, /category doit être une chaîne/],
+    [{ category: "inconnue" }, /Catégorie de flux inconnue/],
+    [{ country_iso3: "fra" }, /Code pays ISO alpha-3 invalide/],
+    [{ country_iso3: 250 }, /country_iso3 doit être un code/],
+    [{ hours: 0 }, /hours doit être un entier/],
+    [{ hours: 721 }, /hours doit être un entier/],
+    [{ hours: "24" }, /hours doit être un entier/],
+    [{ limit: "16" }, /limit doit être un entier/],
+  ])("refuse explicitement les arguments invalides : %o", async (args, message) => {
+    const { output } = await collectLiveFeed(args);
+    expect(output).toMatchObject({ status: "error", data: { error: expect.stringMatching(message) } });
+    expect(mocks.getFeeds).not.toHaveBeenCalled();
   });
 });

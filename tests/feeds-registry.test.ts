@@ -141,6 +141,20 @@ describe("getFeeds", () => {
     expect((await getFeeds({ category: "social" }, opts)).sources).toEqual([]);
   });
 
+  it("applique sinceMs avant limit et ordonne avec les dates réelles", async () => {
+    const oldFirst = def({
+      sourceId: "old-first",
+      load: async () => [
+        item({ id: "old:1", occurredAt: "2026-10-17T08:00:00.000Z" }),
+        item({ id: "old:2", occurredAt: "2026-10-17T07:00:00.000Z" }),
+        item({ id: "recent:offset", occurredAt: "2026-10-18T12:00:00-05:00" }),
+        item({ id: "recent:utc", occurredAt: "2026-10-18T16:00:00.000Z" }),
+      ],
+    });
+    const res = await getFeeds({ sinceMs: Date.parse("2026-10-18T00:00:00.000Z"), limit: 1 }, { sources: [oldFirst], getIndex: async () => null });
+    expect(res.items.map((entry) => entry.id)).toEqual(["recent:offset"]);
+  });
+
   it("sortItems est stable à date égale", () => {
     const sorted = sortItems([item({ id: "z" }), item({ id: "a" })]);
     expect(sorted.map((i) => i.id)).toEqual(["a", "z"]);
