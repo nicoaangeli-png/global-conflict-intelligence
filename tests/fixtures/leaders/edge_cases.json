@@ -1,0 +1,152 @@
+{
+  "head": {
+    "vars": [
+      "role",
+      "person",
+      "personLabel",
+      "start",
+      "end",
+      "rank"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q100"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#DeprecatedRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_state"
+        },
+        "personLabel": {
+          "type": "literal",
+          "value": "Ancien Dirigeant Déprécié"
+        },
+        "start": {
+          "type": "literal",
+          "value": "2010-01-01T00:00:00Z"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q101"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#PreferredRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_state"
+        },
+        "personLabel": {
+          "type": "literal",
+          "value": "Chef Démissionné"
+        },
+        "start": {
+          "type": "literal",
+          "value": "2020-01-01T00:00:00Z"
+        },
+        "end": {
+          "type": "literal",
+          "value": "2024-01-01T00:00:00Z"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q102"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#NormalRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_state"
+        },
+        "personLabel": {
+          "type": "literal",
+          "value": "Prédécesseur Normal"
+        },
+        "start": {
+          "type": "literal",
+          "value": "2021-01-01T00:00:00Z"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q103"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#PreferredRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_state"
+        },
+        "personLabel": {
+          "type": "literal",
+          "value": "Chef d'État Actuel Préféré"
+        },
+        "start": {
+          "type": "literal",
+          "value": "2025-01-01T00:00:00Z"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q104"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#NormalRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_government"
+        },
+        "personLabel": {
+          "type": "literal",
+          "value": "Q104"
+        },
+        "start": {
+          "type": "literal",
+          "value": "2025-02-01T00:00:00Z"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q105"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#NormalRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_government"
+        },
+        "personLabel": {
+          "type": "literal",
+          "value": "Chef du Gouvernement Actuel"
+        },
+        "start": {
+          "type": "literal",
+          "value": "2025-03-01T00:00:00Z"
+        }
+      }
+    ]
+  }
+}

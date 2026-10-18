@@ -1,0 +1,64 @@
+{
+  "head": {
+    "vars": [
+      "role",
+      "person",
+      "personLabel",
+      "start",
+      "end",
+      "rank"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q336599"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#PreferredRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_government"
+        },
+        "personLabel": {
+          "xml:lang": "fr",
+          "type": "literal",
+          "value": "Bart De Wever"
+        },
+        "start": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "2025-02-03T00:00:00Z"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q155004"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#PreferredRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_state"
+        },
+        "personLabel": {
+          "xml:lang": "fr",
+          "type": "literal",
+          "value": "Philippe de Belgique"
+        },
+        "start": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "2013-07-21T00:00:00Z"
+        }
+      }
+    ]
+  }
+}

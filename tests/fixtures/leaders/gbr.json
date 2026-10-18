@@ -1,0 +1,64 @@
+{
+  "head": {
+    "vars": [
+      "role",
+      "person",
+      "personLabel",
+      "start",
+      "end",
+      "rank"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q43274"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#PreferredRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_state"
+        },
+        "personLabel": {
+          "xml:lang": "fr",
+          "type": "literal",
+          "value": "Charles III"
+        },
+        "start": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "2022-09-08T00:00:00Z"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q269909"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#PreferredRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_government"
+        },
+        "personLabel": {
+          "xml:lang": "en",
+          "type": "literal",
+          "value": "Andy Burnham"
+        },
+        "start": {
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+          "type": "literal",
+          "value": "2026-07-20T00:00:00Z"
+        }
+      }
+    ]
+  }
+}

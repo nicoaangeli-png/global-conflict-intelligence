@@ -1,0 +1,54 @@
+{
+  "head": {
+    "vars": [
+      "role",
+      "person",
+      "personLabel",
+      "start",
+      "end",
+      "rank"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q30917"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#NormalRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_state"
+        },
+        "personLabel": {
+          "xml:lang": "fr",
+          "type": "literal",
+          "value": "Conseil fédéral"
+        }
+      },
+      {
+        "person": {
+          "type": "uri",
+          "value": "http://www.wikidata.org/entity/Q30917"
+        },
+        "rank": {
+          "type": "uri",
+          "value": "http://wikiba.se/ontology#NormalRank"
+        },
+        "role": {
+          "type": "literal",
+          "value": "head_of_government"
+        },
+        "personLabel": {
+          "xml:lang": "fr",
+          "type": "literal",
+          "value": "Conseil fédéral"
+        }
+      }
+    ]
+  }
+}
