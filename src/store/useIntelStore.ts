@@ -11,6 +11,7 @@ import type {
   TimeRangeKey,
 } from "@/types/conflict";
 import type { Locale } from "@/lib/i18n";
+import { REAL_DATASETS } from "@/types/conflict";
 
 /**
  * État global de l'application.
@@ -71,6 +72,9 @@ interface IntelStore {
   /** Demande de recentrage caméra (consommée par la scène 3D). */
   focusRequest: { lat: number; lon: number; at: number } | null;
   layers: LayerToggles;
+  /** Panneau AURA (analyste IA) ouvert : masque la colonne droite. */
+  agentOpen: boolean;
+  setAgentOpen: (open: boolean) => void;
   setLayer: (key: keyof LayerToggles, value: boolean) => void;
 
   setRange: (range: TimeRangeKey) => void;
@@ -99,7 +103,7 @@ interface IntelStore {
 const DEFAULT_FILTERS: EventFilters = {
   range: "30d",
   types: [],
-  datasets: [],
+  datasets: [...REAL_DATASETS],
   confidences: [],
   countries: [],
   minFatalities: 0,
@@ -125,13 +129,14 @@ let inFlight: AbortController | null = null;
  * sélection d'origine est conservée pour ne pas perdre le contexte de
  * l'analyste lors d'un zoom.
  */
-function resolveSelection(prev: ConflictCluster, clusters: ConflictCluster[]): ConflictCluster {
+function resolveSelection(prev: ConflictCluster, clusters: ConflictCluster[]): ConflictCluster | null {
   const exact = clusters.find((c) => c.id === prev.id);
   if (exact) return exact;
   const cosLat = Math.cos((prev.latitude * Math.PI) / 180);
   let best: ConflictCluster | null = null;
   let bestD = 16; // 4° au carré
   for (const c of clusters) {
+    if (c.country !== prev.country || c.confidence !== prev.confidence) continue;
     const dLat = c.latitude - prev.latitude;
     const dLon = (c.longitude - prev.longitude) * cosLat;
     const d = dLat * dLat + dLon * dLon;
@@ -140,7 +145,7 @@ function resolveSelection(prev: ConflictCluster, clusters: ConflictCluster[]): C
       best = c;
     }
   }
-  return best ?? prev;
+  return best;
 }
 
 export const useIntelStore = create<IntelStore>((set, get) => ({
@@ -166,6 +171,8 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
   ingestNotice: null,
   dataEpoch: 0,
   focusRequest: null,
+  agentOpen: false,
+  setAgentOpen: (agentOpen) => set({ agentOpen }),
   layers: {
     land: true,
     borders: true,
@@ -249,7 +256,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
         selectedEvents: next && prev && next.id === prev.id ? s.selectedEvents : [],
       }));
 
-      if (next && prev && next.id !== prev.id) void get().loadClusterDetail(next);
+      if (next) void get().loadClusterDetail(next);
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
       set({ loading: false, error: err instanceof Error ? err.message : "erreur de chargement" });
@@ -278,10 +285,12 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
           degrees,
           lat: cluster.latitude,
           lon: cluster.longitude,
+          clusterId: cluster.id,
         }),
       });
+      if (!res.ok) throw new Error("détail indisponible");
       const data = (await res.json()) as { events: ConflictEvent[] };
-      set({ selectedEvents: data.events ?? [], selecting: false });
+      if (get().selected?.id === cluster.id) set({ selectedEvents: data.events ?? [], selecting: false });
     } catch {
       set({ selecting: false });
     }

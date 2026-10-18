@@ -13,10 +13,10 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const stats = useIntelStore((s) => s.stats);
 
   return (
-    <section className="panel corners boot flex max-h-[62vh] w-[340px] flex-col">
+    <section className="panel corners boot flex max-h-[62vh] w-[min(340px,calc(100vw-40px))] flex-col">
       <span className="corner" />
       <div className="flex items-center justify-between px-3 pt-[10px]">
-        <span className="label-strong">Configuration</span>
+        <span className="label-strong">Paramètres · Sources & déploiement</span>
         <button type="button" className="chip" style={{ padding: "2px 6px" }} onClick={onClose}>
           fermer
         </button>
@@ -32,8 +32,14 @@ ACLED_PASSWORD=••••••
 # ou un jeton direct
 ACLED_ACCESS_TOKEN=...
 
-# PostgreSQL (optionnel — sinon dépôt mémoire)
-DATABASE_URL=postgresql://nicolas@localhost:5432/orbital_intel
+UCDP_ACCESS_TOKEN=...
+UCDP_VERSION=26.1
+
+# Protection du déclenchement manuel
+INGEST_TOKEN=...
+
+# PostgreSQL conseillé en production
+DATABASE_URL=postgresql://user@localhost:5432/orbital_intel
 
 # Désactivation ciblée
 GDELT_DISABLED=1
@@ -45,7 +51,8 @@ UCDP_DISABLED=1`}
           <span className="label">Import de fichiers</span>
           <p className="mt-1 text-[9px] leading-relaxed text-text-dim">
             Déposez un export CSV ACLED ou UCDP dans <span className="value">data/imports/</span> puis lancez{" "}
-            <span className="value">POST /api/ingest</span>. Les deux formats sont détectés automatiquement.
+            <span className="value">POST /api/ingest</span> avec le jeton serveur dans l&apos;en-tête Authorization Bearer.
+            Les secrets restent dans .env.local ; redémarrez le serveur après modification.
           </p>
         </div>
 
@@ -55,10 +62,17 @@ UCDP_DISABLED=1`}
             {(stats?.connectors ?? []).map((c) => (
               <li key={c.id} className="flex items-center justify-between gap-2 text-[9px] text-text-dim">
                 <span>{c.label}</span>
-                <span className="readout">{c.events} · {c.configured ? "configuré" : "inactif"}</span>
+                <span className="readout" title={c.note}>{c.events} · {c.reachable === false ? "erreur" : c.configured ? "configuré" : "inactif"}</span>
               </li>
             ))}
           </ul>
+        </div>
+
+        <div className="text-[9px] leading-relaxed text-text-dim">
+          <span className="label">Couverture et indicateurs</span>
+          <p className="mt-1">ACLED / UCDP nécessitent vos accès. GDELT signale des mentions presse, pas des incidents confirmés.
+            La Banque mondiale fournit population et PIB annuels, avec l&apos;année et le lien source dans la fiche pays.
+            Les budgets militaires SIPRI restent à importer depuis leurs publications : aucun flux tactique n&apos;est simulé.</p>
         </div>
 
         <p className="text-[9px] leading-relaxed text-text-faint">

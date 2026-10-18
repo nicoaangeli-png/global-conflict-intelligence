@@ -71,6 +71,7 @@ function LiveEventsView({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     const params = new URLSearchParams({ range: filters.range, limit: "80" });
+    params.set("datasets", filters.datasets.join(","));
     if (filters.types.length) params.set("types", filters.types.join(","));
     if (filters.confidences.length) params.set("confidences", filters.confidences.join(","));
     if (filters.minFatalities) params.set("minFatalities", String(filters.minFatalities));
@@ -102,12 +103,13 @@ function LiveEventsView({ onClose }: { onClose: () => void }) {
         <div key={e.id} className="border-b border-[rgba(127,212,255,0.08)] py-2 text-[10px]">
           <div className="flex items-baseline justify-between gap-2">
             <span className="font-light text-text">{e.country} · {e.locality || e.region || "—"}</span>
-            <span className="readout text-[9px] text-alert">{e.fatalities > 0 ? `${e.fatalities} †` : "0 †"}</span>
+            <span className="readout text-[9px] text-alert">{e.confidence === "MEDIA_SIGNAL" ? "N/A" : e.fatalities > 0 ? `${e.fatalities} †` : "0 †"}</span>
           </div>
           <div className="mt-0.5 flex items-baseline justify-between text-[9px] text-text-faint">
             <span>{e.eventType}</span>
             <span className="readout">{relative(e.eventDate)}</span>
           </div>
+          <div className="mt-1 text-[9px] text-text-faint">{e.confidence} · {e.sourceDataset} · {e.source}</div>
         </div>
       ))}
       {!events.length && !loading ? (
@@ -125,13 +127,14 @@ function RegionsView({ onClose }: { onClose: () => void }) {
   const locale = useIntelStore((s) => s.locale);
 
   const regions = useMemo(() => {
-    const map = new Map<string, { country: string; events: number; fatalities: number; zones: number; intensity: number; best: (typeof clusters)[number] }>();
+    const map = new Map<string, { country: string; events: number; fatalities: number; hasReportedFatalities: boolean; zones: number; intensity: number; best: (typeof clusters)[number] }>();
     for (const c of clusters) {
       const key = c.country || "—";
       const cur = map.get(key);
       if (cur) {
         cur.events += c.eventCount;
         cur.fatalities += c.fatalities;
+        cur.hasReportedFatalities ||= c.confidence !== "MEDIA_SIGNAL";
         cur.zones += 1;
         cur.intensity = Math.max(cur.intensity, c.intensity);
         if (c.intensity > cur.best.intensity) cur.best = c;
@@ -140,6 +143,7 @@ function RegionsView({ onClose }: { onClose: () => void }) {
           country: key,
           events: c.eventCount,
           fatalities: c.fatalities,
+          hasReportedFatalities: c.confidence !== "MEDIA_SIGNAL",
           zones: 1,
           intensity: c.intensity,
           best: c,
@@ -169,7 +173,7 @@ function RegionsView({ onClose }: { onClose: () => void }) {
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline justify-between gap-2">
                 <span className="truncate text-[11px] font-light text-text">{r.country}</span>
-                <span className="readout shrink-0 text-[9px]">{int(r.fatalities)} †</span>
+                <span className="readout shrink-0 text-[9px]">{r.hasReportedFatalities ? `${int(r.fatalities)} †` : "N/A"}</span>
               </span>
 
               {/* Régime du pays */}
@@ -230,7 +234,7 @@ function ConflictsView({ onClose }: { onClose: () => void }) {
                 <span className="readout shrink-0 text-[9px] text-alert">{(c.intensity * 100).toFixed(0)}%</span>
               </span>
               <span className="mt-[2px] block truncate text-[9px] uppercase tracking-[0.14em] text-text-faint">
-                {c.country} · {c.topType} · {c.eventCount} {locale === "fr" ? "év." : "ev."} · {compact(c.fatalities)} †
+                {c.country} · {c.topType} · {c.eventCount} {locale === "fr" ? "év." : "ev."} · {c.confidence === "MEDIA_SIGNAL" ? "N/A" : `${compact(c.fatalities)} †`}
               </span>
             </span>
           </button>
@@ -252,10 +256,13 @@ function SourcesView({ onClose }: { onClose: () => void }) {
   const runIngest = async () => {
     setBusy(true);
     try {
-      const res = await fetch("/api/ingest", { method: "POST" });
-      const data = (await res.json()) as { report?: string };
-      setReport(data.report ?? null);
+      const res = await fetch("/api/ingest", { cache: "no-store" });
+      if (!res.ok) throw new Error(locale === "fr" ? "État des sources indisponible" : "Source status unavailable");
+      const data = (await res.json()) as { ingestReport?: string; report?: string };
+      setReport(data.ingestReport ?? data.report ?? (locale === "fr" ? "État actualisé. Ingestion automatique côté serveur ; déclenchement manuel protégé par jeton." : "Status refreshed. Automatic ingestion runs server-side; manual triggers require a token."));
       await refresh();
+    } catch (error) {
+      setReport(error instanceof Error ? error.message : "Erreur de connexion");
     } finally {
       setBusy(false);
     }
@@ -291,7 +298,7 @@ function SourcesView({ onClose }: { onClose: () => void }) {
 
       <div className="hairline my-2" />
       <button type="button" className="chip" data-active={busy} onClick={() => void runIngest()} disabled={busy}>
-        {busy ? (locale === "fr" ? "ingestion en cours…" : "ingesting…") : locale === "fr" ? "lancer une ingestion" : "trigger ingest"}
+        {busy ? (locale === "fr" ? "actualisation…" : "refreshing…") : locale === "fr" ? "actualiser l’état des sources" : "refresh source status"}
       </button>
       {report ? <p className="mt-2 text-[9px] leading-relaxed text-text-dim">{report}</p> : null}
       <p className="mt-3 text-[9px] leading-relaxed text-text-faint">

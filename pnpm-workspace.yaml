@@ -1,2 +1,4 @@
 allowBuilds:
   sharp: true
+overrides:
+  next>postcss: 8.5.30

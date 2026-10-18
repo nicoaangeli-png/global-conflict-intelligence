@@ -1,5 +1,6 @@
 import type { ConflictEvent } from "@/types/conflict";
-import { type Connector, safeFetch } from "./types";
+import { createHash } from "node:crypto";
+import { ConnectorError, type Connector, safeFetch, providerDate, validCoordinates } from "./types";
 
 /**
  * Connecteur GDELT 2.0 (source secondaire, temps réel).
@@ -76,7 +77,8 @@ export const gdeltConnector: Connector = {
     return "Presse mondiale géolocalisée (GKG) — signaux en direct filtrés sur les zones de conflit.";
   },
 
-  async fetchEvents() {
+  async fetchEvents({ days }) {
+    if (!this.isConfigured()) throw new ConnectorError("GDELT désactivé", "gdelt", "config");
     const wait = 5200 - (Date.now() - lastRequest);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastRequest = Date.now();
@@ -94,8 +96,9 @@ export const gdeltConnector: Connector = {
     try {
       json = JSON.parse(text) as { features?: GkgFeature[] };
     } catch {
-      throw new Error("Réponse GDELT illisible (JSON invalide)");
+      throw new ConnectorError("Réponse GDELT illisible", "gdelt", "parse");
     }
+    if (!Array.isArray(json.features)) throw new ConnectorError("Réponse GDELT invalide", "gdelt", "parse");
 
     const now = new Date().toISOString();
     const byPlace = new Map<string, { event: ConflictEvent; tone: number; count: number }>();
@@ -104,10 +107,10 @@ export const gdeltConnector: Connector = {
       const coords = f.geometry?.coordinates;
       if (!coords) continue;
       const [lon, lat] = coords;
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      if (!validCoordinates(lat, lon)) continue;
       const p = f.properties ?? {};
       const tone = Number(p.urltone ?? 0);
-      if (tone > TONE_MAX) continue;
+      if (!Number.isFinite(tone) || tone > TONE_MAX) continue;
 
       const rawName = p.name ?? "";
       const parts = rawName.split(",").map((s) => s.trim()).filter(Boolean);
@@ -135,11 +138,13 @@ export const gdeltConnector: Connector = {
         continue; // Élimine les faits divers dans les pays en paix
       }
 
-      const cell = `${country}|${locality}|${lat.toFixed(1)}|${lon.toFixed(1)}`;
-      const eventDate =
-        p.urlpubtimedate && !Number.isNaN(Date.parse(p.urlpubtimedate))
-          ? new Date(p.urlpubtimedate).toISOString()
-          : now;
+      const eventDate = providerDate(p.urlpubtimedate);
+      if (!eventDate || Date.parse(eventDate) > Date.parse(now) || Date.parse(eventDate) < Date.parse(now) - days * 86400e3) continue;
+      let article: URL;
+      try { article = new URL(p.url ?? ""); } catch { continue; }
+      if (!["http:", "https:"].includes(article.protocol) || article.username || article.password) continue;
+      article.hash = "";
+      const cell = `${article.href}|${eventDate}|${lat}|${lon}`;
 
       const existing = byPlace.get(cell);
       if (existing) {
@@ -157,7 +162,7 @@ export const gdeltConnector: Connector = {
         tone,
         count: 1,
         event: {
-          id: `gdelt-${lat.toFixed(2)}-${lon.toFixed(2)}-${locality.replace(/\W+/g, "-").toLowerCase()}`,
+          id: `gdelt-${createHash("sha256").update(cell).digest("hex").slice(0, 32)}`,
           latitude: lat,
           longitude: lon,
           country,

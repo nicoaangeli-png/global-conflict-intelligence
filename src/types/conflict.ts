@@ -15,6 +15,12 @@ export const EVENT_TYPES = [
   "Protests",
   "Strategic developments",
   /**
+   * Anomalie thermique détectée par satellite (NASA FIRMS). Ce n'est ni un
+   * combat ni une frappe : feu, torchère industrielle ou incendie. Ce type
+   * n'indique donc jamais à lui seul un conflit.
+   */
+  "Thermal anomaly",
+  /**
    * Signal presse géolocalisé (GDELT) : la nature exacte de l'événement n'est
    * pas établie par l'article. Ce type n'est JAMAIS présenté comme une donnée
    * confirmée — il porte toujours la confiance MEDIA_SIGNAL.
@@ -29,7 +35,7 @@ export const CONFIDENCE_LEVELS = ["CONFIRMED", "REPORTED", "MEDIA_SIGNAL", "DEMO
 export type Confidence = (typeof CONFIDENCE_LEVELS)[number];
 
 /** Jeux de données reconnus par la couche d'ingestion. */
-export const SOURCE_DATASETS = ["acled", "gdelt", "ucdp", "import:csv", "demo:seed"] as const;
+export const SOURCE_DATASETS = ["acled", "gdelt", "ucdp", "firms", "import:csv", "demo:seed"] as const;
 export type SourceDataset = (typeof SOURCE_DATASETS)[number] | (string & {});
 
 /**
@@ -37,7 +43,7 @@ export type SourceDataset = (typeof SOURCE_DATASETS)[number] | (string & {});
  * (aujourd'hui `demo:seed`) est fabriqué pour la démonstration et doit rester
  * visuellement distinct.
  */
-export const REAL_DATASETS = ["acled", "gdelt", "ucdp", "import:csv"] as const;
+export const REAL_DATASETS = ["acled", "gdelt", "ucdp", "firms", "import:csv"] as const;
 
 /** Événement normalisé, unité de base de l'application. */
 export interface ConflictEvent {
@@ -116,6 +122,7 @@ export interface DailyBucket {
 }
 
 export interface StatsResponse {
+  coverage?: { documented: number; media: number; demo: number; thermal: number };
   generatedAt: string;
   range: TimeRangeKey;
   activeZones: number;
@@ -136,7 +143,7 @@ export interface StatsResponse {
 }
 
 export interface ConnectorStatus {
-  id: "acled" | "gdelt" | "ucdp" | "import" | "demo";
+  id: "acled" | "gdelt" | "ucdp" | "firms" | "import" | "demo";
   label: string;
   configured: boolean;
   reachable: boolean | null;

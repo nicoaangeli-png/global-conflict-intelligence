@@ -1,5 +1,5 @@
 import type { ConflictEvent, EventType } from "@/types/conflict";
-import { ConnectorError, type Connector, env, safeFetch } from "./types";
+import { ConnectorError, type Connector, env, safeFetch, providerDate, validCoordinates } from "./types";
 
 /**
  * Connecteur ACLED (source principale).
@@ -83,7 +83,7 @@ export const acledConnector: Connector = {
   label: "ACLED",
 
   isConfigured() {
-    return Boolean(env("ACLED_ACCESS_TOKEN") || (env("ACLED_EMAIL") && env("ACLED_PASSWORD")));
+    return process.env.ACLED_DISABLED !== "1" && Boolean(env("ACLED_ACCESS_TOKEN") || (env("ACLED_EMAIL") && env("ACLED_PASSWORD")));
   },
 
   describe() {
@@ -93,6 +93,7 @@ export const acledConnector: Connector = {
   },
 
   async fetchEvents({ days }) {
+    if (!this.isConfigured()) throw new ConnectorError("ACLED non configuré", "acled", "config");
     const token = await getToken();
     const from = new Date(Date.now() - days * 86400e3).toISOString().slice(0, 10);
     const params = new URLSearchParams({
@@ -117,18 +118,29 @@ export const acledConnector: Connector = {
       ].join("|"),
     });
 
-    const res = await safeFetch("acled", `${API_URL}?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
-    const json = (await res.json()) as { data?: AcledRow[]; error?: string };
-    if (json.error) throw new ConnectorError(`ACLED: ${json.error}`, "acled", "parse");
+    const rows: AcledRow[] = [];
+    let complete = false;
+    for (let page = 1; page <= 20; page++) {
+      params.set("page", String(page));
+      const res = await safeFetch("acled", `${API_URL}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      });
+      const json = (await res.json()) as { data?: AcledRow[]; error?: unknown; success?: boolean };
+      if (json.error || json.success === false || !Array.isArray(json.data)) {
+        throw new ConnectorError("Réponse ACLED invalide", "acled", "parse");
+      }
+      rows.push(...json.data);
+      if (json.data.length < 5000) { complete = true; break; }
+    }
+    if (!complete) throw new ConnectorError("Limite de pagination ACLED atteinte", "acled", "parse");
 
-    return (json.data ?? [])
+    return rows
       .map((row): ConflictEvent | null => {
         const lat = n(row.latitude);
         const lon = n(row.longitude);
-        if (!lat && !lon) return null;
-        const date = row.event_date ?? new Date().toISOString().slice(0, 10);
+        if (!validCoordinates(row.latitude, row.longitude)) return null;
+        const date = providerDate(row.event_date);
+        if (!date || !row.event_id_cnty) return null;
         return {
           id: `acled-${row.event_id_cnty ?? `${lat},${lon},${date}`}`,
           latitude: lat,
@@ -139,13 +151,15 @@ export const acledConnector: Connector = {
           eventType: ACLED_TYPES[row.event_type ?? ""] ?? "Strategic developments",
           subEventType: row.sub_event_type ?? "",
           actors: [row.actor1, row.actor2].filter((a): a is string => Boolean(a)),
-          fatalities: n(row.fatalities),
+          fatalities: Math.max(0, Math.trunc(n(row.fatalities))),
           source: row.source ? `ACLED · ${row.source}` : "ACLED",
           sourceUrl: "",
           sourceDataset: "acled",
           confidence: "CONFIRMED",
-          eventDate: new Date(`${date}T12:00:00Z`).toISOString(),
-          updatedAt: row.timestamp ? new Date(row.timestamp).toISOString() : new Date().toISOString(),
+          eventDate: date,
+          updatedAt: row.timestamp && /^\d{10}$/.test(row.timestamp)
+            ? new Date(Number(row.timestamp) * 1000).toISOString()
+            : providerDate(row.timestamp) ?? new Date().toISOString(),
         };
       })
       .filter((e): e is ConflictEvent => e !== null);

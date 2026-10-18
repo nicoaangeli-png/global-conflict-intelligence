@@ -1,6 +1,6 @@
 "use client";
 
-import { EVENT_TYPES, type Confidence, type EventType } from "@/types/conflict";
+import { EVENT_TYPES, REAL_DATASETS, type Confidence, type EventType } from "@/types/conflict";
 import { useIntelStore } from "@/store/useIntelStore";
 import { t } from "@/lib/i18n";
 
@@ -45,6 +45,7 @@ export function FiltersPanel() {
   const clusters = useIntelStore((s) => s.clusters);
   const toggleType = useIntelStore((s) => s.toggleType);
   const setConfidences = useIntelStore((s) => s.setConfidences);
+  const setDatasets = useIntelStore((s) => s.setDatasets);
   const setMinFatalities = useIntelStore((s) => s.setMinFatalities);
   const layers = useIntelStore((s) => s.layers);
   const setLayer = useIntelStore((s) => s.setLayer);
@@ -70,8 +71,8 @@ export function FiltersPanel() {
           className="chip"
           style={{ padding: "2px 6px" }}
           onClick={() => {
-            setConfidences([]);
-            useIntelStore.setState({ filters: { ...filters, types: [], minFatalities: 0 } });
+            useIntelStore.setState({ filters: { ...filters, types: [], confidences: [], minFatalities: 0, datasets: [...REAL_DATASETS] } });
+            void useIntelStore.getState().refresh();
           }}
         >
           {locale === "fr" ? "réinit." : "reset"}
@@ -79,6 +80,27 @@ export function FiltersPanel() {
       </div>
       <div className="hairline mx-3 mt-2" />
 
+      <div className="px-3 pt-2">
+        <span className="label">{locale === "fr" ? "Provenance" : "Provenance"}</span>
+        <div className="mt-[6px] flex flex-wrap gap-[5px]">
+          {[
+            { label: locale === "fr" ? "Sources documentées" : "Documented sources", datasets: ["acled", "ucdp", "import:csv"] },
+            { label: locale === "fr" ? "Presse GDELT" : "GDELT media", datasets: ["gdelt"] },
+            { label: locale === "fr" ? "Démo fictive" : "Fictional demo", datasets: ["demo:seed"] },
+            { label: locale === "fr" ? "Sources + presse" : "Sources + media", datasets: [...REAL_DATASETS] },
+          ].map((mode) => (
+            <button key={mode.label} type="button" className="chip"
+              data-active={mode.datasets.length === filters.datasets.length && mode.datasets.every((dataset) => filters.datasets.includes(dataset))}
+              onClick={() => { useIntelStore.setState({ filters: { ...filters, confidences: [] }, selected: null, selectedEvents: [] }); setDatasets(mode.datasets); }}>
+              {mode.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[9px] leading-relaxed text-text-faint">
+          {locale === "fr" ? "La démo est exclue par défaut. Un signal presse ne confirme pas un incident. Aucune donnée ne signifie pas absence de conflit." : "Demo is excluded by default. Media signals do not confirm incidents. No data does not mean no conflict."}
+        </p>
+      </div>
+      <div className="hairline mx-3 mt-3" />
       <div className="px-3 pt-2">
         <span className="label">{dict.filters.conflictTypes}</span>
         <div className="mt-[6px] flex flex-wrap gap-[5px]">
@@ -174,6 +196,8 @@ function shortType(t: EventType, locale: "fr" | "en"): string {
       return locale === "fr" ? "émeutes" : "riots";
     case "Protests":
       return locale === "fr" ? "manifestations" : "protests";
+    case "Thermal anomaly":
+      return locale === "fr" ? "anomalies thermiques" : "thermal anomalies";
     case "Media signal":
       return locale === "fr" ? "signaux presse" : "media signal";
     default:

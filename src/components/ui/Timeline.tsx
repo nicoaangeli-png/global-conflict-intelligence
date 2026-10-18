@@ -30,7 +30,11 @@ export function Timeline() {
   // Frise de référence : 12 mois
   useEffect(() => {
     let alive = true;
-    fetch("/api/stats?range=1y", { cache: "no-store" })
+    const params = new URLSearchParams({ range: "1y", datasets: filters.datasets.join(",") });
+    if (filters.types.length) params.set("types", filters.types.join(","));
+    if (filters.confidences.length) params.set("confidences", filters.confidences.join(","));
+    if (filters.minFatalities) params.set("minFatalities", String(filters.minFatalities));
+    fetch(`/api/stats?${params}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((s: { daily: DailyBucket[] }) => {
         if (alive) setYear(s.daily ?? []);
@@ -39,7 +43,7 @@ export function Timeline() {
     return () => {
       alive = false;
     };
-  }, [lastIngest]);
+  }, [lastIngest, filters.datasets, filters.types, filters.confidences, filters.minFatalities]);
 
   const span = useMemo(() => {
     if (!year.length) return null;

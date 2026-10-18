@@ -21,6 +21,8 @@ pnpm-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+data/intel-events.json
+data/intel-events.json.*
 next-env.d.ts
 
 # OS

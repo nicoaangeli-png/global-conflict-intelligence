@@ -50,7 +50,7 @@ function EventRow({ event, locale }: { event: ConflictEvent; locale: "fr" | "en"
     <div className="border-l border-[rgba(127,212,255,0.12)] py-[5px] pl-[9px]">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[10px] font-light tracking-wide text-text">{event.eventType}</span>
-        <span className="readout text-[9px]">{event.fatalities > 0 ? `${event.fatalities} †` : "0 †"}</span>
+        <span className="readout text-[9px]">{event.confidence === "MEDIA_SIGNAL" ? "N/A" : event.fatalities > 0 ? `${event.fatalities} †` : "0 †"}</span>
       </div>
       <div className="mt-[2px] flex items-baseline justify-between gap-3">
         <span className="truncate text-[9px] tracking-[0.06em] text-text-faint">
@@ -167,7 +167,7 @@ export function LiveConflictPanel() {
           <div className="mt-2 px-3">
             <Field label={dict.liveConflict.events} value={int(selected.eventCount)} mono />
             <div className="hairline" />
-            <Field label={dict.liveConflict.fatalities} value={`${int(selected.fatalities)} †`} mono />
+            <Field label={dict.liveConflict.fatalities} value={selected.confidence === "MEDIA_SIGNAL" ? "N/A" : `${int(selected.fatalities)} †`} mono />
             <div className="hairline" />
             <Field label={dict.liveConflict.dominantType} value={selected.topType} />
             <div className="hairline" />
@@ -231,7 +231,7 @@ export function LiveConflictPanel() {
                   </span>
                 </span>
                 <span className="shrink-0 text-right">
-                  <span className="value block text-[12px]">{compact(c.fatalities)}</span>
+                  <span className="value block text-[12px]">{c.confidence === "MEDIA_SIGNAL" ? "N/A" : compact(c.fatalities)}</span>
                   <span className="label block text-[8px]">† {c.eventCount} {locale === "fr" ? "év." : "ev."}</span>
                   <span className="readout block text-[8px] text-text-faint">
                     {coords(c.latitude, c.longitude)}

@@ -43,10 +43,10 @@ export function Header({
   return (
     <header className="pointer-events-none absolute inset-x-0 top-0 z-20 select-none">
       <div className="flex items-start justify-between gap-6 px-5 pt-4 md:px-7">
-        <div className="boot">
+        <div className="boot min-w-0">
           <div className="flex items-baseline gap-3">
             <span className="text-[13px] font-extralight tracking-[0.5em] text-ice">ORBITAL</span>
-            <span className="label-strong translate-y-[-1px]">{dict.system.subtitle}</span>
+            <span className="label-strong hidden translate-y-[-1px] sm:inline">{dict.system.subtitle}</span>
           </div>
           <div className="mt-1 flex items-center gap-3">
             <span className="label">{dict.system.tagline}</span>
@@ -67,15 +67,6 @@ export function Header({
               {item.label}
             </button>
           ))}
-          <button
-            className="nav-item"
-            data-active={view === "SETUP"}
-            onClick={() => onView("SETUP")}
-            type="button"
-          >
-            {dict.nav.setup}
-          </button>
-
           {/* Commutateur de langue FR / EN */}
           <div className="ml-2 flex items-center border border-cyan/30 bg-[#020b18]/80 p-[2px]">
             <button
@@ -104,7 +95,12 @@ export function Header({
           </div>
         </nav>
 
-        <div className="flex flex-col items-end gap-1.5">
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <button type="button" className="chip pointer-events-auto" data-active={view === "SETUP"}
+            aria-label={locale === "fr" ? "Ouvrir les paramètres" : "Open settings"}
+            aria-expanded={view === "SETUP"} onClick={() => onView(view === "SETUP" ? "OVERVIEW" : "SETUP")}>
+            {locale === "fr" ? "PARAMÈTRES" : "SETTINGS"}
+          </button>
           <div className="flex items-center gap-2">
             <span
               className={`dot blink ${

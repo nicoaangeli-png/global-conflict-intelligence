@@ -246,24 +246,30 @@ export class ConflictLayer {
     this.particleMaterial.uniforms.uPixelRatio.value = dpr;
   }
 
-  public hitTest(raycaster: THREE.Raycaster, camera: THREE.Camera): ConflictCluster | null {
-    if (this.clusters.length === 0) return null;
+  public hitTest(camera: THREE.Camera, pointer: THREE.Vector2, width: number, height: number): ConflictCluster | null {
+    if (this.clusters.length === 0 || width <= 0 || height <= 0) return null;
 
-    const v = new THREE.Vector3();
-    const ray = raycaster.ray;
-    let closestDist = 0.08; // Seuil de sélection angulaire/sphérique
+    camera.updateWorldMatrix(true, false);
+    this.group.updateWorldMatrix(true, false);
+    const point = new THREE.Vector3();
+    const projected = new THREE.Vector3();
+    const localCamera = this.group.worldToLocal(camera.getWorldPosition(new THREE.Vector3()));
+    const cameraDirection = new THREE.Vector3();
+    let closestDist = 12;
     let hitCluster: ConflictCluster | null = null;
 
     for (const cluster of this.clusters) {
-      latLonToVector3(cluster.latitude, cluster.longitude, this.radius * 1.02, v);
-      // Appliquer les transformations du groupe si présent
-      v.applyMatrix4(this.group.matrixWorld);
+      latLonToVector3(cluster.latitude, cluster.longitude, this.radius * 1.02, point);
+      if (cameraDirection.copy(localCamera).sub(point).dot(point) <= 0) continue;
+      point.applyMatrix4(this.group.matrixWorld);
+      if (projected.copy(point).applyMatrix4(camera.matrixWorldInverse).z >= 0) continue;
+      projected.copy(point).project(camera);
+      if (Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1 || Math.abs(projected.z) > 1) continue;
 
-      // Vérifier si le point fait face à la caméra
-      const camDir = camera.position.clone().sub(v);
-      if (camDir.dot(v) < 0) continue; // Face cachée
-
-      const dist = ray.distanceToPoint(v);
+      const dist = Math.hypot(
+        (projected.x - pointer.x) * width / 2,
+        (projected.y - pointer.y) * height / 2,
+      );
       if (dist < closestDist) {
         closestDist = dist;
         hitCluster = cluster;

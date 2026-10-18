@@ -4,7 +4,9 @@ import { CONFLICT } from "@/lib/config/visual";
 import { compact, dateTimeUTC, int, relative } from "@/lib/format";
 import { useIntelStore } from "@/store/useIntelStore";
 import { t } from "@/lib/i18n";
-import type { ConflictCluster } from "@/types/conflict";
+import { useEffect, useMemo, useState } from "react";
+import { getCountryGeopolitics, normalizeCountry } from "@/data/geopolitics";
+import { CountryProfile } from "./CountryProfile";
 
 /**
  * Panneau « GLOBAL SITUATION ».
@@ -73,42 +75,63 @@ function Stat({
   );
 }
 
-function ZoneRow({ zone, index }: { zone: ConflictCluster; index: number }) {
-  const select = useIntelStore((s) => s.select);
-  const selected = useIntelStore((s) => s.selected?.id === zone.id);
+type CountryEntry = { name: string; iso: string; center: { lat: number; lon: number } | null };
+
+/** Centre approximatif du plus grand polygone (anneau extérieur), pour recentrer le globe. */
+function countryCenter(geometry: { type?: string; coordinates?: unknown } | null | undefined) {
+  const polygons = (geometry?.type === "Polygon" ? [geometry.coordinates] : geometry?.type === "MultiPolygon" ? geometry.coordinates : []) as number[][][][];
+  let ring: number[][] | null = null;
+  for (const polygon of polygons ?? []) {
+    if (Array.isArray(polygon?.[0]) && (!ring || polygon[0].length > ring.length)) ring = polygon[0];
+  }
+  if (!ring?.length) return null;
+  let lat = 0, x = 0, y = 0;
+  for (const [lon, la] of ring) {
+    lat += la;
+    x += Math.cos((lon * Math.PI) / 180);
+    y += Math.sin((lon * Math.PI) / 180);
+  }
+  return { lat: lat / ring.length, lon: (Math.atan2(y, x) * 180) / Math.PI };
+}
+type CountryRanking = { country: string; eventCount: number; fatalities: number; intensity: number; mediaSignals: number; demoEvents: number };
+
+function countryKey(name: string) {
+  const profile = getCountryGeopolitics(name);
+  return normalizeCountry(profile.iso === "N/A" ? name : profile.country);
+}
+
+function CountryRow({ country, index, onSelect }: { country: CountryRanking; index: number; onSelect: () => void }) {
+  const locale = useIntelStore((state) => state.locale);
 
   return (
     <button
       type="button"
       className="row-button group flex items-center gap-2"
-      data-active={selected}
-      onClick={() => void select(zone)}
+      onClick={onSelect}
     >
       <span className="readout w-4 shrink-0 text-[9px] text-text-faint">{String(index + 1).padStart(2, "0")}</span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="truncate text-[11px] font-light tracking-wide text-text">{zone.country || "—"}</span>
-          {zone.locality ? (
-            <span className="truncate text-[9px] uppercase tracking-[0.14em] text-text-faint">{zone.locality}</span>
-          ) : null}
+          <span className="truncate text-[11px] font-light tracking-wide text-text">{country.country}</span>
         </span>
         <span className="mt-[3px] flex items-center gap-2">
           <span className="h-[2px] flex-1 bg-[rgba(127,212,255,0.08)]">
             <span
               className="block h-full"
               style={{
-                width: `${Math.round(zone.intensity * 100)}%`,
+                width: `${Math.round(country.intensity * 100)}%`,
                 background: `linear-gradient(90deg, ${CONFLICT.markerBarFrom}, ${CONFLICT.markerBarTo})`,
                 boxShadow: "0 0 8px -1px rgba(255,74,47,0.7)",
               }}
             />
           </span>
           <span className="readout text-[9px] text-text-faint">
-            {zone.eventCount}
-            {zone.fatalities > 0 ? ` · ${compact(zone.fatalities)}†` : ""}
+            {country.eventCount}
+            {country.fatalities > 0 ? ` · ${compact(country.fatalities)}†` : ""}
           </span>
         </span>
       </span>
+      {country.mediaSignals > 0 || country.demoEvents > 0 ? <span className="text-[8px] text-text-faint">{country.mediaSignals > 0 ? `${country.mediaSignals} ${locale === "fr" ? "presse" : "media"}` : ""}{country.mediaSignals > 0 && country.demoEvents > 0 ? " · " : ""}{country.demoEvents > 0 ? `${country.demoEvents} ${locale === "fr" ? "démo" : "demo"}` : ""}</span> : null}
     </button>
   );
 }
@@ -118,10 +141,82 @@ export function GlobalSituationPanel() {
   const clusters = useIntelStore((s) => s.clusters);
   const at = useIntelStore((s) => s.filters.at);
   const locale = useIntelStore((s) => s.locale);
+  const focus = useIntelStore((s) => s.focus);
+  const [countries, setCountries] = useState<CountryEntry[]>([]);
+  const [referenceStatus, setReferenceStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [query, setQuery] = useState("");
+  const [chosenCountry, setChosenCountry] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favoritesReady, setFavoritesReady] = useState(false);
+  const [persistenceFailed, setPersistenceFailed] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/data/ne_110m_countries.geojson", { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("Country reference unavailable");
+        return response.json();
+      })
+      .then((data: { features: { properties: Record<string, unknown>; geometry?: { type?: string; coordinates?: unknown } }[] }) => {
+        const entries = data.features.flatMap(({ properties, geometry }) => {
+          const name = properties.ADMIN || properties.NAME;
+          const iso = properties.ISO_A3 !== "-99" ? properties.ISO_A3 : properties.ADM0_A3;
+          return typeof name === "string" && typeof iso === "string" ? [{ name, iso, center: countryCenter(geometry) }] : [];
+        });
+        setCountries(entries);
+        setReferenceStatus("ready");
+      })
+      .catch(() => { if (!controller.signal.aborted) setReferenceStatus("error"); });
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem("orbital.country-favorites.v1") || "[]");
+      if (Array.isArray(stored)) setFavorites(stored.filter((value): value is string => typeof value === "string"));
+    } catch { setPersistenceFailed(true); }
+    setFavoritesReady(true);
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!favoritesReady) return;
+    try {
+      localStorage.setItem("orbital.country-favorites.v1", JSON.stringify(favorites));
+    } catch { setPersistenceFailed(true); }
+  }, [favorites, favoritesReady]);
+
+  const ranking = useMemo(() => {
+    const grouped = new Map<string, CountryRanking>();
+    for (const cluster of clusters) {
+      if (!cluster.country.trim()) continue;
+      const key = countryKey(cluster.country);
+      const country = grouped.get(key) ?? { country: cluster.country, eventCount: 0, fatalities: 0, intensity: 0, mediaSignals: 0, demoEvents: 0 };
+      country.eventCount += cluster.eventCount;
+      country.fatalities += cluster.fatalities;
+      country.intensity = Math.max(country.intensity, cluster.intensity);
+      country.mediaSignals += cluster.confidenceCounts.MEDIA_SIGNAL ?? 0;
+      country.demoEvents += cluster.confidenceCounts.DEMO ?? 0;
+      grouped.set(key, country);
+    }
+    return [...grouped.values()].sort((first, second) => second.eventCount - first.eventCount || first.country.localeCompare(second.country));
+  }, [clusters]);
+  const matchingCountries = countries.filter((country) => {
+    const profile = getCountryGeopolitics(country.name);
+    return (!favoritesOnly || favorites.includes(country.iso)) && [country.name, country.iso, profile.country].some((value) => normalizeCountry(value).includes(normalizeCountry(query)));
+  }).sort((first, second) => Number(favorites.includes(second.iso)) - Number(favorites.includes(first.iso)) || first.name.localeCompare(second.name, locale));
 
   const dict = t(locale);
   const daily = stats?.daily ?? [];
-  const top = clusters.slice(0, 6);
+  const top = ranking.slice(0, 6);
+
+  /** Ouvre la fiche et recentre le globe (référentiel pays, sinon foyer le plus intense). */
+  const chooseCountry = (name: string) => {
+    setChosenCountry(name);
+    const center = countries.find((country) => countryKey(country.name) === countryKey(name))?.center;
+    const hottest = clusters
+      .filter((cluster) => countryKey(cluster.country) === countryKey(name))
+      .sort((first, second) => second.intensity - first.intensity)[0];
+    const target = center ?? (hottest ? { lat: hottest.latitude, lon: hottest.longitude } : null);
+    if (target) focus(target.lat, target.lon);
+  };
   const major = clusters.filter((c) => c.intensity >= 0.5).length;
 
   return (
@@ -147,7 +242,7 @@ export function GlobalSituationPanel() {
         <Stat
           label={dict.globalSituation.recorded24h}
           value={int(stats?.events24h)}
-          hint={locale === "fr" ? "toutes sources confondues" : "all sources combined"}
+          hint={locale === "fr" ? "dans les sources et filtres sélectionnés" : "within selected sources and filters"}
         />
         <div className="hairline" />
         <Stat
@@ -157,9 +252,9 @@ export function GlobalSituationPanel() {
         <div className="hairline" />
         <Stat
           label={dict.globalSituation.fatalitiesWindow}
-          value={compact(stats?.fatalitiesRange)}
+          value={stats?.coverage && stats.coverage.documented + stats.coverage.demo === 0 ? "N/A" : compact(stats?.fatalitiesRange)}
           unit="†"
-          hint={locale === "fr" ? "cumul sur la période" : "cumulative casualties"}
+          hint={locale === "fr" ? "cumul renseigné · morts inconnus pour la presse" : "reported total · media fatalities unknown"}
           accent="alert"
         />
         <div className="hairline" />
@@ -167,27 +262,52 @@ export function GlobalSituationPanel() {
           <span className="label">{dict.globalSituation.temporalCurve}</span>
           <span className="readout text-[9px]">{gridLabel(stats?.range, locale)}</span>
         </div>
-        <Sparkline data={daily.slice(-28)} />
+        <Sparkline data={daily} />
         <div className="mt-[6px] flex items-center justify-between">
-          <span className="readout text-[9px]">{daily.length ? daily[0].day : "—"}</span>
-          <span className="readout text-[9px]">{daily.length ? daily[daily.length - 1].day : "—"}</span>
+          <span className="readout text-[9px]">{daily.length ? daily[0].day.replace("T", " ").slice(0, stats?.range === "24h" ? 16 : 10) : "—"}</span>
+          <span className="readout text-[9px]">{daily.length ? daily[daily.length - 1].day.replace("T", " ").slice(0, stats?.range === "24h" ? 16 : 10) : "—"}</span>
         </div>
       </div>
 
       <div className="hairline mx-3 mt-3" />
       <div className="flex items-center justify-between px-3 pt-2">
-        <span className="label-strong">{dict.globalSituation.topTheaters}</span>
-        <span className="readout text-[9px]">{locale === "fr" ? "intensité" : "intensity"}</span>
+        <span className="label-strong">{locale === "fr" ? "Pays · Top 6" : "Countries · Top 6"}</span>
+        <span className="readout text-[9px]">{locale === "fr" ? "événements" : "events"}</span>
       </div>
+      <p className="px-3 pt-1 text-[9px] text-text-faint">{locale === "fr" ? "Période et filtres actifs · Presse et démo incluses si actives · Barre = intensité max. des foyers" : "Active period and filters · Includes media and demo if enabled · Bar = max. cluster intensity"}</p>
       <div className="max-h-[228px] overflow-y-auto py-1 scroll-thin">
         {top.length ? (
-          top.map((z, i) => <ZoneRow key={z.id} zone={z} index={i} />)
+          top.map((country, index) => <CountryRow key={countryKey(country.country)} country={country} index={index} onSelect={() => chooseCountry(country.country)} />)
         ) : (
           <div className="px-3 py-4 text-[10px] text-text-faint">
             {locale === "fr" ? "aucun foyer sur la période" : "no clusters in this period"}
           </div>
         )}
       </div>
+
+      <div className="hairline mx-3" />
+      <div className="space-y-2 px-3 py-2">
+        <label htmlFor="country-explorer" className="label-strong block">{locale === "fr" ? "Explorer les pays" : "Explore countries"}</label>
+        <input id="country-explorer" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={locale === "fr" ? "Nom ou ISO · ex. Iran" : "Name or ISO · e.g. Iran"} className="w-full border border-cyan/20 bg-[#020b14] px-2 py-1.5 text-[11px] text-text focus:border-cyan focus:outline-none" />
+        <button type="button" className="chip" aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}>{locale === "fr" ? "Favoris uniquement" : "Favorites only"} ({favorites.length})</button>
+        <p className="text-[9px] text-text-faint">{locale === "fr" ? "Référentiel Natural Earth 110m, indépendant des événements. Couverture non exhaustive des petits États." : "Natural Earth 110m reference, independent of events. Small-state coverage is not exhaustive."}</p>
+        {persistenceFailed && <p role="status" className="text-[9px] text-alert-soft">{locale === "fr" ? "Stockage local indisponible : favoris temporaires." : "Local storage unavailable: temporary favorites."}</p>}
+      </div>
+      <div className="scroll-thin max-h-[180px] overflow-y-auto" aria-live="polite">
+        {referenceStatus !== "ready" ? <p role="status" className="px-3 py-2 text-[10px] text-text-faint">{referenceStatus === "loading" ? (locale === "fr" ? "Chargement du référentiel…" : "Loading reference…") : (locale === "fr" ? "Référentiel indisponible." : "Reference unavailable.")}</p> : matchingCountries.length ? matchingCountries.map((country) => {
+          const activity = ranking.find((entry) => countryKey(entry.country) === countryKey(country.name));
+          return (
+            <div key={country.iso} className="flex items-center gap-1 px-3">
+              <button type="button" className="row-button min-w-0 flex-1 text-left" aria-expanded={chosenCountry === country.name} onClick={() => chooseCountry(country.name)}>
+                <span className="block truncate text-[11px] text-text">{country.name}</span>
+                <span className="text-[9px] text-text-faint">{country.iso} · {activity ? `${activity.eventCount} ${locale === "fr" ? "événements" : "events"}` : locale === "fr" ? "Aucun événement dans la sélection" : "No events in current selection"}</span>
+              </button>
+              <button type="button" className="chip shrink-0" aria-label={`${locale === "fr" ? "Favori" : "Favorite"}: ${country.name}`} aria-pressed={favorites.includes(country.iso)} onClick={() => setFavorites((previous) => previous.includes(country.iso) ? previous.filter((iso) => iso !== country.iso) : [...previous, country.iso])}>{favorites.includes(country.iso) ? "★" : "☆"}</button>
+            </div>
+          );
+        }) : <p className="px-3 py-2 text-[10px] text-text-faint">{locale === "fr" ? "Aucun pays correspondant." : "No matching countries."}</p>}
+      </div>
+      {chosenCountry && <><div className="flex justify-end px-3 py-1"><button type="button" className="chip" onClick={() => setChosenCountry(null)}>{locale === "fr" ? "Fermer la fiche" : "Close profile"}</button></div><CountryProfile country={chosenCountry} iso={countries.find((country) => country.name === chosenCountry)?.iso ?? ""} locale={locale} /></>}
 
       <div className="hairline mx-3" />
       <div className="flex items-center justify-between px-3 py-2">

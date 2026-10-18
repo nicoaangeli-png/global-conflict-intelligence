@@ -1,6 +1,7 @@
 import {
   CONFIDENCE_LEVELS,
   EVENT_TYPES,
+  REAL_DATASETS,
   TIME_RANGES,
   type Confidence,
   type EventFilters,
@@ -24,7 +25,7 @@ export function filtersFromSearchParams(params: URLSearchParams): EventFilters {
   return {
     range: validRange,
     types: list("types").filter((t): t is EventType => (EVENT_TYPES as readonly string[]).includes(t)),
-    datasets: list("datasets"),
+    datasets: params.has("datasets") ? list("datasets") : [...REAL_DATASETS],
     confidences: list("confidences").filter((c): c is Confidence =>
       (CONFIDENCE_LEVELS as readonly string[]).includes(c),
     ),

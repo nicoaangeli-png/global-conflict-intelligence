@@ -5,6 +5,7 @@ import { useIntelStore } from "@/store/useIntelStore";
 import { getCountryGeopolitics } from "@/data/geopolitics";
 import { coords } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { CountryProfileStatus } from "./CountryProfile";
 
 export function TacticalReconModal() {
   const reconTarget = useIntelStore((s) => s.reconTarget);
@@ -128,6 +129,7 @@ export function TacticalReconModal() {
             {tab === "intel" && (
               <div className="scroll-thin h-full overflow-y-auto p-6 bg-[#020917]">
                 <div className="max-w-3xl mx-auto space-y-6">
+                  <CountryProfileStatus country={reconTarget.country} locale={locale} />
                   {/* Titre et régime */}
                   <div className="border border-cyan/30 bg-[#041427]/70 p-5">
                     <div className="flex items-baseline justify-between">

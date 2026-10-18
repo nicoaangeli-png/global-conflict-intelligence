@@ -20,6 +20,7 @@ import {
   SystemReadout,
 } from "@/components/ui/Overlays";
 import { useIntelStore } from "@/store/useIntelStore";
+import { AgentPanel } from "@/components/agent/AgentPanel";
 
 /** La scène 3D est chargée uniquement côté navigateur (WebGL). */
 const GlobeScene = dynamic(() => import("@/components/globe/GlobeScene").then((m) => m.GlobeScene), {
@@ -35,6 +36,7 @@ export function IntelApp() {
   const setCountry = useIntelStore((s) => s.setCountry);
   const select = useIntelStore((s) => s.select);
   const error = useIntelStore((s) => s.error);
+  const agentOpen = useIntelStore((s) => s.agentOpen);
 
   // Premier chargement
   useEffect(() => {
@@ -79,6 +81,11 @@ export function IntelApp() {
         useIntelStore.getState().setReconTarget(null);
         return;
       }
+      if (useIntelStore.getState().agentOpen) {
+        window.speechSynthesis?.cancel();
+        useIntelStore.getState().setAgentOpen(false);
+        return;
+      }
       if (view !== "OVERVIEW") {
         setView("OVERVIEW");
         return;
@@ -97,6 +104,7 @@ export function IntelApp() {
   useEffect(() => {
     const views: ViewKey[] = ["OVERVIEW", "LIVE EVENTS", "CONFLICTS", "TIMELINE", "REGIONS", "SOURCES"];
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && (e.target.closest("input, textarea, select") || e.target.isContentEditable)) return;
       const n = Number(e.key);
       if (!n || n < 1 || n > views.length) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -130,7 +138,7 @@ export function IntelApp() {
 
         {/* Vues secondaires */}
         {openView !== "OVERVIEW" ? (
-          <div className="scroll-thin absolute left-[305px] top-[86px] max-h-[calc(100vh-212px)] overflow-y-auto">
+          <div className={`scroll-thin absolute top-[86px] max-h-[calc(100vh-212px)] overflow-y-auto ${openView === "SETUP" ? "left-5 z-30 md:left-[305px]" : "left-[305px]"}`}>
             {openView === "SETUP" ? (
               <SettingsPanel onClose={() => setView("OVERVIEW")} />
             ) : (
@@ -140,9 +148,14 @@ export function IntelApp() {
         ) : null}
 
         {/* Colonne droite : données de conflit */}
-        <div className="absolute right-5 top-[86px] flex w-[300px] flex-col gap-3">
-          <LiveConflictPanel />
-        </div>
+        {agentOpen ? null : (
+          <div className="absolute right-5 top-[86px] flex w-[300px] flex-col gap-3">
+            <LiveConflictPanel />
+          </div>
+        )}
+
+        {/* AURA : analyste IA vocale */}
+        <AgentPanel />
 
         {/* Timeline */}
         <div className="absolute bottom-4 left-5 right-5">

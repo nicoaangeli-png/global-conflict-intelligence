@@ -5,8 +5,10 @@ import { csvConnector } from "./connectors/csvImport";
 import { gdeltConnector } from "./connectors/gdelt";
 import { type Connector } from "./connectors/types";
 import { ucdpConnector } from "./connectors/ucdp";
+import { firmsConnector } from "./connectors/firms";
 import { loadDemoSeed } from "./dataset";
-import { MemoryRepository, PgRepository, type Repository } from "./repository";
+import { LocalRepository, PgRepository, type Repository } from "./repository";
+import { ConnectorError } from "./connectors/types";
 
 /**
  * Service d'ingestion et d'interrogation.
@@ -16,7 +18,7 @@ import { MemoryRepository, PgRepository, type Repository } from "./repository";
  * Le frontend ne reçoit que des foyers agrégés, jamais les formats bruts.
  */
 
-const CONNECTORS: Connector[] = [csvConnector, acledConnector, ucdpConnector, gdeltConnector];
+const CONNECTORS: Connector[] = [csvConnector, acledConnector, ucdpConnector, firmsConnector, gdeltConnector];
 
 interface IntelState {
   repository: Repository;
@@ -52,7 +54,7 @@ const state: IntelState =
 
 function pickRepository(): Repository {
   const url = process.env.DATABASE_URL;
-  return url ? new PgRepository(url) : new MemoryRepository();
+  return url ? new PgRepository(url) : new LocalRepository();
 }
 
 /** Abonnés SSE : notifiés à chaque ingestion (partagé entre bundles). */
@@ -81,9 +83,10 @@ export async function ensureReady(): Promise<void> {
   state.ready = (async () => {
     try {
       await state.repository.init();
-    } catch (err) {
-      console.warn("[intel] PostgreSQL indisponible, bascule en mémoire :", err);
-      state.repository = new MemoryRepository();
+    } catch {
+      if (state.repository.kind !== "postgres") throw new Error("Local persistence unavailable");
+      console.warn("[intel] PostgreSQL indisponible, bascule sur le dépôt local durable");
+      state.repository = new LocalRepository();
       await state.repository.init();
     }
 
@@ -97,7 +100,10 @@ export async function ensureReady(): Promise<void> {
     }
     await refreshStatuses();
     startAutoRefresh();
-  })();
+  })().catch((error) => {
+    state.ready = null;
+    throw error;
+  });
   return state.ready;
 }
 
@@ -123,8 +129,8 @@ function startAutoRefresh() {
     try {
       await runIngest();
       console.log("[intel] ingestion automatique :", state.ingestReport);
-    } catch (err) {
-      console.warn("[intel] ingestion automatique impossible :", err);
+    } catch {
+      console.warn("[intel] ingestion automatique impossible");
     }
   };
 
@@ -135,6 +141,7 @@ function startAutoRefresh() {
 
 async function refreshStatuses() {
   const counts = await state.repository.counts();
+  const previous = state.statuses;
   state.statuses = [
     {
       id: "acled",
@@ -161,12 +168,20 @@ async function refreshStatuses() {
       events: counts.byDataset["ucdp"] ?? 0,
     },
     {
+      id: "firms",
+      label: "NASA FIRMS",
+      configured: firmsConnector.isConfigured(),
+      reachable: null,
+      note: firmsConnector.describe(),
+      events: counts.byDataset["firms"] ?? 0,
+    },
+    {
       id: "import",
       label: "Import CSV",
       configured: true,
       reachable: null,
       note: csvConnector.describe(),
-      events: Math.max(0, counts.total - Object.entries(counts.byDataset).filter(([k]) => k !== "import").reduce((a, [, v]) => a + v, 0)),
+      events: counts.byDataset["import:csv"] ?? 0,
     },
     {
       id: "demo",
@@ -177,12 +192,32 @@ async function refreshStatuses() {
       events: counts.byDataset["demo:seed"] ?? 0,
     },
   ];
+  for (const status of state.statuses) {
+    const prior = previous.find((entry) => entry.id === status.id);
+    if (status.configured && prior?.reachable != null) {
+      status.reachable = prior.reachable;
+      if (!prior.reachable) status.note = prior.note;
+    }
+  }
 }
 
 /** Lance une ingestion complète. */
 export async function runIngest(options: { days?: number; includeDemo?: boolean } = {}) {
+  const globalIngest = globalThis as unknown as { __orbitalIngest?: Promise<unknown> };
+  if (globalIngest.__orbitalIngest) throw new Error("Ingestion already running");
+  const pending = ingest(options);
+  globalIngest.__orbitalIngest = pending;
+  try {
+    return await pending;
+  } finally {
+    delete globalIngest.__orbitalIngest;
+  }
+}
+
+async function ingest(options: { days?: number; includeDemo?: boolean }) {
   await ensureReady();
-  const days = options.days ?? 30;
+  const days = Math.min(365, Math.max(1, Math.trunc(options.days ?? 30)));
+  if (!Number.isFinite(days)) throw new Error("Invalid ingestion window");
   const started = Date.now();
   const collected = [];
   const notes: string[] = [];
@@ -196,12 +231,16 @@ export async function runIngest(options: { days?: number; includeDemo?: boolean 
       const events = await connector.fetchEvents({ days });
       collected.push(...events);
       notes.push(`${connector.label} : ${events.length} événements`);
-      const st = state.statuses.find((s) => s.id === connector.id);
-      if (st) st.reachable = true;
+      const st = state.statuses.find((s) => s.id === (connector.id === "csv" ? "import" : connector.id));
+      if (st) {
+        st.reachable = true;
+        st.note = connector.describe();
+      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "erreur inconnue";
+      const detail = err instanceof ConnectorError ? (connector.id === "csv" ? err.kind : err.message) : "réponse invalide";
+      const message = `${connector.label}: ${detail}`;
       notes.push(`${connector.label} : ${message}`);
-      const st = state.statuses.find((s) => s.id === connector.id);
+      const st = state.statuses.find((s) => s.id === (connector.id === "csv" ? "import" : connector.id));
       if (st) {
         st.reachable = false;
         st.note = message;
@@ -225,8 +264,9 @@ export async function runIngest(options: { days?: number; includeDemo?: boolean 
     }
   }
 
+  delete zoneRef.__orbitalConflictZones;
   state.lastIngestAt = new Date().toISOString();
-  if (collected.some((e) => e.sourceDataset !== "demo")) state.lastRealIngestAt = Date.now();
+  if (collected.some((e) => !e.sourceDataset.startsWith("demo"))) state.lastRealIngestAt = Date.now();
   state.ingestReport = notes.join(" · ") || "aucun événement";
   await refreshStatuses();
   broadcast("ingest", {
@@ -247,6 +287,58 @@ export async function runIngest(options: { days?: number; includeDemo?: boolean 
   };
 }
 
+/**
+ * Zones de conflit connues, pour filtrer les anomalies thermiques FIRMS.
+ *
+ * Une détection satellite n'est montrée que si elle tombe à proximité
+ * (cellule de 0,25° et ses voisines, ~25 à 55 km) d'un événement réel :
+ * UCDP / ACLED / import sur un an, ou signal presse GDELT sur 30 jours.
+ * Sans ce filtre, la carte serait couverte de feux agricoles et de torchères.
+ */
+const ZONE_CELL_DEG = 0.25;
+const ZONE_TTL_MS = 15 * 60 * 1000;
+const zoneRef = globalThis as unknown as { __orbitalConflictZones?: { at: number; cells: Set<string> } };
+const zoneCell = (lat: number, lon: number) => `${Math.floor(lat / ZONE_CELL_DEG)}:${Math.floor(lon / ZONE_CELL_DEG)}`;
+
+async function conflictZones(): Promise<Set<string>> {
+  const cached = zoneRef.__orbitalConflictZones;
+  if (cached && Date.now() - cached.at < ZONE_TTL_MS) return cached.cells;
+  const now = Date.now();
+  const events = await state.repository.query({ from: new Date(now - 365 * 86400e3), to: new Date(now) });
+  const mediaFrom = now - 30 * 86400e3;
+  const cells = new Set<string>();
+  for (const event of events) {
+    if (event.eventType === "Thermal anomaly" || event.sourceDataset.startsWith("demo") || event.confidence === "DEMO") continue;
+    if (event.sourceDataset === "gdelt" && Date.parse(event.eventDate) < mediaFrom) continue;
+    cells.add(zoneCell(event.latitude, event.longitude));
+  }
+  zoneRef.__orbitalConflictZones = { at: now, cells };
+  return cells;
+}
+
+function nearConflict(cells: Set<string>, lat: number, lon: number): boolean {
+  const row = Math.floor(lat / ZONE_CELL_DEG);
+  const col = Math.floor(lon / ZONE_CELL_DEG);
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (cells.has(`${row + dr}:${col + dc}`)) return true;
+  return false;
+}
+
+/** Lecture commune à la carte, aux indicateurs et aux listes : mêmes filtres partout. */
+async function selectEvents(filters: EventFilters, from: Date, to: Date) {
+  const events = await state.repository.query({
+    from,
+    to,
+    types: filters.types.length ? filters.types : undefined,
+    datasets: filters.datasets.length ? filters.datasets : undefined,
+    confidences: filters.confidences.length ? filters.confidences : undefined,
+    countries: filters.countries.length ? filters.countries : undefined,
+    minFatalities: filters.minFatalities || undefined,
+  });
+  if (!events.some((event) => event.eventType === "Thermal anomaly")) return events;
+  const cells = await conflictZones();
+  return events.filter((event) => event.eventType !== "Thermal anomaly" || nearConflict(cells, event.latitude, event.longitude));
+}
+
 function bounds(range: TimeRangeKey, now = Date.now(), at?: string | null) {
   const days = TIME_RANGES.find((r) => r.key === range)?.days ?? 30;
   const to = at ? new Date(at) : new Date(now);
@@ -257,15 +349,7 @@ function bounds(range: TimeRangeKey, now = Date.now(), at?: string | null) {
 export async function queryClusters(filters: EventFilters, degrees: number) {
   await ensureReady();
   const { from, to } = bounds(filters.range, Date.now(), filters.at);
-  const events = await state.repository.query({
-    from,
-    to,
-    types: filters.types.length ? filters.types : undefined,
-    datasets: filters.datasets.length ? filters.datasets : undefined,
-    confidences: filters.confidences.length ? filters.confidences : undefined,
-    countries: filters.countries.length ? filters.countries : undefined,
-    minFatalities: filters.minFatalities || undefined,
-  });
+  const events = await selectEvents(filters, from, to);
 
   const clusters = aggregateClusters(events, { degrees, now: Date.now() });
   const totalFatalities = events.reduce((a, e) => a + e.fatalities, 0);
@@ -278,6 +362,7 @@ export async function queryClusters(filters: EventFilters, degrees: number) {
     from: from.toISOString(),
     to: to.toISOString(),
     totalEvents: events.length,
+    coverage: coverage(events),
     totalFatalities,
     clusters,
     daily,
@@ -288,7 +373,14 @@ function distinctDatasets(events: { sourceDataset: string }[]): string {
   const set = new Set(events.map((e) => e.sourceDataset));
   // Liste explicite (jamais un simple compteur) : l'interface doit pouvoir
   // dire d'où vient chaque donnée et signaler la présence de démonstration.
-  return [...set].sort().join(" + ") || "—";
+  return [...set].sort().join(" + ");
+}
+
+function coverage(events: { sourceDataset: string; confidence: string; eventType: string }[]) {
+  const demo = events.filter((event) => event.sourceDataset.startsWith("demo") || event.confidence === "DEMO").length;
+  const media = events.filter((event) => !event.sourceDataset.startsWith("demo") && event.confidence !== "DEMO" && event.eventType !== "Thermal anomaly" && (event.confidence === "MEDIA_SIGNAL" || event.sourceDataset === "gdelt")).length;
+  const thermal = events.filter((event) => event.eventType === "Thermal anomaly").length;
+  return { documented: events.length - demo - media - thermal, media, demo, thermal };
 }
 
 /** Séries journalières (ou hebdomadaires au-delà de 6 mois). */
@@ -298,22 +390,24 @@ export function dailyBuckets(
   toDate?: Date,
 ): DailyBucket[] {
   const days = TIME_RANGES.find((r) => r.key === range)?.days ?? 30;
-  const bucketDays = days > 200 ? 7 : 1;
+  const bucketDays = days >= 182 ? 7 : 1;
   const buckets = new Map<string, DailyBucket>();
   const now = (toDate ?? new Date()).getTime();
-  const count = Math.ceil(days / bucketDays);
+  const duration = range === "24h" ? 3600e3 : bucketDays * 86400e3;
+  const from = now - days * 86400e3;
+  const start = Math.floor(from / duration) * duration;
 
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(now - i * bucketDays * 86400e3);
-    d.setUTCHours(0, 0, 0, 0);
-    const key = d.toISOString().slice(0, 10);
+  for (let timestamp = start; timestamp <= now; timestamp += duration) {
+    const date = new Date(timestamp).toISOString();
+    const key = range === "24h" ? date : date.slice(0, 10);
     buckets.set(key, { day: key, events: 0, fatalities: 0 });
   }
 
   for (const e of events) {
-    const d = new Date(e.eventDate);
-    d.setUTCHours(0, 0, 0, 0);
-    const key = d.toISOString().slice(0, 10);
+    const timestamp = Date.parse(e.eventDate);
+    if (!Number.isFinite(timestamp) || timestamp < from || timestamp > now) continue;
+    const date = new Date(Math.floor(timestamp / duration) * duration).toISOString();
+    const key = range === "24h" ? date : date.slice(0, 10);
     const b = buckets.get(key);
     if (b) {
       b.events++;
@@ -331,15 +425,7 @@ export async function queryStats(filters: EventFilters, degrees = 2.4) {
   const { from, to } = bounds(filters.range, now, filters.at);
   // Les indicateurs décrivent EXACTEMENT la même sélection que la carte :
   // mêmes bornes, mêmes filtres de type, de source et de confiance.
-  const events = await state.repository.query({
-    from,
-    to,
-    types: filters.types.length ? filters.types : undefined,
-    datasets: filters.datasets.length ? filters.datasets : undefined,
-    confidences: filters.confidences.length ? filters.confidences : undefined,
-    countries: filters.countries.length ? filters.countries : undefined,
-    minFatalities: filters.minFatalities || undefined,
-  });
+  const events = await selectEvents(filters, from, to);
   const counts = await state.repository.counts();
 
   const ref = to.getTime();
@@ -366,6 +452,7 @@ export async function queryStats(filters: EventFilters, degrees = 2.4) {
     lastIngestAt: state.lastIngestAt ?? new Date().toISOString(),
     dataset: distinctDatasets(events),
     totalInStore: counts.total,
+    coverage: coverage(events),
     connectors: state.statuses,
     daily: dailyBuckets(events, filters.range, to),
     ingestReport: state.ingestReport,
@@ -379,24 +466,18 @@ export async function queryClusterEvents(
   lat: number,
   lon: number,
   limit = 120,
+  clusterId?: string,
 ) {
   await ensureReady();
   const { from, to } = bounds(filters.range, Date.now(), filters.at);
-  const events = await state.repository.query({
-    from,
-    to,
-    types: filters.types.length ? filters.types : undefined,
-    datasets: filters.datasets.length ? filters.datasets : undefined,
-    confidences: filters.confidences.length ? filters.confidences : undefined,
-    countries: filters.countries.length ? filters.countries : undefined,
-    minFatalities: filters.minFatalities || undefined,
-  });
+  const events = await selectEvents(filters, from, to);
 
   const clusters = aggregateClusters(events, { degrees, now: Date.now() });
   // foyer le plus proche du point demandé
   let best: (typeof clusters)[number] | null = null;
   let bestD = Number.POSITIVE_INFINITY;
   for (const c of clusters) {
+    if (clusterId && c.id !== clusterId) continue;
     const d = (c.latitude - lat) ** 2 + (c.longitude - lon) ** 2;
     if (d < bestD) {
       bestD = d;
@@ -419,15 +500,7 @@ export async function queryClusterEvents(
 export async function queryLatestEvents(filters: EventFilters, limit = 60) {
   await ensureReady();
   const { from, to } = bounds(filters.range, Date.now(), filters.at);
-  const events = await state.repository.query({
-    from,
-    to,
-    types: filters.types.length ? filters.types : undefined,
-    datasets: filters.datasets.length ? filters.datasets : undefined,
-    confidences: filters.confidences.length ? filters.confidences : undefined,
-    countries: filters.countries.length ? filters.countries : undefined,
-    minFatalities: filters.minFatalities || undefined,
-  });
+  const events = await selectEvents(filters, from, to);
 
   return events
     .sort((a, b) => Date.parse(b.eventDate) - Date.parse(a.eventDate))

@@ -66,7 +66,10 @@ export function aggregateClusters(events: ConflictEvent[], options: ClusterOptio
   const buckets = new Map<string, ConflictEvent[]>();
 
   for (const e of events) {
-    const key = cellKey(e.latitude, e.longitude, options.degrees);
+    const category = e.confidence === "DEMO" || e.sourceDataset.startsWith("demo")
+      ? "demo"
+      : e.confidence === "MEDIA_SIGNAL" || e.sourceDataset === "gdelt" ? "media" : "documented";
+    const key = `${cellKey(e.latitude, e.longitude, options.degrees)}|${encodeURIComponent(e.country)}|${category}`;
     const list = buckets.get(key);
     if (list) list.push(e);
     else buckets.set(key, [e]);

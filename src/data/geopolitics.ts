@@ -1,9 +1,10 @@
 export interface CountryGeopolitics {
   country: string;
   iso: string;
+  provenance: { kind: "static-unverified" | "unavailable"; source: null; asOf: null };
   demographics: {
     population: string;
-    populationNumeric: number;
+    populationNumeric: number | null;
     density: string;
     capital: string;
   };
@@ -18,7 +19,7 @@ export interface CountryGeopolitics {
     pentagonAlertEn: string;
   };
   regime: {
-    type: 'democracy' | 'authoritarian' | 'dictatorship' | 'junta' | 'hybrid' | 'theocracy' | 'civil_war';
+    type: 'unknown' | 'democracy' | 'authoritarian' | 'dictatorship' | 'junta' | 'hybrid' | 'theocracy' | 'civil_war';
     labelFr: string;
     labelEn: string;
     leader: string;
@@ -41,7 +42,7 @@ export interface CountryGeopolitics {
   };
 }
 
-export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
+const STATIC_PROFILES: Record<string, Omit<CountryGeopolitics, "provenance">> = {
   "Ukraine": {
     country: "Ukraine",
     iso: "UKR",
@@ -58,8 +59,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Non-nucléaire (mémorandum de Budapest)",
       nuclearStatusEn: "Non-nuclear (Budapest Memo signatory)",
       defensePacts: ["Accords bilatéraux de sécurité occidentaux", "Partenariat stratégique OTAN"],
-      pentagonAlertFr: "DEFCON 2 · Théâtre de haute intensité",
-      pentagonAlertEn: "DEFCON 2 · Active high-intensity conflict zone",
+      pentagonAlertFr: "ORBITAL 2 · Théâtre de haute intensité",
+      pentagonAlertEn: "ORBITAL 2 · Active high-intensity conflict zone",
     },
     regime: {
       type: "democracy",
@@ -101,8 +102,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Puissance nucléaire majeure (~5 580 ogives)",
       nuclearStatusEn: "Major nuclear power (~5,580 warheads)",
       defensePacts: ["OTSC (Organisation du Traité de Sécurité Collective)", "Traité de défense mutuelle avec RPDC"],
-      pentagonAlertFr: "DEFCON 2 · Adversaire stratégique nucléaire",
-      pentagonAlertEn: "DEFCON 2 · Tier-1 Strategic Nuclear Adversary",
+      pentagonAlertFr: "ORBITAL 2 · Adversaire stratégique nucléaire",
+      pentagonAlertEn: "ORBITAL 2 · Tier-1 Strategic Nuclear Adversary",
     },
     regime: {
       type: "dictatorship",
@@ -144,8 +145,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Puissance nucléaire non déclarée (~90 ogives)",
       nuclearStatusEn: "Undeclared nuclear state (~90 warheads)",
       defensePacts: ["Allié majeur hors-OTAN des USA (MNNA)", "Accords d'Abraham"],
-      pentagonAlertFr: "DEFCON 2 · Conflit actif multi-fronts",
-      pentagonAlertEn: "DEFCON 2 · Multi-front active theater",
+      pentagonAlertFr: "ORBITAL 2 · Conflit actif multi-fronts",
+      pentagonAlertEn: "ORBITAL 2 · Multi-front active theater",
     },
     regime: {
       type: "democracy",
@@ -187,8 +188,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Non-nucléaire",
       nuclearStatusEn: "Non-nuclear",
       defensePacts: ["Soutien logistique et armement de l'Iran (Hamas/Jihad Islamique)"],
-      pentagonAlertFr: "DEFCON 1 · Zone de combat urbain dévastée",
-      pentagonAlertEn: "DEFCON 1 · Active devastated urban conflict zone",
+      pentagonAlertFr: "ORBITAL 1 · Zone de combat urbain dévastée",
+      pentagonAlertEn: "ORBITAL 1 · Active devastated urban conflict zone",
     },
     regime: {
       type: "hybrid",
@@ -273,8 +274,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Puissance nucléaire en forte expansion (~500 ogives, objectif 1000+)",
       nuclearStatusEn: "Rapidly expanding nuclear arsenal (~500 warheads, targeting 1,000+)",
       defensePacts: ["Traité d'amitié et de coopération avec la RPDC", "Partenariat stratégique global avec la Russie"],
-      pentagonAlertFr: "DEFCON 3 · Concurrent stratégique de premier rang",
-      pentagonAlertEn: "DEFCON 3 · Primary pacing challenge for US Armed Forces",
+      pentagonAlertFr: "ORBITAL 3 · Concurrent stratégique de premier rang",
+      pentagonAlertEn: "ORBITAL 3 · Primary pacing challenge for US Armed Forces",
     },
     regime: {
       type: "dictatorship",
@@ -316,8 +317,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Non-nucléaire (parapluie stratégique US implicite)",
       nuclearStatusEn: "Non-nuclear (implicit US strategic ambiguity)",
       defensePacts: ["Taiwan Relations Act (engagement d'armement par les USA)"],
-      pentagonAlertFr: "DEFCON 2 · Risque de blocus naval et frappes missiles",
-      pentagonAlertEn: "DEFCON 2 · Elevated risk of naval blockade & cross-strait invasion",
+      pentagonAlertFr: "ORBITAL 2 · Risque de blocus naval et frappes missiles",
+      pentagonAlertEn: "ORBITAL 2 · Elevated risk of naval blockade & cross-strait invasion",
     },
     regime: {
       type: "democracy",
@@ -359,8 +360,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Seuil nucléaire critique (uranium enrichi à 60%+, capacité sous 2 semaines)",
       nuclearStatusEn: "Nuclear breakout state (60%+ enriched uranium, breakout within weeks)",
       defensePacts: ["Axe de la Résistance (Hezbollah, Houthis, milices irakiennes)", "Pacte militaire renforcé avec la Russie"],
-      pentagonAlertFr: "DEFCON 2 · Menace balistique et nucléaire imminente",
-      pentagonAlertEn: "DEFCON 2 · Elevated ballistic strike and nuclear threshold alert",
+      pentagonAlertFr: "ORBITAL 2 · Menace balistique et nucléaire imminente",
+      pentagonAlertEn: "ORBITAL 2 · Elevated ballistic strike and nuclear threshold alert",
     },
     regime: {
       type: "theocracy",
@@ -402,8 +403,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Non-nucléaire",
       nuclearStatusEn: "Non-nuclear",
       defensePacts: ["Parrainage militaire et financier de l'Iran sur le Hezbollah"],
-      pentagonAlertFr: "DEFCON 2 · Théâtre de combat ouvert",
-      pentagonAlertEn: "DEFCON 2 · Active war theater",
+      pentagonAlertFr: "ORBITAL 2 · Théâtre de combat ouvert",
+      pentagonAlertEn: "ORBITAL 2 · Active war theater",
     },
     regime: {
       type: "hybrid",
@@ -445,8 +446,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Non-nucléaire",
       nuclearStatusEn: "Non-nuclear",
       defensePacts: ["Soutien émirati aux FSR (or/armes) vs soutien iranien/égyptien aux FAS"],
-      pentagonAlertFr: "DEFCON 2 · Plus grande catastrophe humanitaire au monde",
-      pentagonAlertEn: "DEFCON 2 · World's worst active humanitarian catastrophe",
+      pentagonAlertFr: "ORBITAL 2 · Plus grande catastrophe humanitaire au monde",
+      pentagonAlertEn: "ORBITAL 2 · World's worst active humanitarian catastrophe",
     },
     regime: {
       type: "civil_war",
@@ -488,8 +489,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Non-nucléaire",
       nuclearStatusEn: "Non-nuclear",
       defensePacts: ["Fourniture d'armements par la Russie et tolérance frontalière chinoise"],
-      pentagonAlertFr: "DEFCON 2 · Insurrection armée généralisée",
-      pentagonAlertEn: "DEFCON 2 · Country-wide armed revolution & territorial retreat",
+      pentagonAlertFr: "ORBITAL 2 · Insurrection armée généralisée",
+      pentagonAlertEn: "ORBITAL 2 · Country-wide armed revolution & territorial retreat",
     },
     regime: {
       type: "junta",
@@ -531,8 +532,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Non-nucléaire (site d'Al-Kibar détruit en 2007)",
       nuclearStatusEn: "Non-nuclear (Al-Kibar reactor destroyed 2007)",
       defensePacts: ["Accords de défense militaire avec la Russie (Tartous/Hmeimim) et l'Iran"],
-      pentagonAlertFr: "DEFCON 2 · Zone de frappes aériennes quasi-quotidiennes",
-      pentagonAlertEn: "DEFCON 2 · Permanent airstrike & proxy clash corridor",
+      pentagonAlertFr: "ORBITAL 2 · Zone de frappes aériennes quasi-quotidiennes",
+      pentagonAlertEn: "ORBITAL 2 · Permanent airstrike & proxy clash corridor",
     },
     regime: {
       type: "dictatorship",
@@ -574,8 +575,8 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
       nuclearStatusFr: "Non-nucléaire (Traité de Bangkok - ZOPFAN)",
       nuclearStatusEn: "Non-nuclear (Bangkok Treaty SEANWFZ signatory)",
       defensePacts: ["Traité d'amitié et de coopération avec le Viêt Nam", "Partenariat stratégique Chine-Laos"],
-      pentagonAlertFr: "DEFCON 4 · Surveillance de l'influence chinoise",
-      pentagonAlertEn: "DEFCON 4 · Baseline monitor / PRC belt-and-road leverage",
+      pentagonAlertFr: "ORBITAL 4 · Surveillance de l'influence chinoise",
+      pentagonAlertEn: "ORBITAL 4 · Baseline monitor / PRC belt-and-road leverage",
     },
     regime: {
       type: "dictatorship",
@@ -602,88 +603,59 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = {
   },
 };
 
-/** Normalise le nom ou l'ISO pour la recherche dans le référentiel */
+export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = Object.fromEntries(
+  Object.entries(STATIC_PROFILES).map(([name, profile]) => [name, {
+    ...profile,
+    provenance: { kind: "static-unverified", source: null, asOf: null },
+    military: {
+      ...profile.military,
+      pentagonAlertFr: "Indice interne ORBITAL · Non officiel · Non vérifié · " + profile.military.pentagonAlertFr,
+      pentagonAlertEn: "Internal ORBITAL index · Not official · Unverified · " + profile.military.pentagonAlertEn,
+    },
+  }]),
+);
+
+export function normalizeCountry(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+const COUNTRY_ALIASES: Record<string, string> = {
+  russie: "Russia", "russian federation": "Russia", "etats-unis": "United States",
+  "united states of america": "United States", chine: "China", liban: "Lebanon",
+  soudan: "Sudan", birmanie: "Myanmar", syrie: "Syria", "lao pdr": "Laos",
+};
+
 export function getCountryGeopolitics(nameOrIso?: string): CountryGeopolitics {
-  if (!nameOrIso) return getGenericFallback("Région Stratégique", "GLB");
-
-  const clean = nameOrIso.trim();
-
-  // 1. Recherche par clé exacte
-  if (GEOPOLITICS_DATABASE[clean]) {
-    return GEOPOLITICS_DATABASE[clean];
-  }
-
-  // 2. Recherche par alias connus
-  const lower = clean.toLowerCase();
-  if (lower.includes("russia") || lower.includes("russie") || lower === "rus") return GEOPOLITICS_DATABASE["Russia"];
-  if (lower.includes("ukraine") || lower === "ukr") return GEOPOLITICS_DATABASE["Ukraine"];
-  if (lower.includes("israel") || lower.includes("israël") || lower === "isr") return GEOPOLITICS_DATABASE["Israel"];
-  if (lower.includes("palestin") || lower === "pse") return GEOPOLITICS_DATABASE["Palestine"];
-  if (lower.includes("united states") || lower.includes("états-unis") || lower === "usa") return GEOPOLITICS_DATABASE["United States"];
-  if (lower.includes("china") || lower.includes("chine") || lower === "chn") return GEOPOLITICS_DATABASE["China"];
-  if (lower.includes("taiwan") || lower.includes("taïwan") || lower === "twn") return GEOPOLITICS_DATABASE["Taiwan"];
-  if (lower.includes("iran") || lower === "irn") return GEOPOLITICS_DATABASE["Iran"];
-  if (lower.includes("lebanon") || lower.includes("liban") || lower === "lbn") return GEOPOLITICS_DATABASE["Lebanon"];
-  if (lower.includes("sudan") || lower.includes("soudan") || lower === "sdn") return GEOPOLITICS_DATABASE["Sudan"];
-  if (lower.includes("myanmar") || lower.includes("birmanie") || lower === "mmr") return GEOPOLITICS_DATABASE["Myanmar"];
-  if (lower.includes("syria") || lower.includes("syrie") || lower === "syr") return GEOPOLITICS_DATABASE["Syria"];
-  if (lower.includes("laos") || lower === "lao") return GEOPOLITICS_DATABASE["Laos"];
-
-  // 3. Recherche par ISO ou nom partiel dans la base
-  const entry = Object.values(GEOPOLITICS_DATABASE).find(
-    (g) =>
-      g.country.toLowerCase() === lower ||
-      g.iso.toLowerCase() === lower ||
-      lower.includes(g.country.toLowerCase()) ||
-      g.country.toLowerCase().includes(lower)
-  );
-
-  if (entry) return entry;
-
-  return getGenericFallback(clean, clean.slice(0, 3).toUpperCase());
+  const clean = nameOrIso?.trim() || "N/A";
+  const normalized = normalizeCountry(clean);
+  const alias = COUNTRY_ALIASES[normalized];
+  const entry = (alias ? GEOPOLITICS_DATABASE[alias] : undefined) ?? Object.entries(GEOPOLITICS_DATABASE).find(
+    ([name, profile]) => [name, profile.country, profile.iso].some((value) => normalizeCountry(value) === normalized),
+  )?.[1];
+  return entry ?? getGenericFallback(clean, "N/A");
 }
 
 function getGenericFallback(country: string, iso: string): CountryGeopolitics {
   return {
     country,
     iso,
-    demographics: {
-      population: "Donnée nationale consolidée",
-      populationNumeric: 10000000,
-      density: "Densité variable",
-      capital: "Capitale administrative",
-    },
+    provenance: { kind: "unavailable", source: null, asOf: null },
+    demographics: { population: "N/A", populationNumeric: null, density: "N/A", capital: "N/A" },
     military: {
-      activeArmedForces: "Forces régulières sous commandement souverain",
-      reservePersonnel: "Réserves nationales",
-      defenseBudget: "Budget de défense standard",
-      nuclearStatusFr: "Non-nucléaire (signataire TNP)",
-      nuclearStatusEn: "Non-nuclear (NPT signatory)",
-      defensePacts: ["ONU", "Accords régionaux de sécurité"],
-      pentagonAlertFr: "DEFCON 4 · Surveillance de routine OSINT",
-      pentagonAlertEn: "DEFCON 4 · Routine OSINT situational monitoring",
+      activeArmedForces: "N/A", reservePersonnel: "N/A", defenseBudget: "N/A",
+      nuclearStatusFr: "Inconnu", nuclearStatusEn: "Unknown", defensePacts: [],
+      pentagonAlertFr: "Indice interne ORBITAL : N/A · Non officiel",
+      pentagonAlertEn: "Internal ORBITAL index: N/A · Not official",
     },
-    regime: {
-      type: "hybrid",
-      labelFr: "Souveraineté nationale / Statut en cours d'évaluation",
-      labelEn: "National sovereignty / Status under assessment",
-      leader: "Chef d'État / Gouvernement en exercice",
-      freedomScore: "Indexé dans les registres officiels",
-    },
+    regime: { type: "unknown", labelFr: "Inconnu", labelEn: "Unknown", leader: "N/A", freedomScore: "N/A" },
     economy: {
-      gdpNominal: "Donnée régionale",
-      inflation: "Taux variable",
-      strategicResourcesFr: ["Ressources locales", "Marchés régionaux"],
-      strategicResourcesEn: ["Domestic resources", "Regional trade"],
-      sanctionsFr: "Statut commercial standard",
-      sanctionsEn: "Standard trade status",
-      alliances: ["ONU", "Organisations régionales"],
+      gdpNominal: "N/A", inflation: "N/A", strategicResourcesFr: [], strategicResourcesEn: [],
+      sanctionsFr: "Inconnu", sanctionsEn: "Unknown", alliances: [],
     },
     geopolitics: {
-      summaryFr: `Territoire souverain indexé dans le système ORBITAL. Les indicateurs géopolitiques détaillés sont synthétisés à partir des flux de renseignement ouverts (OSINT).`,
-      summaryEn: `Sovereign territory tracked in the ORBITAL system. Detailed geopolitical indicators are synthesized from open source intelligence streams (OSINT).`,
-      driversFr: ["Stabilité institutionnelle", "Sécurité frontalière", "Développement économique"],
-      driversEn: ["Institutional stability", "Border security", "Economic development"],
+      summaryFr: "Aucune fiche documentée disponible. L’absence de données ne signifie pas l’absence de conflit.",
+      summaryEn: "No documented profile available. Missing data does not mean there is no conflict.",
+      driversFr: [], driversEn: [],
     },
   };
 }

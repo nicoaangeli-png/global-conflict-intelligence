@@ -77,7 +77,8 @@ export function buildWorldIndex(
     const p = f.properties ?? {};
     const name = pick(p, ["NAME", "ADMIN", "name", "NAME_EN", "SOVEREIGNT"]);
     if (!name) continue;
-    const iso = pick(p, ["ISO_A3", "ADM0_A3", "iso_a3", "ISO_A2"]);
+    const iso = ["ISO_A3", "ADM0_A3", "iso_a3"].map((key) => p[key])
+      .find((value): value is string => typeof value === "string" && /^[A-Z]{3}$/.test(value)) ?? "";
 
     let polygons: number[][][][] = [];
     if (f.geometry.type === "Polygon") {

@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { coords, compact, dateTimeUTC, relative } from "@/lib/format";
 import { useIntelStore } from "@/store/useIntelStore";
-import { REAL_DATASETS } from "@/types/conflict";
 import { getCountryGeopolitics } from "@/data/geopolitics";
 import { t } from "@/lib/i18n";
+import { CountryProfileStatus } from "./CountryProfile";
+import { CountryIndicators } from "./CountryIndicators";
 
 /**
  * Surcouches HUD : équerres de cadre, réticule de survol, fiche pays géopolitique,
@@ -123,7 +124,7 @@ export function HoverReadout() {
       <div className="mt-[2px] flex items-baseline justify-between">
         <span className="label">{locale === "fr" ? "Victimes" : "Casualties"}</span>
         <span className="readout text-[9px]" style={{ color: "#ff9a80" }}>
-          {compact(cluster.fatalities)} †
+          {cluster.confidence === "MEDIA_SIGNAL" ? "N/A" : `${compact(cluster.fatalities)} †`}
         </span>
       </div>
       <div className="mt-[2px] flex items-baseline justify-between">
@@ -177,7 +178,7 @@ export function HoverCountryBadge() {
       </div>
       <div className="h-3 w-[1px] bg-cyan/20" />
       <span className="text-[8px] uppercase tracking-wider text-cyan/70 font-mono">
-        {locale === 'fr' ? 'Clic → Dossier Pentagone' : 'Click → Pentagon Dossier'}
+        {locale === 'fr' ? 'Clic → Fiche pays' : 'Click → Country profile'}
       </span>
     </div>
   );
@@ -202,7 +203,7 @@ export function CountryCard() {
   const best = local.slice().sort((a, b) => b.intensity - a.intensity)[0];
 
   return (
-    <div className="panel corners boot pointer-events-auto absolute left-1/2 top-[86px] z-20 w-[310px] -translate-x-1/2 px-3.5 py-3 shadow-[0_0_40px_rgba(0,180,255,0.15)] bg-[#020b14]/95 backdrop-blur-md">
+    <div className="panel corners boot pointer-events-auto absolute left-1/2 top-[86px] z-20 max-h-[calc(100dvh-180px)] w-[310px] -translate-x-1/2 overflow-y-auto px-3.5 py-3 shadow-[0_0_40px_rgba(0,180,255,0.15)] bg-[#020b14]/95 backdrop-blur-md">
       <span className="corner" />
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -215,6 +216,9 @@ export function CountryCard() {
           esc
         </button>
       </div>
+
+      <CountryProfileStatus country={country.name} locale={locale} />
+      <CountryIndicators iso={country.iso || geo.iso} locale={locale} />
 
       {/* Régime politique & Démographie / Population */}
       <div className="mt-2.5 border border-cyan/20 bg-cyan/5 p-2 space-y-1.5">
@@ -236,7 +240,7 @@ export function CountryCard() {
       {/* Renseignement Militaire Pentagone */}
       <div className="mt-2 border border-alert-soft/20 bg-alert-soft/5 p-2 space-y-1">
         <div className="text-[8px] uppercase tracking-wider text-alert-soft flex items-center justify-between">
-          <span>{locale === 'fr' ? 'Renseignement Militaire (Pentagone)' : 'Pentagon Military Intel'}</span>
+          <span>{locale === 'fr' ? 'Contexte militaire · fiche statique' : 'Military context · static profile'}</span>
           <span className="text-[8px] font-mono text-cyan">{geo.military.defenseBudget}</span>
         </div>
         <div className="flex items-center justify-between text-[9px] font-mono">
@@ -268,6 +272,9 @@ export function CountryCard() {
 
       {/* Métriques de conflit */}
       <div className="mt-2 space-y-1">
+        <p className="text-[9px] leading-relaxed text-text-faint">
+          {locale === "fr" ? "Comptages limités aux sources et filtres actifs. Les mentions presse ne sont pas des incidents confirmés ; zéro n’établit pas une absence de conflit." : "Counts cover active sources and filters only. Media mentions are not confirmed incidents; zero does not establish absence of conflict."}
+        </p>
         <div className="flex items-baseline justify-between">
           <span className="label">{dict.countryCard.associatedHotspots}</span>
           <span className="readout text-[9px]">{local.length}</span>
@@ -279,7 +286,7 @@ export function CountryCard() {
         <div className="flex items-baseline justify-between">
           <span className="label">{dict.countryCard.fatalitiesCount}</span>
           <span className="readout text-[9px]" style={{ color: "#ff9a80" }}>
-            {compact(fatalities)} †
+            {local.length && local.some((cluster) => cluster.confidence !== "MEDIA_SIGNAL") ? `${compact(fatalities)} †` : "N/A"}
           </span>
         </div>
       </div>
@@ -330,10 +337,12 @@ export function DataProvenanceBanner() {
   const locale = useIntelStore((s) => s.locale);
   const dataset = stats?.dataset ?? "";
   const live = dataset.split(" + ").filter(Boolean);
+  const hasDemo = live.some((source) => source.startsWith("demo"));
+  const coverage = stats?.coverage;
 
   const label = live.length
-    ? `${locale === "fr" ? "renseignement opérationnel vérifié" : "verified operational intelligence"} : ${live.map(prettyDataset).join(" · ")}`
-    : locale === "fr" ? "flux de renseignement mondial actif" : "global active intelligence feed";
+    ? `${hasDemo ? (locale === "fr" ? "DÉMONSTRATION FICTIVE" : "FICTIONAL DEMONSTRATION") : (locale === "fr" ? "Sources disponibles — non exhaustives" : "Available sources — incomplete coverage")} : ${live.map(prettyDataset).join(" · ")}`
+    : locale === "fr" ? "Aucune donnée pour les filtres sélectionnés" : "No data for selected filters";
 
   return (
     <div className="pointer-events-none absolute left-1/2 top-[52px] z-20 flex -translate-x-1/2 flex-col items-center gap-[4px] select-none">
@@ -359,13 +368,14 @@ export function DataProvenanceBanner() {
 
       {/* Légende : signalétique opérationnelle */}
       <div className="flex items-center gap-4 border border-[rgba(127,212,255,0.1)] bg-[rgba(2,8,15,0.78)] px-3 py-[3px] text-[8px] uppercase tracking-[0.2em] text-text-faint backdrop-blur-md">
+        {coverage ? <span>{coverage.documented} {locale === "fr" ? "documentés" : "documented"} · {coverage.media} presse · {coverage.demo} démo · {coverage.thermal} anomalies thermiques</span> : null}
         <span className="flex items-center gap-[5px] whitespace-nowrap">
           <span className="dot" style={{ color: "#ff2a1b" }} />
-          {locale === "fr" ? "conflits armés & frappes (acled / ucdp)" : "armed conflicts & strikes (acled / ucdp)"}
+          {locale === "fr" ? "incidents documentés ≠ données fictives" : "documented incidents ≠ fictional data"}
         </span>
         <span className="flex items-center gap-[5px] whitespace-nowrap">
           <span className="dot" style={{ color: "#ff8a3d" }} />
-          {locale === "fr" ? "alertes en direct (gdelt 2.0)" : "live dispatches (gdelt 2.0)"}
+          {locale === "fr" ? "GDELT : signaux presse, non confirmés" : "GDELT: unconfirmed media signals"}
         </span>
       </div>
     </div>
@@ -381,8 +391,13 @@ function prettyDataset(key: string): string {
       return "ACLED";
     case "ucdp":
       return "UCDP GED";
+    case "firms":
+      return "NASA FIRMS";
     case "csv":
+    case "import:csv":
       return "imports CSV";
+    case "demo:seed":
+      return "DÉMO";
     default:
       return key.toUpperCase();
   }

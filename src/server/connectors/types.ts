@@ -6,7 +6,7 @@ import type { ConflictEvent } from "@/types/conflict";
  * ne voit jamais un format brut d'API externe.
  */
 export interface Connector {
-  id: "acled" | "gdelt" | "ucdp" | "csv";
+  id: "acled" | "gdelt" | "ucdp" | "firms" | "csv";
   label: string;
   /** Le connecteur est-il utilisable (identifiants / fichiers présents) ? */
   isConfigured(): boolean;
@@ -37,17 +37,35 @@ export async function safeFetch(
   try {
     const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
     if (!res.ok) {
-      throw new ConnectorError(`${connector}: HTTP ${res.status} ${res.statusText}`, connector, "network");
+      throw new ConnectorError(`${connector}: HTTP ${res.status}`, connector, "network");
     }
     return res;
   } catch (err) {
     if (err instanceof ConnectorError) throw err;
     throw new ConnectorError(
-      `${connector}: ${err instanceof Error ? err.message : "requête impossible"}`,
+      `${connector}: requête impossible`,
       connector,
       "network",
     );
   }
+}
+
+export function providerDate(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const raw = value.trim();
+  const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z?$/.exec(raw);
+  const normalized = compact
+    ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`
+    : /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00Z`
+    : /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw) ? `${raw.replace(" ", "T")}Z` : raw;
+  const timestamp = Date.parse(normalized);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+export function validCoordinates(latitude: unknown, longitude: unknown): boolean {
+  return latitude !== "" && longitude !== "" && latitude != null && longitude != null &&
+    Number.isFinite(Number(latitude)) && Math.abs(Number(latitude)) <= 90 &&
+    Number.isFinite(Number(longitude)) && Math.abs(Number(longitude)) <= 180;
 }
 
 /** Accès aux variables d'environnement côté serveur uniquement. */

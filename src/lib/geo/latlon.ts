@@ -25,6 +25,14 @@ export function latLonToVector3(lat: number, lon: number, radius = 1, target = n
   );
 }
 
+export function latLonToCameraAngles(lat: number, lon: number): { theta: number; phi: number } {
+  const direction = latLonToVector3(lat, lon);
+  return {
+    theta: Math.atan2(direction.x, direction.z),
+    phi: Math.acos(Math.max(-1, Math.min(1, direction.y))),
+  };
+}
+
 /** Point sur la sphère → latitude / longitude (degrés). */
 export function vector3ToLatLon(v: Vector3): { lat: number; lon: number } {
   const r = v.length() || 1;

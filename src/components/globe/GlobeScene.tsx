@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { CAMERA, GLOBE } from '@/lib/config/visual';
 import { clusterDegreesForCamera } from '@/lib/clustering/cluster';
-import { vector3ToLatLon } from '@/lib/geo/latlon';
+import { latLonToCameraAngles, vector3ToLatLon } from '@/lib/geo/latlon';
 import { countryAt } from '@/lib/geo/world';
 import { loadWorld } from '@/lib/geo/referentials';
 import { HolographicEarth } from './HolographicEarth';
@@ -108,9 +108,20 @@ export function GlobeScene() {
     const earthSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE.radius);
     const hitPoint = new THREE.Vector3();
     const worldIndexPromise = loadWorld();
+    let activePointerId: number | null = null;
 
-    const onMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0 && e.button !== 2) return;
+    const updatePointer = (e: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      return rect;
+    };
+
+    const onMouseDown = (e: PointerEvent) => {
+      if (!e.isPrimary || activePointerId !== null || (e.button !== 0 && e.button !== 2)) return;
+      activePointerId = e.pointerId;
+      renderer.domElement.setPointerCapture(e.pointerId);
+      updatePointer(e);
       isDraggingRef.current = true;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
       totalDragDistRef.current = 0;
@@ -119,10 +130,9 @@ export function GlobeScene() {
       lastInteractionTimeRef.current = Date.now();
     };
 
-    const onMouseMove = (e: MouseEvent) => {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    const onMouseMove = (e: PointerEvent) => {
+      if (!e.isPrimary || (activePointerId !== null && activePointerId !== e.pointerId)) return;
+      const rect = updatePointer(e);
 
       if (isDraggingRef.current) {
         const deltaX = e.clientX - previousMousePosRef.current.x;
@@ -152,8 +162,14 @@ export function GlobeScene() {
         hover(null);
         setHoveredCountry(null);
       } else {
+        if (e.target !== renderer.domElement || Math.abs(mouse.x) > 1 || Math.abs(mouse.y) > 1) {
+          container.style.cursor = 'default';
+          hover(null);
+          setHoveredCountry(null);
+          return;
+        }
         raycaster.setFromCamera(mouse, camera);
-        const hit = conflictLayerRef.current?.hitTest(raycaster, camera) || null;
+        const hit = conflictLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) || null;
         if (hit) {
           container.style.cursor = 'pointer';
           hover(hit.id);
@@ -182,20 +198,27 @@ export function GlobeScene() {
       }
     };
 
-    const onMouseUp = (e: MouseEvent) => {
+    const onMouseUp = (e: PointerEvent) => {
+      if (activePointerId !== e.pointerId) return;
+      const rect = updatePointer(e);
       const wasDragging = isDraggingRef.current;
-      const totalDist = totalDragDistRef.current;
+      const totalDist = totalDragDistRef.current + Math.hypot(
+        e.clientX - previousMousePosRef.current.x,
+        e.clientY - previousMousePosRef.current.y,
+      );
       isDraggingRef.current = false;
+      activePointerId = null;
+      if (renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
 
       // Si l'utilisateur a glissé de plus de 5px au total, c'était une rotation du globe.
       // On ne déclenche JAMAIS de clic accidentel lors du relâchement !
-      if (!wasDragging || totalDist > 5) {
+      if (!wasDragging || totalDist > 5 || e.button !== 0 || Math.abs(mouse.x) > 1 || Math.abs(mouse.y) > 1) {
         return;
       }
 
       // Clic stationnaire intentionnel (totalDist <= 5)
       raycaster.setFromCamera(mouse, camera);
-      const hit = conflictLayerRef.current?.hitTest(raycaster, camera) || null;
+      const hit = conflictLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) || null;
       if (hit) {
         void select(hit);
       } else {
@@ -214,6 +237,16 @@ export function GlobeScene() {
           setCountry(null);
         }
       }
+    };
+
+    const onPointerCancel = (e: PointerEvent) => {
+      if (activePointerId !== e.pointerId) return;
+      activePointerId = null;
+      isDraggingRef.current = false;
+      velocityRef.current = { theta: 0, phi: 0 };
+      hover(null);
+      setHoveredCountry(null);
+      container.style.cursor = 'default';
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -265,9 +298,12 @@ export function GlobeScene() {
     };
 
     const dom = renderer.domElement;
-    dom.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    dom.style.touchAction = 'none';
+    dom.addEventListener('pointerdown', onMouseDown);
+    window.addEventListener('pointermove', onMouseMove);
+    window.addEventListener('pointerup', onMouseUp);
+    dom.addEventListener('pointercancel', onPointerCancel);
+    dom.addEventListener('lostpointercapture', onPointerCancel);
     dom.addEventListener('wheel', onWheel, { passive: false });
 
     // Empêche le menu contextuel par clic droit pour permettre la rotation fluide
@@ -334,9 +370,11 @@ export function GlobeScene() {
 
     return () => {
       cancelAnimationFrame(animationFrameId);
-      dom.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      dom.removeEventListener('pointerdown', onMouseDown);
+      window.removeEventListener('pointermove', onMouseMove);
+      window.removeEventListener('pointerup', onMouseUp);
+      dom.removeEventListener('pointercancel', onPointerCancel);
+      dom.removeEventListener('lostpointercapture', onPointerCancel);
       dom.removeEventListener('wheel', onWheel);
       dom.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('resize', handleResize);
@@ -370,11 +408,9 @@ export function GlobeScene() {
   // Recentrage sur requête externe sans coup de zoom violent
   useEffect(() => {
     if (!focusRequest) return;
-    const latRad = (focusRequest.lat * Math.PI) / 180;
-    const lonRad = (focusRequest.lon * Math.PI) / 180;
-
-    let targetTheta = -lonRad - Math.PI / 2;
-    const targetPhi = clamp(Math.PI / 2 - latRad, 0.15, Math.PI - 0.15);
+    const angles = latLonToCameraAngles(focusRequest.lat, focusRequest.lon);
+    let targetTheta = angles.theta;
+    const targetPhi = clamp(angles.phi, 0.15, Math.PI - 0.15);
 
     const currentTheta = sphericalRef.current.theta;
     const twoPi = Math.PI * 2;
@@ -382,6 +418,7 @@ export function GlobeScene() {
 
     sphericalRef.current.targetTheta = targetTheta;
     sphericalRef.current.targetPhi = targetPhi;
+    velocityRef.current = { theta: 0, phi: 0 };
     // Préserve le niveau de zoom choisi par l'utilisateur (ne force plus un zoom brutal à 1.85)
     lastInteractionTimeRef.current = Date.now();
   }, [focusRequest]);

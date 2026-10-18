@@ -1,4 +1,7 @@
 import type { Confidence, ConflictEvent, EventType } from "@/types/conflict";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 /**
  * Couche de persistance.
@@ -24,7 +27,7 @@ export interface EventQuery {
 }
 
 export interface Repository {
-  readonly kind: "memory" | "postgres";
+  readonly kind: "memory" | "local" | "postgres";
   init(): Promise<void>;
   upsert(events: ConflictEvent[]): Promise<{ inserted: number; updated: number }>;
   query(q: EventQuery): Promise<ConflictEvent[]>;
@@ -37,7 +40,7 @@ const keyOf = (e: ConflictEvent) => `${e.sourceDataset}|${e.id}`;
 
 function matches(e: ConflictEvent, q: EventQuery): boolean {
   const t = Date.parse(e.eventDate);
-  if (t < q.from.getTime() || t > q.to.getTime()) return false;
+  if (!Number.isFinite(t) || t < q.from.getTime() || t > q.to.getTime()) return false;
   if (q.types?.length && !q.types.includes(e.eventType)) return false;
   if (q.datasets?.length && !q.datasets.includes(e.sourceDataset)) return false;
   if (q.confidences?.length && !q.confidences.includes(e.confidence)) return false;
@@ -91,6 +94,79 @@ export class MemoryRepository implements Repository {
   }
 }
 
+export class LocalRepository implements Repository {
+  readonly kind = "local" as const;
+
+  constructor(private filename = process.env.INTEL_STORE_PATH ?? path.join(process.cwd(), "data", "intel-events.json")) {}
+
+  async init() {
+    await mkdir(path.dirname(this.filename), { recursive: true, mode: 0o700 });
+    await this.read();
+  }
+
+  private async read(): Promise<ConflictEvent[]> {
+    try {
+      const events: unknown = JSON.parse(await readFile(this.filename, "utf8"));
+      if (!Array.isArray(events)) throw new Error("Invalid local event store");
+      return events as ConflictEvent[];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw new Error("Local event store cannot be read safely");
+    }
+  }
+
+  private async mutate(events: ConflictEvent[] | null) {
+    const lockPath = `${this.filename}.lock`;
+    const deadline = Date.now() + 5000;
+    let lock;
+    while (!lock) {
+      try {
+        lock = await open(lockPath, "wx", 0o600);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) {
+          throw new Error("Local event store is not writable or is locked");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    const temporary = `${this.filename}.${randomUUID()}.tmp`;
+    try {
+      const store = new Map((await this.read()).map((event) => [keyOf(event), event]));
+      let inserted = 0;
+      let updated = 0;
+      if (events === null) store.clear();
+      for (const event of events ?? []) {
+        if (store.has(keyOf(event))) updated++;
+        else inserted++;
+        store.set(keyOf(event), event);
+      }
+      const file = await open(temporary, "wx", 0o600);
+      try {
+        await file.writeFile(JSON.stringify([...store.values()]));
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      await rename(temporary, this.filename);
+      return { inserted, updated };
+    } finally {
+      await unlink(temporary).catch(() => undefined);
+      await lock.close();
+      await unlink(lockPath);
+    }
+  }
+
+  async upsert(events: ConflictEvent[]) { return this.mutate(events); }
+  async query(query: EventQuery) { return (await this.read()).filter((event) => matches(event, query)); }
+  async byIds(ids: string[]) { return (await this.read()).filter((event) => ids.includes(event.id)); }
+  async counts() {
+    const repository = new MemoryRepository();
+    await repository.upsert(await this.read());
+    return repository.counts();
+  }
+  async clear() { await this.mutate(null); }
+}
+
 export const SCHEMA_SQL = `
 -- Schéma PostgreSQL. Créer l'extension PostGIS est OPTIONNEL :
 --   CREATE EXTENSION IF NOT EXISTS postgis;
@@ -132,7 +208,13 @@ export class PgRepository implements Repository {
   async init() {
     const { Pool } = await import("pg");
     this.pool = new Pool({ connectionString: this.connectionString, max: 6 });
-    await this.pool.query(SCHEMA_SQL);
+    try {
+      await this.pool.query(SCHEMA_SQL);
+    } catch (error) {
+      await this.pool.end().catch(() => undefined);
+      this.pool = null;
+      throw error;
+    }
   }
 
   private get db() {
@@ -142,6 +224,7 @@ export class PgRepository implements Repository {
 
   async upsert(events: ConflictEvent[]) {
     let inserted = 0;
+    let updated = 0;
     const chunk = 500;
     for (let i = 0; i < events.length; i += chunk) {
       const slice = events.slice(i, i + chunk);
@@ -174,15 +257,28 @@ export class PgRepository implements Repository {
            confidence, event_date
          ) VALUES ${tuples.join(",")}
          ON CONFLICT (id) DO UPDATE SET
+           source_dataset = EXCLUDED.source_dataset,
+           latitude = EXCLUDED.latitude,
+           longitude = EXCLUDED.longitude,
+           country = EXCLUDED.country,
+           region = EXCLUDED.region,
+           locality = EXCLUDED.locality,
+           event_type = EXCLUDED.event_type,
+           sub_event_type = EXCLUDED.sub_event_type,
+           actors = EXCLUDED.actors,
+           event_date = EXCLUDED.event_date,
+           source_url = EXCLUDED.source_url,
            fatalities = EXCLUDED.fatalities,
            confidence = EXCLUDED.confidence,
            source = EXCLUDED.source,
-           updated_at = now()`,
+           updated_at = now()
+         RETURNING (xmax = 0) AS inserted`,
         values,
       );
-      inserted += res.rowCount ?? 0;
+      inserted += res.rows.filter((row) => row.inserted).length;
+      updated += res.rows.filter((row) => !row.inserted).length;
     }
-    return { inserted, updated: Math.max(0, events.length - inserted) };
+    return { inserted, updated };
   }
 
   async query(q: EventQuery) {
@@ -204,7 +300,7 @@ export class PgRepository implements Repository {
               source_dataset, confidence, event_date, updated_at
          FROM conflict_events
         WHERE ${where.join(" AND ")}
-        LIMIT 200000`,
+        ORDER BY event_date DESC, id`,
       values,
     );
     return res.rows.map(rowToEvent);
