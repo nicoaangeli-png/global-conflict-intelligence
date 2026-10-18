@@ -643,29 +643,40 @@ function parseSseBlock(block: string): StreamEvent | null {
   }
 }
 
-function readWithIdleTimeout(reader: ReadableStreamDefaultReader<Uint8Array>, idleMs: number) {
+function readWithIdleTimeout(reader: ReadableStreamDefaultReader<Uint8Array>, idleMs: number, signal: AbortSignal) {
   return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new AgentFailure("idle_timeout", "stream idle")), idleMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new AgentFailure("aborted", "aborted"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      reject(new AgentFailure("idle_timeout", "stream idle"));
+    }, idleMs);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
     reader.read().then(
       (result) => {
         clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
         resolve(result);
       },
       (error) => {
         clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
         reject(error);
       },
     );
   });
 }
 
-export async function* readSse(body: ReadableStream<Uint8Array>, idleMs: number): AsyncGenerator<StreamEvent> {
+export async function* readSse(body: ReadableStream<Uint8Array>, idleMs: number, signal: AbortSignal): AsyncGenerator<StreamEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   try {
     while (true) {
-      const result = await readWithIdleTimeout(reader, idleMs);
+      const result = await readWithIdleTimeout(reader, idleMs, signal);
       if (result.done) break;
       buffer = (buffer + decoder.decode(result.value, { stream: true })).replace(/\r\n/g, "\n");
       if (buffer.length > MAX_SSE_BUFFER_CHARS) throw new AgentFailure("protocol", "sse buffer overflow");
@@ -720,7 +731,7 @@ function readFunctionCall(item: OutputItem | undefined): FunctionCall | null {
   return { call_id: item.call_id, name: item.name, arguments: item.arguments ?? "{}" };
 }
 
-async function* streamRound(body: ReadableStream<Uint8Array>, run: RunState): AsyncGenerator<AgentChunk, RoundState> {
+async function* streamRound(body: ReadableStream<Uint8Array>, run: RunState, signal: AbortSignal): AsyncGenerator<AgentChunk, RoundState> {
   const limits = agentLimits();
   const state: RoundState = { terminal: null, calls: [] };
   const partBases = new Map<string, number>();
@@ -729,7 +740,7 @@ async function* streamRound(body: ReadableStream<Uint8Array>, run: RunState): As
     if (call && !state.calls.some((existing) => existing.call_id === call.call_id)) state.calls.push(call);
   };
 
-  for await (const event of readSse(body, limits.idleMs)) {
+  for await (const event of readSse(body, limits.idleMs, signal)) {
     if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
       const key = `${event.output_index}:${event.content_index}`;
       if (!partBases.has(key)) partBases.set(key, run.emitted);
@@ -854,7 +865,7 @@ async function* orchestrate(
       throw httpFailure(response.status, code, context.locale);
     }
 
-    const state = yield* streamRound(response.body, run);
+    const state = yield* streamRound(response.body, run, signal);
     if (state.terminal === "incomplete") return { kind: "incomplete", reason: state.incompleteReason ?? "unknown" };
     if (!state.calls.length) {
       if (run.emitted === 0) return { kind: "error", code: "empty_answer", text: translate(context.locale, "Aucune réponse produite.", "No answer produced.") };
@@ -884,6 +895,9 @@ function incompleteText(reason: string, locale: AgentContext["locale"]) {
 }
 
 function classifyFailure(error: unknown, deadlineHit: boolean, locale: AgentContext["locale"]): Outcome {
+  if (deadlineHit) {
+    return { kind: "error", code: "deadline", text: translate(locale, "Délai maximal dépassé : la réponse est incomplète.", "Maximum time exceeded: the answer is incomplete.") };
+  }
   if (error instanceof AgentFailure) {
     if (error.code === "interrupted" || error.code === "idle_timeout") {
       return { kind: "error", code: error.code, text: translate(locale, "Flux interrompu avant la fin : la réponse est incomplète et ne doit pas être considérée comme terminée.", "Stream interrupted before the end: the answer is incomplete.") };
@@ -892,9 +906,6 @@ function classifyFailure(error: unknown, deadlineHit: boolean, locale: AgentCont
       return { kind: "error", code: error.code, text: translate(locale, "L'analyse a échoué en cours de route.", "The analysis failed midway.") };
     }
     return { kind: "error", code: error.code, text: error.message };
-  }
-  if (deadlineHit) {
-    return { kind: "error", code: "deadline", text: translate(locale, "Délai maximal dépassé : la réponse est incomplète.", "Maximum time exceeded: the answer is incomplete.") };
   }
   console.warn("[agent] échec", error instanceof Error ? error.name : "unknown");
   return { kind: "error", code: "network", text: translate(locale, "Service d'analyse indisponible.", "Analysis service unavailable.") };
