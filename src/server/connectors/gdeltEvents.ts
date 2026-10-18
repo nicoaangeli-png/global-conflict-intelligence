@@ -46,6 +46,8 @@ export const GKG_COLUMNS = 27;
 const BASE_URL = "https://data.gdeltproject.org/gdeltv2";
 const STEP_MS = 15 * 60 * 1000;
 const MAX_UNZIPPED = 200 * 1024 * 1024;
+/** Un zip GDELT de 15 minutes ne doit jamais dépasser 50 Mio au téléchargement. */
+export const GDELT_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024;
 
 /** Fichiers 15 min rattrapés (défaut 96 = 24 h), paramétrable par GDELT_EVENTS_CATCHUP_FILES. */
 const catchupFiles = () => clampInt(process.env.GDELT_EVENTS_CATCHUP_FILES, 96, 1, 672);
@@ -425,7 +427,7 @@ export interface GdeltFetchers {
 
 async function httpBytes(url: string, timeout: number): Promise<Buffer | null> {
   try {
-    const res = await safeFetch("gdelt", url, {}, timeout);
+    const res = await safeFetch("gdelt", url, {}, timeout, GDELT_DOWNLOAD_MAX_BYTES);
     return Buffer.from(await res.arrayBuffer());
   } catch (err) {
     if (err instanceof ConnectorError && /HTTP 404/.test(err.message)) return null;
@@ -594,8 +596,10 @@ export async function fetchSocialFeed(): Promise<LiveItem[]> {
       url,
       sourceId: "gdelt-events",
       sourceName: "GDELT 2.0 (presse mondiale)",
+      // DATEADDED est l'instant de repérage de l'article par GDELT : approximation
+      // de sa publication, jamais une date de survenue de l'événement décrit.
       publishedAt: first,
-      occurredAt: first,
+      occurredAt: null,
       fetchedAt,
       countries,
       // Un lieu de niveau pays/région n'est pas un point précis : pas de coordonnées.

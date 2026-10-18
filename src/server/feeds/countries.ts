@@ -9,7 +9,8 @@ import { resolveCountryIdentity, normalizeCountryName } from "@/lib/geo/country"
  *   frontières de mots : « Niger » ne correspond jamais à « Nigeria », « Iran » pas à « Tirana » ;
  * - les noms les plus longs sont consommés d'abord : « Papua New Guinea » ne déclenche pas « Guinea »,
  *   « South Sudan » ne déclenche pas « Sudan », « New Mexico » ne déclenche pas « Mexico » ;
- * - les noms ambigus (Georgia, Congo seul, Guinea-pig…) sont volontairement absents ;
+ * - les noms ambigus (Georgia, Congo seul, prénoms anglais…) sont absents ou
+ *   exigent un contexte géographique explicite ;
  * - les sigles (US, UK, UAE, DRC) ne sont reconnus qu'en majuscules, jamais « us » (pronom).
  * En cas de doute, la liste retournée est vide.
  */
@@ -49,7 +50,7 @@ KHM|Cambodia|Cambodge
 CMR|Cameroon|Cameroun
 CAN|Canada
 CAF|Central African Republic|République centrafricaine|Centrafrique
-TCD|Chad|Tchad
+TCD|Republic of Chad|République du Tchad|Tchad
 CHL|Chile|Chili
 CHN|China|Chine|People's Republic of China
 COL|Colombia|Colombie
@@ -97,11 +98,11 @@ IDN|Indonesia|Indonésie
 IRN|Iran
 IRQ|Iraq|Irak
 IRL|Ireland|Irlande
-ISR|Israel|Israël
+ISR|State of Israel|État d'Israël
 ITA|Italy|Italie
 JAM|Jamaica|Jamaïque
 JPN|Japan|Japon
-JOR|Jordan|Jordanie
+JOR|Hashemite Kingdom of Jordan|Kingdom of Jordan|Jordanie
 KAZ|Kazakhstan
 KEN|Kenya
 KIR|Kiribati
@@ -127,7 +128,7 @@ MLI|Mali
 MLT|Malta|Malte
 MHL|Marshall Islands|Îles Marshall
 MRT|Mauritania|Mauritanie
-MUS|Mauritius|Maurice
+MUS|Mauritius|Republic of Mauritius|Island of Mauritius|République de Maurice|Île Maurice
 MEX|Mexico|Mexique
 FSM|Micronesia|Micronésie
 MDA|Moldova|Moldavie
@@ -229,6 +230,14 @@ const ACRONYMS: Array<[RegExp, string]> = [
   [/\bDPRK\b/, "PRK"],
 ];
 
+// Ces noms anglais sont aussi des prénoms. Un contexte géographique ou un
+// gentilé est requis ; « Chad Smith » ou « Israel Adesanya » restent sans pays.
+const CONTEXTUAL_NAMES: Array<[RegExp, string]> = [
+  [/\b(?:in|across|throughout|within)\s+chad\b|\bchadian\b|\bchad(?: s)?\s+(?:government|authorities|army|border|capital|parliament|election|president)\b/, "TCD"],
+  [/\b(?:in|across|throughout|within)\s+jordan\b|\bjordanian\b|\bjordan(?: s)?\s+(?:government|authorities|army|border|capital|parliament|election|king)\b/, "JOR"],
+  [/\b(?:in|across|throughout|within)\s+israel\b|\bisraeli\b|\bisrael(?: s)?\s+(?:government|authorities|army|border|capital|parliament|election|president)\b/, "ISR"],
+];
+
 interface AliasEntry {
   key: string; // texte normalisé
   iso3: string | null; // null = absorbeur
@@ -271,7 +280,12 @@ export function countriesInText(text: string | null | undefined): string[] {
     const m = re.exec(text);
     if (m && !found.has(iso3)) found.set(iso3, m.index);
   }
-  let hay = ` ${normalizeCountryName(text)} `;
+  const normalized = normalizeCountryName(text);
+  for (const [re, iso3] of CONTEXTUAL_NAMES) {
+    const m = re.exec(normalized);
+    if (m && !found.has(iso3)) found.set(iso3, m.index);
+  }
+  let hay = ` ${normalized} `;
   for (const { key, iso3 } of aliases()) {
     const needle = ` ${key} `;
     let from = 0;

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { parseFrankfurter, parseYahooIndex, STOCK_INDICES } from "@/server/feeds/economy";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadYahooIndices, parseFrankfurter, parseYahooIndex, STOCK_INDICES } from "@/server/feeds/economy";
 import { parseWhoDon } from "@/server/feeds/health";
 import { parseWnn } from "@/server/feeds/nuclear";
 import { parseLl2 } from "@/server/feeds/space";
@@ -7,6 +7,8 @@ import { parseUnNews, parseUnPress } from "@/server/feeds/un";
 import { ctx, fixtureJson, fixtureText } from "./feeds-helpers";
 
 const noMarkup = (text: string | null) => !text || !/<[a-z/!]|&[a-z#0-9]+;/i.test(text);
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("OMS Disease Outbreak News", () => {
   const items = parseWhoDon(fixtureJson("who-don.json"), ctx());
@@ -121,6 +123,9 @@ describe("économie", () => {
     const expected = ((raw.rates[days[2]].USD - raw.rates[days[1]].USD) / raw.rates[days[1]].USD) * 100;
     expect(usd?.metric?.value).toBeCloseTo(expected, 2);
     expect(usd?.id.endsWith(days[2])).toBe(true);
+    expect(usd?.publishedAt).toBe(days[2]);
+    expect(usd?.occurredAt).toBe(days[2]);
+    expect(usd?.caveat).toMatch(/sans heure/);
   });
 
   it("indice boursier : variation entre séances, date de séance réelle, caveat Yahoo", () => {
@@ -144,6 +149,20 @@ describe("économie", () => {
   it("symbole introuvable : null", () => {
     const def = STOCK_INDICES[0];
     expect(parseYahooIndex(fixtureJson("yahoo-notfound.json"), def, ctx())).toBeNull();
+  });
+
+  it("Yahoo conserve les cotations reçues et liste les symboles en échec", async () => {
+    const indices = STOCK_INDICES.slice(0, 2);
+    const valid = JSON.stringify(fixtureJson("yahoo-fchi.json"));
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) =>
+      String(input).includes(encodeURIComponent(indices[0].symbol))
+        ? new Response(valid, { status: 200 })
+        : new Response("indisponible", { status: 503 })));
+    const result = await loadYahooIndices(ctx(), indices, 0);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].countries).toEqual([indices[0].iso3]);
+    expect(result.message).toContain(indices[1].symbol);
+    expect(result.message).not.toContain(indices[0].symbol);
   });
 
   it("table des indices : ISO3 et symboles uniques", () => {

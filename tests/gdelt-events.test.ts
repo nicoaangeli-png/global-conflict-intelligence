@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FIPS_TO_ISO3, fipsToIso3, resolveCountryIdentity } from "@/lib/geo/country";
 import {
-  buildEvents, cachedEvents, EVENT_COLUMNS, fetchSocialFeed, geoPrecisionOf, mapCameo, parseExportCsv,
+  buildEvents, cachedEvents, EVENT_COLUMNS, fetchSocialFeed, GDELT_DOWNLOAD_MAX_BYTES, geoPrecisionOf, mapCameo, parseExportCsv,
   parseGkgTitles, parseLastUpdate, recentTimestamps, refreshGdeltEvents, resetGdeltEventsCache,
   titleFromExtras, unzipFirstEntry, type GdeltFetchers,
 } from "@/server/connectors/gdeltEvents";
+import { safeFetch } from "@/server/connectors/types";
 
 const dir = join(__dirname, "fixtures", "gdelt");
 const read = (n: string) => readFileSync(join(dir, n));
@@ -89,6 +90,10 @@ describe("mapping CAMEO", () => {
 });
 
 describe("zip, horodatages", () => {
+  it("borne les téléchargements GDELT 15 minutes à 50 Mio", () => {
+    expect(GDELT_DOWNLOAD_MAX_BYTES).toBe(50 * 1024 * 1024);
+  });
+
   it("lit l'entrée unique d'un vrai zip (deflate)", async () => {
     const csv = await unzipFirstEntry(read("sample.export.CSV.zip"));
     expect(csv.toString("utf8")).toBe(exportCsv);
@@ -106,6 +111,21 @@ describe("zip, horodatages", () => {
     const ts = recentTimestamps("20261018001500", 4);
     expect(ts).toEqual(["20261018001500", "20261018000000", "20261017234500", "20261017233000"]);
     expect(recentTimestamps("20261018101500", 96)).toHaveLength(96);
+  });
+});
+
+describe("lecture HTTP bornée des connecteurs", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("rejette Content-Length avant lecture avec une ConnectorError lisible", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) { controller.enqueue(new Uint8Array([1])); },
+      cancel() { cancelled = true; },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { headers: { "Content-Length": "6" } })));
+    await expect(safeFetch("test", "https://example.org/data", {}, 1_000, 5)).rejects.toThrow(/test: réponse trop volumineuse.*5 octets/);
+    expect(cancelled).toBe(true);
   });
 });
 
@@ -296,6 +316,8 @@ describe("collecte avec cache (réseau simulé)", () => {
       expect(i.caveat).toBe("Signal presse GDELT, non confirmé");
       expect(i.title.length).toBeGreaterThan(0);
       expect(i.fetchedAt).not.toBe(i.publishedAt);
+      expect(i.publishedAt).toBe("2026-10-18T10:00:00.000Z");
+      expect(i.occurredAt).toBeNull();
       expect(i.id.startsWith("gdelt-events:")).toBe(true);
     }
     const fr = items.filter((i) => i.countries.includes("FRA"));

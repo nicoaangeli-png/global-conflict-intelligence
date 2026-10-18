@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FEED_SOURCES, getFeeds, parseCategory, sortItems } from "@/server/feeds";
-import { clearFeedsCache, FeedError, fetchJson, runSource, type FeedSourceDef } from "@/server/feeds/util";
+import { clearFeedsCache, FeedError, fetchBytes, fetchJson, runSource, type FeedSourceDef } from "@/server/feeds/util";
 import { FEED_CATEGORIES, type LiveItem } from "@/types/feeds";
 
 const item = (over: Partial<LiveItem>): LiveItem => ({
@@ -85,6 +85,14 @@ describe("runSource", () => {
     expect(state.message).not.toMatch(/undefined|TypeError/);
   });
 
+  it("conserve un statut ok avec un avertissement de succès partiel", async () => {
+    const source = def({ load: async () => ({ items: [item({})], message: "Une donnée est indisponible." }) });
+    const { items, state } = await runSource(source, async () => null);
+    expect(items).toHaveLength(1);
+    expect(state.status).toBe("ok");
+    expect(state.message).toBe("Une donnée est indisponible.");
+  });
+
   it("après un échec, conserve les dernières données valides en « stale »", async () => {
     let clock = 0;
     let fail = false;
@@ -140,6 +148,41 @@ describe("getFeeds", () => {
 });
 
 describe("réseau (fetch simulé)", () => {
+  it("interrompt le flux dès que maxBytes est dépassé", async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const captured: { signal?: AbortSignal } = {};
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
+      captured.signal = init?.signal as AbortSignal;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulls++;
+          controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+          if (pulls >= 10) controller.close();
+        },
+        cancel() { cancelled = true; },
+      });
+      return new Response(body);
+    }));
+    await expect(fetchBytes("https://example.org/large", { maxBytes: 5 })).rejects.toThrow(/téléchargement interrompu/);
+    expect(pulls).toBeLessThan(10);
+    expect(cancelled).toBe(true);
+    expect(captured.signal?.aborted).toBe(true);
+  });
+
+  it("refuse Content-Length avant de matérialiser le corps", async () => {
+    let cancelled = false;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) { controller.enqueue(new Uint8Array([1])); },
+        cancel() { cancelled = true; },
+      });
+      return new Response(body, { headers: { "Content-Length": "100" } });
+    }));
+    await expect(fetchBytes("https://example.org/declared-large", { maxBytes: 5 })).rejects.toThrow(/limite 5 octets/);
+    expect(cancelled).toBe(true);
+  });
+
   it("HTTP 403 : message honnête, sans contournement", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("denied", { status: 403 })));
     await expect(fetchJson("https://www.aaro.mil/")).rejects.toThrow(/refuse l'accès automatisé.*aucun contournement/);

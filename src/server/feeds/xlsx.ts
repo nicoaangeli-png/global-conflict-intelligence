@@ -6,6 +6,9 @@ import { decodeEntities } from "./util";
  * (une feuille, chaînes partagées). Retourne les lignes de la première feuille, indexées par lettre de colonne.
  */
 
+/** Taille décompressée maximale d'une entrée XML du classeur GEIPAN : 16 Mio. */
+export const XLSX_ENTRY_MAX_BYTES = 16 * 1024 * 1024;
+
 function readZipEntries(buf: Uint8Array): Map<string, Buffer> {
   const data = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
   // Fin du répertoire central : signature 0x06054b50, cherchée depuis la fin.
@@ -35,7 +38,18 @@ function readZipEntries(buf: Uint8Array): Map<string, Buffer> {
     const localExtra = data.readUInt16LE(localOffset + 28);
     const start = localOffset + 30 + localName + localExtra;
     const raw = data.subarray(start, start + compressedSize);
-    entries.set(name, method === 0 ? raw : inflateRawSync(raw));
+    if (method === 0) {
+      if (raw.byteLength > XLSX_ENTRY_MAX_BYTES) throw new Error("entrée xlsx trop volumineuse");
+      entries.set(name, raw);
+    } else if (method === 8) {
+      try {
+        entries.set(name, inflateRawSync(raw, { maxOutputLength: XLSX_ENTRY_MAX_BYTES }));
+      } catch {
+        throw new Error("entrée xlsx invalide ou trop volumineuse");
+      }
+    } else {
+      throw new Error(`compression xlsx non gérée (${method})`);
+    }
   }
   return entries;
 }

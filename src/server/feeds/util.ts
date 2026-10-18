@@ -1,8 +1,11 @@
 import type { FeedCategory, FeedSourceState, LiveItem } from "@/types/feeds";
 import { countryAt, type WorldIndex } from "@/lib/geo/world";
+import { readResponseBytes, ResponseTooLargeError } from "@/server/connectors/types";
 
 export const USER_AGENT = "ORBITAL/0.2 (planetary monitor; contact nicoa.angeli@gmail.com)";
 export const FETCH_TIMEOUT_MS = 10_000;
+/** Plafond par défaut des flux texte/JSON : 5 Mio après décodage HTTP. */
+export const DEFAULT_FEED_MAX_BYTES = 5 * 1024 * 1024;
 
 /** Erreur dont le message est destiné à l'utilisateur (aucun détail technique sensible). */
 export class FeedError extends Error {}
@@ -31,11 +34,12 @@ export async function fetchBytes(url: string, options: FetchOptions = {}): Promi
       if (response.status === 403) throw new FeedError(`${host} refuse l'accès automatisé (HTTP 403) ; aucun contournement n'est tenté.`);
       throw new FeedError(`${host} a répondu HTTP ${response.status}.`);
     }
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    if (options.maxBytes && buffer.byteLength > options.maxBytes) throw new FeedError("Réponse plus volumineuse que prévu ; ignorée.");
-    return buffer;
+    return await readResponseBytes(response, options.maxBytes ?? DEFAULT_FEED_MAX_BYTES, controller);
   } catch (error) {
     if (error instanceof FeedError) throw error;
+    if (error instanceof ResponseTooLargeError) {
+      throw new FeedError(`Réponse plus volumineuse que prévu (limite ${error.maxBytes} octets) ; téléchargement interrompu.`);
+    }
     if (error instanceof Error && error.name === "AbortError") throw new FeedError(`${new URL(url).host} n'a pas répondu en ${(options.timeoutMs ?? FETCH_TIMEOUT_MS) / 1000} s.`);
     throw new FeedError(`${new URL(url).host} est injoignable.`);
   } finally {
@@ -173,10 +177,16 @@ export interface FeedSourceDef {
   ttlMs: number;
   /** Durée avant nouvelle tentative après un échec (protège les quotas, ex. Launch Library 2). */
   errorTtlMs?: number;
-  /** Retourne les éléments, ou lève une FeedError (message lisible). */
-  load(ctx: FeedContext): Promise<LiveItem[]>;
+  /** Retourne les éléments (avec avertissement de succès éventuel), ou lève une FeedError. */
+  load(ctx: FeedContext): Promise<LiveItem[] | FeedLoadResult>;
   /** Source sans flux exploitable : état affiché tel quel, sans appel réseau. */
   unavailable?: { status: "error" | "not_configured"; message: string };
+}
+
+export interface FeedLoadResult {
+  items: LiveItem[];
+  /** Avertissement lisible malgré un statut `ok` (ex. source partiellement disponible). */
+  message: string | null;
 }
 
 interface CacheEntry {
@@ -245,11 +255,13 @@ export async function runSource(
     try {
       const index = await getIndex().catch(() => null);
       const fetchedAt = new Date(started).toISOString();
-      const items = await def.load({ fetchedAt, index });
+      const loaded = await def.load({ fetchedAt, index });
+      const items = Array.isArray(loaded) ? loaded : loaded.items;
+      const message = Array.isArray(loaded) ? null : loaded.message;
       next.items = items;
       next.at = now();
       next.okAt = next.at;
-      next.state = { ...baseState(def), status: "ok", message: null, fetchedAt, itemCount: items.length };
+      next.state = { ...baseState(def), status: "ok", message, fetchedAt, itemCount: items.length };
     } catch (error) {
       next.at = now();
       const message = readableError(error);

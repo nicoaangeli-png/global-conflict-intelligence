@@ -6,7 +6,7 @@ Livrable : données réelles et en direct, hors conflits armés, via `GET /api/f
 ## Fichiers
 - `src/server/feeds/` : `index.ts` (registre `getFeeds`), `util.ts` (fetch 10 s + User-Agent ORBITAL, cache `globalThis`,
   `runSource` sans exception, parseurs RSS/entités), `countries.ts` (pays par texte, mot entier), `xlsx.ts` (lecteur zip/xlsx sans
-  dépendance), `disaster.ts`, `health.ts`, `space.ts`, `nuclear.ts`, `un.ts`, `uap.ts`, `economy.ts`.
+  dépendance), `disaster.ts`, `health.ts`, `space.ts`, `nuclear.ts`, `un.ts`, `social.ts`, `uap.ts`, `economy.ts`.
 - `src/app/api/feeds/route.ts` (nodejs, `force-dynamic`, `Cache-Control: public, max-age=30, stale-while-revalidate=60`).
 - Tests : `tests/feeds-{text,disaster,sources,uap,registry}.test.ts` (+ `feeds-helpers.ts`), fixtures `tests/fixtures/feeds/**`
   (extraits réels réduits). `tests/feeds-live.test.ts` appelle le réseau mais est **désactivé par défaut**
@@ -27,13 +27,15 @@ Livrable : données réelles et en direct, hors conflits armés, via `GET /api/f
 | World Nuclear News (`wnn`) | OK | 40 | RSS réel : `https://www.world-nuclear-news.org/rss` |
 | UN News fr (`un-news`) | OK | 30 | RSS français |
 | press.un.org (`un-press`) | OK | 10 | RSS `https://press.un.org/en/rss.xml` : comptes rendus du Conseil de sécurité, commissions, communiqués (anglais) |
+| GDELT Events (`gdelt-events`) | **Branché, testé sur fixture** | variable | Manifestations, émeutes et grèves CAMEO 14 ; un élément par article, signal presse non confirmé ; collecte partagée avec le connecteur GDELT |
 | GEIPAN (`geipan`) | OK | 54 | export officiel des cas publiés (voir ci-dessous) |
 | BCE / Frankfurter (`ecb-fx`) | OK | 29 | `api.frankfurter.dev/v1`, variation entre les 2 derniers fixings |
 | Yahoo Finance (`yahoo-indices`) | OK | 37 | 37 indices nationaux, tous vérifiés un par un |
 | AARO (`aaro`) | **KO (volontaire)** | 0 | `aaro.mil` répond HTTP 403 (protection anti-robot) : état « error » avec message honnête, aucun contournement |
 | NASA UAP (`nasa-uap`) | `not_configured` | 0 | `science.nasa.gov/uap/` est une page statique (rapport 2023), sans flux daté |
 
-Total mesuré : environ 410 éléments en une requête.
+Total historique mesuré avant le branchement GDELT : environ 410 éléments en une requête. Le volume GDELT varie avec les fichiers
+de 15 minutes présents dans le cache et n'est pas extrapolé ici.
 
 ## Choix et écarts à connaître
 - **GEIPAN : pas de jeu sur data.gouv.fr.** L'API `datasets/?q=geipan` renvoie 0 résultat (aucun jeu GEIPAN). La source ouverte
@@ -64,8 +66,8 @@ Total mesuré : environ 410 éléments en une requête.
 - **Cache et erreurs** : `globalThis.__orbitalFeedsCache` ; TTL : USGS 2 min, GDACS 5 min, UN/EONET/Yahoo 10-15 min, OMS/BCE 30 min,
   WNN 20 min, GEIPAN/AARO 6 h, LL2 65 min. Un échec garde les dernières données valides (état `stale`) ou donne `error` avec un message
   lisible ; aucune exception n'atteint la route.
-- **Point d'extension « social »** : `EXTRA_SOURCES` dans `index.ts` (commentaire de tête) : ajouter `socialSources: FeedSourceDef[]`.
-  `?category=social` renvoie pour l'instant 0 élément et 0 source.
+- **Flux « social » branché** : `socialSources` est inclus dans `EXTRA_SOURCES` dans `index.ts` ; `?category=social` exécute la
+  source `gdelt-events`. Les éléments sont des articles/signaux presse GDELT, pas des incidents confirmés.
 
 ## Limites (non vérifié ou connu)
 - Les URLs de pages HTML de cas GEIPAN et de lancements LL2 (lien vers l'API JSON de LL2, pas une page grand public) n'ont pas été

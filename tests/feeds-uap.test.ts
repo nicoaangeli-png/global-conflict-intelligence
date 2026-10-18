@@ -1,9 +1,36 @@
 import { describe, expect, it } from "vitest";
+import { deflateRawSync } from "node:zlib";
 import { parseGeipan } from "@/server/feeds/uap";
-import { readFirstSheet } from "@/server/feeds/xlsx";
+import { readFirstSheet, XLSX_ENTRY_MAX_BYTES } from "@/server/feeds/xlsx";
 import { uapSources } from "@/server/feeds/uap";
 import { runSource } from "@/server/feeds/util";
 import { ctx, fixtureBytes } from "./feeds-helpers";
+
+function singleEntryZip(name: string, content: Buffer): Uint8Array {
+  const filename = Buffer.from(name);
+  const compressed = deflateRawSync(content);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(8, 8);
+  local.writeUInt32LE(compressed.length, 18);
+  local.writeUInt32LE(content.length, 22);
+  local.writeUInt16LE(filename.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(compressed.length, 20);
+  central.writeUInt32LE(content.length, 24);
+  central.writeUInt16LE(filename.length, 28);
+  central.writeUInt32LE(0, 42);
+  const centralOffset = local.length + filename.length + compressed.length;
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(central.length + filename.length, 12);
+  eocd.writeUInt32LE(centralOffset, 16);
+  return new Uint8Array(Buffer.concat([local, filename, compressed, central, filename, eocd]));
+}
 
 describe("lecteur xlsx", () => {
   it("lit en-têtes et chaînes partagées", () => {
@@ -15,6 +42,11 @@ describe("lecteur xlsx", () => {
 
   it("refuse un fichier qui n'est pas un classeur", () => {
     expect(() => readFirstSheet(new TextEncoder().encode("<html>403</html>"))).toThrow();
+  });
+
+  it("interrompt la décompression d'une entrée supérieure à 16 Mio", () => {
+    const bomb = singleEntryZip("xl/worksheets/sheet1.xml", Buffer.alloc(XLSX_ENTRY_MAX_BYTES + 1, 65));
+    expect(() => readFirstSheet(bomb)).toThrow(/trop volumineuse/);
   });
 });
 

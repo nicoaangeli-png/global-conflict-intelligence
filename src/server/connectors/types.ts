@@ -29,26 +29,103 @@ export class ConnectorError extends Error {
   }
 }
 
-/** Wrapper fetch avec délai maximal et erreurs normalisées. */
+/** Plafond par défaut des réponses des connecteurs : 64 Mio après décodage HTTP. */
+export const DEFAULT_CONNECTOR_MAX_BYTES = 64 * 1024 * 1024;
+
+export class ResponseTooLargeError extends Error {
+  constructor(
+    readonly maxBytes: number,
+    readonly declaredBytes: number | null = null,
+  ) {
+    super(`Réponse supérieure à la limite de ${maxBytes} octets`);
+    this.name = "ResponseTooLargeError";
+  }
+}
+
+/**
+ * Lit un corps HTTP en flux et interrompt réellement le téléchargement dès que
+ * `maxBytes` est dépassé. `Content-Length` permet un refus avant lecture quand
+ * il est présent ; le compteur reste l'autorité pour les réponses sans taille
+ * ou compressées par HTTP.
+ */
+export async function readResponseBytes(
+  response: Response,
+  maxBytes: number,
+  controller?: AbortController,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const rawLength = response.headers.get("content-length")?.trim() ?? "";
+  const declaredBytes = /^\d+$/.test(rawLength) ? Number(rawLength) : null;
+  if (declaredBytes !== null && declaredBytes > maxBytes) {
+    controller?.abort();
+    await response.body?.cancel().catch(() => undefined);
+    throw new ResponseTooLargeError(maxBytes, declaredBytes);
+  }
+  if (!response.body) return new Uint8Array();
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      controller?.abort();
+      await reader.cancel().catch(() => undefined);
+      throw new ResponseTooLargeError(maxBytes, declaredBytes);
+    }
+    chunks.push(value);
+  }
+
+  const bytes: Uint8Array<ArrayBuffer> = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+/** Wrapper fetch avec délai, corps borné par défaut et erreurs normalisées. */
 export async function safeFetch(
   connector: string,
   url: string,
   init: RequestInit = {},
   timeoutMs = 12000,
+  maxBytes = DEFAULT_CONNECTOR_MAX_BYTES,
 ): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   try {
-    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
+    const res = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
     if (!res.ok) {
       throw new ConnectorError(`${connector}: HTTP ${res.status}`, connector, "network");
     }
-    return res;
+    const bytes = await readResponseBytes(res, maxBytes, controller);
+    return new Response(bytes.byteLength ? bytes.buffer : null, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
   } catch (err) {
     if (err instanceof ConnectorError) throw err;
+    if (err instanceof ResponseTooLargeError) {
+      throw new ConnectorError(`${connector}: réponse trop volumineuse (limite ${maxBytes} octets)`, connector, "network");
+    }
+    if (timedOut || (err instanceof Error && err.name === "AbortError")) {
+      throw new ConnectorError(`${connector}: délai dépassé après ${timeoutMs / 1000} s`, connector, "network");
+    }
     throw new ConnectorError(
       `${connector}: requête impossible`,
       connector,
       "network",
     );
+  } finally {
+    clearTimeout(timer);
   }
 }
 

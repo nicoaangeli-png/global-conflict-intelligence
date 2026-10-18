@@ -37,6 +37,23 @@ describe("attribution pays par texte", () => {
     expect(countriesInText(null)).toEqual([]);
   });
 
+  it("n'attribue pas les prénoms anglais à des pays", () => {
+    expect(countriesInText("Chad Smith releases a new album")).toEqual([]);
+    expect(countriesInText("Maurice Sendak retrospective opens today")).toEqual([]);
+    expect(countriesInText("Michael Jordan documentary announced")).toEqual([]);
+    expect(countriesInText("Israel Adesanya wins by decision")).toEqual([]);
+    expect(countriesInText("Victoria Beckham presents her collection")).toEqual([]);
+    expect(countriesInText("Georgia O'Keeffe exhibition opens")).toEqual([]);
+  });
+
+  it("reconnaît les mêmes pays avec un contexte non ambigu", () => {
+    expect(countriesInText("Flooding across Chad displaces thousands")).toEqual(["TCD"]);
+    expect(countriesInText("Cyclone approaching l'île Maurice")).toEqual(["MUS"]);
+    expect(countriesInText("Parliamentary elections in Jordan")).toEqual(["JOR"]);
+    expect(countriesInText("Ceasefire talks resume in Israel")).toEqual(["ISR"]);
+    expect(countriesInText("Chile approves a new climate law")).toEqual(["CHL"]);
+  });
+
   it("reconnaît les sigles en majuscules seulement", () => {
     expect(countriesInText("US DOE funding for reactors")).toEqual(["USA"]);
     expect(countriesInText("UK and UAE sign deal")).toEqual(expect.arrayContaining(["GBR", "ARE"]));

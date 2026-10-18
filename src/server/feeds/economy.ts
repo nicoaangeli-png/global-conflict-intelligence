@@ -1,5 +1,5 @@
 import type { FeedSeverity, LiveItem } from "@/types/feeds";
-import { FeedError, fetchJson, mapLimit, sleep, toIso, type FeedContext, type FeedSourceDef } from "./util";
+import { FeedError, fetchJson, mapLimit, sleep, toIso, type FeedContext, type FeedLoadResult, type FeedSourceDef } from "./util";
 
 // ---------------------------------------------------------------------------
 // Devises : Frankfurter (taux de référence de la BCE)
@@ -74,15 +74,16 @@ export function parseFrankfurter(raw: unknown, ctx: FeedContext): LiveItem[] {
       url: "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html",
       sourceId: "ecb-fx",
       sourceName: "BCE via Frankfurter",
-      publishedAt: toIso(`${last}T14:15:00Z`),
-      occurredAt: toIso(`${last}T14:15:00Z`),
+      // Frankfurter ne fournit qu'une date de fixing : aucune heure n'est déduite.
+      publishedAt: last,
+      occurredAt: last,
       fetchedAt: ctx.fetchedAt,
       countries: currency ? [currency.iso3] : [],
       lat: null,
       lon: null,
       severity: pct !== null ? moveSeverity(pct) : null,
       metric: pct !== null ? { label: "Variation vs fixing précédent", value: Number(pct.toFixed(3)), unit: "%" } : null,
-      caveat: "Taux de référence de la BCE (fixing quotidien vers 16 h CET), pas un cours temps réel de marché.",
+      caveat: "Taux de référence de la BCE daté par la source sans heure de fixing ; pas un cours temps réel de marché.",
     });
   }
   return items;
@@ -92,7 +93,9 @@ export function parseFrankfurter(raw: unknown, ctx: FeedContext): LiveItem[] {
 // Indices boursiers nationaux : Yahoo Finance (source non officielle)
 // ---------------------------------------------------------------------------
 
-export const STOCK_INDICES: Array<{ iso3: string; symbol: string; name: string }> = [
+export type StockIndex = { iso3: string; symbol: string; name: string };
+
+export const STOCK_INDICES: StockIndex[] = [
   { iso3: "FRA", symbol: "^FCHI", name: "CAC 40" },
   { iso3: "DEU", symbol: "^GDAXI", name: "DAX" },
   { iso3: "GBR", symbol: "^FTSE", name: "FTSE 100" },
@@ -184,6 +187,35 @@ export function parseYahooIndex(raw: unknown, def: { iso3: string; symbol: strin
   };
 }
 
+/** Charge les indices sans masquer les symboles qui échouent partiellement. */
+export async function loadYahooIndices(
+  ctx: FeedContext,
+  indices: StockIndex[] = STOCK_INDICES,
+  staggerMs = 150,
+): Promise<FeedLoadResult> {
+  let hardFailure: unknown = null;
+  // Concurrence limitée à 4 et requêtes espacées pour ménager le service.
+  const results = await mapLimit(indices, 4, async (def, i) => {
+    await sleep((i % 4) * staggerMs);
+    try {
+      const raw = await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(def.symbol)}?range=5d&interval=1d`);
+      const item = parseYahooIndex(raw, def, ctx);
+      return { item, failed: item === null };
+    } catch (error) {
+      hardFailure = error;
+      return { item: null, failed: true };
+    }
+  });
+  const items = results.flatMap(({ item }) => item ? [item] : []);
+  const failedSymbols = results.flatMap((result, i) => result.failed ? [indices[i].symbol] : []);
+  if (!items.length) throw hardFailure instanceof FeedError ? hardFailure : new FeedError("Yahoo Finance n'a renvoyé aucune cotation exploitable.");
+  const label = failedSymbols.length === 1 ? "symbole" : "symboles";
+  return {
+    items,
+    message: failedSymbols.length ? `Cotations Yahoo indisponibles pour ${failedSymbols.length} ${label} : ${failedSymbols.join(", ")}.` : null,
+  };
+}
+
 export const economySources: FeedSourceDef[] = [
   {
     sourceId: "ecb-fx",
@@ -205,22 +237,7 @@ export const economySources: FeedSourceDef[] = [
     license: "Non officiel : cotations différées Yahoo Finance, usage informatif",
     ttlMs: 15 * 60_000,
     async load(ctx) {
-      let hardFailure: unknown = null;
-      // Concurrence limitée à 4 et requêtes espacées pour ménager le service.
-      const results = await mapLimit(STOCK_INDICES, 4, async (def, i) => {
-        await sleep((i % 4) * 150);
-        try {
-          const raw = await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(def.symbol)}?range=5d&interval=1d`);
-          return parseYahooIndex(raw, def, ctx);
-        } catch (error) {
-          hardFailure = error;
-          return null;
-        }
-      });
-      const items = results.filter((r): r is LiveItem => r !== null);
-      if (!items.length) throw hardFailure instanceof FeedError ? hardFailure : new FeedError("Yahoo Finance n'a renvoyé aucune cotation exploitable.");
-      return items;
+      return loadYahooIndices(ctx);
     },
   },
 ];
-
