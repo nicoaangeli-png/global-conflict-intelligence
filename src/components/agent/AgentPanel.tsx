@@ -457,8 +457,8 @@ export function AgentPanel() {
           <button type="button" className="chip" data-active={voice.enabled} aria-pressed={voice.enabled} onClick={voice.toggle} title={fr ? "Voix" : "Voice"}>
             {voice.enabled ? "🔊" : "🔇"}
           </button>
-          <button type="button" className="chip" onClick={() => setShowVoices((visible) => !visible)} aria-expanded={showVoices} title={fr ? "Choisir la voix" : "Choose voice"}>
-            ♀
+          <button type="button" className="chip" onClick={() => setShowVoices((visible) => !visible)} aria-expanded={showVoices} title={fr ? "Choisir la voix (J.A.R.V.I.S.)" : "Choose voice (J.A.R.V.I.S.)"}>
+            🎙️
           </button>
           <button type="button" className="chip" onClick={() => { voice.stop(); setOpen(false); }}>
             esc
@@ -487,7 +487,7 @@ export function AgentPanel() {
             <p className="mt-1 text-[11px] text-text-faint">{fr ? "Aucune voix française installée sur ce système." : "No matching voice installed."}</p>
           )}
           <p className="mt-1 text-[11px] text-text-faint">
-            {fr ? "Astuce Mac : Réglages › Accessibilité › Contenu énoncé › Voix du système › Gérer les voix — télécharge « Audrey (Premium) » ou « Amélie (Premium) » pour une voix bien plus douce." : "Mac tip: install a Premium voice in System Settings › Accessibility › Spoken Content."}
+            {fr ? "Astuce Mac (style J.A.R.V.I.S.) : Réglages › Accessibilité › Contenu énoncé › Voix du système › Gérer les voix — télécharge « Daniel (Royaume-Uni) » ou « Henri (Premium) » / « Thomas » pour une diction d'IA parfaite." : "Mac tip (J.A.R.V.I.S. style): Settings › Accessibility › Spoken Content › System Voice › Manage Voices — download \"Daniel (UK)\" or \"Oliver (Enhanced)\" for the iconic British AI cadence."}
           </p>
         </div>
       ) : null}

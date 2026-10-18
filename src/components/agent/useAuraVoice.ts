@@ -3,24 +3,43 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Voix d'AURA : synthèse vocale du navigateur (Web Speech API).
+ * Voix d'AURA — Profil J.A.R.V.I.S. (Iron Man)
  *
- * Choisit une voix féminine française douce si disponible, lit le texte
- * phrase par phrase (évite la coupure des longues lectures sous Chrome) et
- * expose un niveau 0..1 qui anime la bouche de l'hologramme.
+ * Sélectionne la voix qui se rapproche le plus de l'archétype J.A.R.V.I.S.
+ * (majordome / IA britannique posée, voix masculine calme, articulée et grave).
+ * Élimine les voix de synthèse gadget ou stridentes (Sandy, Zarvox, etc.).
  */
 
-const FEMALE_HINTS = /vivienne|denise|eloise|brigitte|audrey|aurélie|aurelie|amélie|amelie|marie|céline|celine|julie|hortense|virginie|chantal|sylvie|léa|lea|google français|google francais|samantha|female|femme/i;
-const MALE_HINTS = /thomas|jacques|daniel|nicolas|henri|paul|rémy|remy|claude|alain|antoine|jean|male\b|homme|grandpa|reed|rocko|eddy/i;
-const STORAGE_KEY = "orbital.aura.voice.v1";
+const JARVIS_PREF = /daniel|ryan|george|arthur|oliver|henri|thomas|r[eé]my|nicolas|paul|brian|guy/i;
+const FEMALE_HINTS = /vivienne|denise|eloise|brigitte|audrey|aur[eé]lie|am[eé]lie|marie|c[eé]line|julie|hortense|virginie|chantal|sylvie|l[eé]a|samantha|female|femme|karen|moira|tessa|fiona|veena|victoria|kathy|princess/i;
+const MALE_HINTS = /male\b|homme|man\b|mr\b/i;
+const NOVELTY_HINTS = /sandy|grandpa|grandma|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|pipe organ|trinoids|whisper|zarvox|wobble|albert|fred|junior|ralph/i;
+const STORAGE_KEY = "orbital.aura.voice.v3";
 
 function rank(voice: SpeechSynthesisVoice, lang: string) {
   let score = 0;
-  if (voice.lang.toLowerCase().startsWith(lang)) score += 100;
-  if (voice.lang.toLowerCase() === `${lang}-fr` || voice.lang.toLowerCase() === "en-us") score += 10;
-  if (FEMALE_HINTS.test(voice.name)) score += 40;
-  if (MALE_HINTS.test(voice.name)) score -= 80;
-  if (/premium|enhanced|améliorée|natural|neural|online/i.test(voice.name)) score += 25;
+  const vName = voice.name.toLowerCase();
+  const vLang = voice.lang.toLowerCase();
+
+  // Pénalité éliminatoire pour les voix gadgets ou comiques de macOS / Windows
+  if (NOVELTY_HINTS.test(vName)) return -1000;
+
+  // Concordance de langue (français ou anglais)
+  if (vLang.startsWith(lang)) score += 100;
+
+  // Bonus accent britannique (timbre emblématique de J.A.R.V.I.S. / Paul Bettany)
+  if (vLang.includes("en-gb") || /uk|british/i.test(vName)) score += 50;
+
+  // Voix emblématiques du style J.A.R.V.I.S. (Daniel UK, Henri, Thomas, etc.)
+  if (JARVIS_PREF.test(vName)) score += 120;
+  if (MALE_HINTS.test(vName)) score += 40;
+
+  // Voix enrichies / neurales de haute qualité
+  if (/premium|enhanced|am[eé]lior[eé]e|natural|neural|online/i.test(vName)) score += 35;
+
+  // Pénalité pour les voix féminines (l'utilisateur demande expressément la voix J.A.R.V.I.S.)
+  if (FEMALE_HINTS.test(vName)) score -= 150;
+
   return score;
 }
 
@@ -37,7 +56,7 @@ export function speakable(text: string) {
     .replace(/\[\^?\d+\]/g, "")
     .replace(/<?https?:\/\/[^\s>)\]]+>?/g, "")
     .replace(/\bwww\.[^\s)\]]+/g, "")
-    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+•]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/^\s{0,3}(?:#{1,6}\s+|> ?|[-*+•]\s+|\d+[.)]\s+)/gm, "")
     .replace(/(\*\*|__|~~|`)/g, "")
     .replace(/(^|\s)[*_](\S[^*_]*\S|\S)[*_](?=\s|[.,;:!?]|$)/g, "$1$2")
     .replace(/^\s*\|?[-:| ]{3,}\|?\s*$/gm, "")
@@ -60,7 +79,15 @@ export function useAuraVoice(locale: "fr" | "en") {
 
   useEffect(() => {
     if (!supported) return;
-    try { setVoiceName(localStorage.getItem(STORAGE_KEY)); } catch { /* stockage indisponible */ }
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      // Ignore si la valeur stockée était une ancienne voix novelty
+      if (stored && !NOVELTY_HINTS.test(stored)) {
+        setVoiceName(stored);
+      }
+    } catch {
+      /* stockage indisponible */
+    }
     const load = () => setVoices(window.speechSynthesis.getVoices());
     load();
     window.speechSynthesis.addEventListener("voiceschanged", load);
@@ -71,42 +98,62 @@ export function useAuraVoice(locale: "fr" | "en") {
   }, [supported]);
 
   const lang = locale === "en" ? "en" : "fr";
-  const candidates = voices.filter((v) => v.lang.toLowerCase().startsWith(lang)).sort((a, b) => rank(b, lang) - rank(a, lang));
+  const candidates = voices
+    .filter((v) => v.lang.toLowerCase().startsWith(lang) || (lang === "fr" && v.lang.toLowerCase().startsWith("en-gb")))
+    .sort((a, b) => rank(b, lang) - rank(a, lang));
   const voice = candidates.find((v) => v.name === voiceName) ?? candidates[0] ?? null;
 
   const chooseVoice = useCallback((name: string) => {
     setVoiceName(name);
-    try { localStorage.setItem(STORAGE_KEY, name); } catch { /* stockage indisponible */ }
+    try {
+      localStorage.setItem(STORAGE_KEY, name);
+    } catch {
+      /* stockage indisponible */
+    }
   }, []);
 
-  // Décroissance du niveau entre deux mots.
+  // Décroissance du niveau entre deux mots pour l'animation
   useEffect(() => {
-    if (!speaking) { levelRef.current = 0; return; }
-    const id = window.setInterval(() => { levelRef.current = Math.max(0.35, levelRef.current * 0.86); }, 60);
+    if (!speaking) {
+      levelRef.current = 0;
+      return;
+    }
+    const id = window.setInterval(() => {
+      levelRef.current = Math.max(0.35, levelRef.current * 0.86);
+    }, 60);
     return () => window.clearInterval(id);
   }, [speaking]);
 
-  const speak = useCallback((text: string) => {
-    if (!supported || !enabled) return;
-    const clean = speakable(text);
-    if (!clean) return;
-    const utterance = new SpeechSynthesisUtterance(clean);
-    if (voice) utterance.voice = voice;
-    utterance.lang = voice?.lang ?? (lang === "fr" ? "fr-FR" : "en-US");
-    utterance.rate = 0.98;
-    utterance.pitch = 1.06;
-    utterance.volume = 1;
-    utterance.onstart = () => { setSpeaking(true); levelRef.current = 0.8; };
-    utterance.onboundary = () => { levelRef.current = 1; };
-    const finish = () => {
-      queueRef.current = Math.max(0, queueRef.current - 1);
-      if (queueRef.current === 0) setSpeaking(false);
-    };
-    utterance.onend = finish;
-    utterance.onerror = finish;
-    queueRef.current += 1;
-    window.speechSynthesis.speak(utterance);
-  }, [enabled, lang, supported, voice]);
+  const speak = useCallback(
+    (text: string) => {
+      if (!supported || !enabled) return;
+      const clean = speakable(text);
+      if (!clean) return;
+      const utterance = new SpeechSynthesisUtterance(clean);
+      if (voice) utterance.voice = voice;
+      utterance.lang = voice?.lang ?? (lang === "fr" ? "fr-FR" : "en-US");
+      // Profil vocal J.A.R.V.I.S. : débit posé et timbre chaud légèrement grave
+      utterance.rate = 0.96;
+      utterance.pitch = 0.94;
+      utterance.volume = 1;
+      utterance.onstart = () => {
+        setSpeaking(true);
+        levelRef.current = 0.8;
+      };
+      utterance.onboundary = () => {
+        levelRef.current = 1;
+      };
+      const finish = () => {
+        queueRef.current = Math.max(0, queueRef.current - 1);
+        if (queueRef.current === 0) setSpeaking(false);
+      };
+      utterance.onend = finish;
+      utterance.onerror = finish;
+      queueRef.current += 1;
+      window.speechSynthesis.speak(utterance);
+    },
+    [enabled, lang, supported, voice],
+  );
 
   const stop = useCallback(() => {
     if (!supported) return;
@@ -117,7 +164,11 @@ export function useAuraVoice(locale: "fr" | "en") {
 
   const toggle = useCallback(() => {
     setEnabled((value) => {
-      if (value && supported) { window.speechSynthesis.cancel(); queueRef.current = 0; setSpeaking(false); }
+      if (value && supported) {
+        window.speechSynthesis.cancel();
+        queueRef.current = 0;
+        setSpeaking(false);
+      }
       return !value;
     });
   }, [supported]);

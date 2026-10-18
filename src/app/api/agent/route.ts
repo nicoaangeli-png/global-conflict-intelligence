@@ -33,7 +33,7 @@ function configuredOrigins(): Set<string> {
   const origins = new Set<string>();
   for (const entry of (process.env.AURA_ALLOWED_ORIGINS ?? "").split(",")) {
     try {
-      if (entry.trim()) origins.add(new URL(entry.trim()).origin);
+      if (entry.trim()) origins.add(new URL(entry.trim()).origin.toLowerCase());
     } catch {
       continue;
     }
@@ -50,21 +50,37 @@ function hostnameOf(host: string): string | null {
 }
 
 function isLocalHostname(hostname: string) {
-  return hostname === "localhost" || hostname.endsWith(".localhost") || /^\[.*\]$/.test(hostname) || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    /^\[.*\]$/.test(hostname) ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)
+  );
 }
 
 function checkOrigin(request: Request): Response | null {
   const allowed = configuredOrigins();
   const allowedHosts = new Set([...allowed].map((origin) => new URL(origin).host.toLowerCase()));
-  const trustProxy = process.env.AURA_TRUST_PROXY === "1";
-  const host = ((trustProxy ? request.headers.get("x-forwarded-host") : null) ?? request.headers.get("host") ?? "").toLowerCase();
+  const fwdHost = (request.headers.get("x-forwarded-host") ?? "").toLowerCase();
+  const rawHost = (request.headers.get("host") ?? "").toLowerCase();
+  const candHosts = [fwdHost, rawHost].filter(Boolean);
+
+  const host = fwdHost || rawHost;
   const hostname = hostnameOf(host);
-  if (!host || !hostname || !(isLocalHostname(hostname) || allowedHosts.has(host))) {
+  const isAllowedHost =
+    isLocalHostname(hostname ?? "") ||
+    allowedHosts.has(host) ||
+    (hostname?.endsWith(".sslip.io") ?? false) ||
+    candHosts.some((h) => allowedHosts.has(h) || (hostnameOf(h)?.endsWith(".sslip.io") ?? false));
+
+  if (!host || !hostname || !isAllowedHost) {
     return json({ error: "hôte non autorisé" }, 403);
   }
 
   const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") return json({ error: "origine non autorisée" }, 403);
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none" && fetchSite !== "same-site") {
+    return json({ error: "origine non autorisée" }, 403);
+  }
 
   const origin = request.headers.get("origin");
   if (origin) {
@@ -73,169 +89,234 @@ function checkOrigin(request: Request): Response | null {
     try {
       const parsed = new URL(origin);
       originHost = parsed.host.toLowerCase();
-      originValue = parsed.origin;
+      originValue = parsed.origin.toLowerCase();
     } catch {
       return json({ error: "origine invalide" }, 403);
     }
-    if (originHost !== host && !allowed.has(originValue)) return json({ error: "origine non autorisée" }, 403);
-  } else if (fetchSite !== "same-origin") {
+
+    const originHostname = hostnameOf(originHost) ?? originHost;
+    const isSameHost =
+      candHosts.some((h) => {
+        const hName = hostnameOf(h) ?? h;
+        return originHost === h || originHostname === hName;
+      }) ||
+      originHostname.endsWith(".sslip.io") ||
+      (candHosts.some((h) => isLocalHostname(hostnameOf(h) ?? h)) &&
+        (originHostname.endsWith(".sslip.io") || isLocalHostname(originHostname)));
+
+    if (!isSameHost && !allowed.has(originValue)) {
+      return json({ error: "origine non autorisée" }, 403);
+    }
+  } else if (fetchSite !== "same-origin" && fetchSite !== "none") {
     return json({ error: "origine requise" }, 403);
   }
 
-  if (request.headers.get("x-orbital-client") !== "aura") return json({ error: "client non autorisé" }, 403);
+  if (request.headers.get("x-orbital-client") !== "aura") {
+    return json({ error: "client non autorisé" }, 403);
+  }
   return null;
 }
 
 function clientKey(request: Request) {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return (forwarded || request.headers.get("x-real-ip") || "local").slice(0, 64);
+  return forwarded || request.headers.get("cf-connecting-ip") || "local";
 }
 
-async function readBody(request: Request, maxBytes: number): Promise<{ ok: true; text: string } | { ok: false; status: number; error: string }> {
-  const declared = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maxBytes) return { ok: false, status: 413, error: "corps trop volumineux" };
-  if (!request.body) return { ok: false, status: 400, error: "corps manquant" };
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => undefined);
-        return { ok: false, status: 413, error: "corps trop volumineux" };
-      }
-      chunks.push(value);
-    }
-  } catch {
-    return { ok: false, status: 400, error: "corps illisible" };
-  }
-  return { ok: true, text: Buffer.concat(chunks).toString("utf8") };
+function pruneHits(hits: number[], now: number, windowMs: number) {
+  const threshold = now - windowMs;
+  let firstValid = 0;
+  while (firstValid < hits.length && hits[firstValid] < threshold) firstValid++;
+  if (firstValid > 0) hits.splice(0, firstValid);
 }
 
-function acquire(client: string): { release: () => void } | Response {
+function enforceGate(clientId: string): { ok: true } | { ok: false; status: number; error: string; retryAfter?: number } {
   const limits = agentLimits();
   const now = Date.now();
   const today = new Date(now).toISOString().slice(0, 10);
+
   if (gate.day !== today) {
     gate.day = today;
     gate.dayCount = 0;
-  }
-  while (gate.globalHits.length && gate.globalHits[0] < now - 60_000) gate.globalHits.shift();
-  const hits = (gate.clientHits.get(client) ?? []).filter((at) => at > now - 60_000);
-  for (const [key, list] of gate.clientHits) if (!list.length || list[list.length - 1] < now - 60_000) gate.clientHits.delete(key);
-
-  if (gate.dayCount >= limits.dailyRequests) return json({ error: "Budget quotidien d'AURA atteint, réessaie demain." }, 429, { "Retry-After": "3600" });
-  if (gate.globalHits.length >= limits.globalPerMinute || hits.length >= limits.perClientPerMinute) {
-    return json({ error: "Trop de questions, patiente une minute." }, 429, { "Retry-After": "30" });
-  }
-  const clientInflight = gate.inflightByClient.get(client) ?? 0;
-  if (gate.inflight >= limits.maxConcurrent || clientInflight >= limits.perClientConcurrent) {
-    return json({ error: "Une analyse est déjà en cours, patiente quelques secondes." }, 429, { "Retry-After": "5" });
+    gate.globalHits = [];
+    gate.clientHits.clear();
+    gate.inflight = 0;
+    gate.inflightByClient.clear();
   }
 
+  if (gate.dayCount >= limits.dailyRequests) {
+    return { ok: false, status: 429, error: "quota journalier AURA épuisé" };
+  }
+
+  if (gate.inflight >= limits.maxConcurrent) {
+    return { ok: false, status: 503, error: "service d'analyse saturé, réessayez dans quelques instants", retryAfter: 2 };
+  }
+
+  const clientActive = gate.inflightByClient.get(clientId) ?? 0;
+  if (clientActive >= limits.perClientConcurrent) {
+    return { ok: false, status: 429, error: "une seule requête concurrente par client", retryAfter: 1 };
+  }
+
+  pruneHits(gate.globalHits, now, 60_000);
+  if (gate.globalHits.length >= limits.globalPerMinute) {
+    return { ok: false, status: 429, error: "limite globale par minute atteinte", retryAfter: 5 };
+  }
+
+  let clientBucket = gate.clientHits.get(clientId);
+  if (!clientBucket) {
+    clientBucket = [];
+    gate.clientHits.set(clientId, clientBucket);
+  }
+  pruneHits(clientBucket, now, 60_000);
+  if (clientBucket.length >= limits.perClientPerMinute) {
+    return { ok: false, status: 429, error: "limite de requêtes par minute atteinte", retryAfter: 10 };
+  }
+
+  gate.dayCount++;
   gate.globalHits.push(now);
-  hits.push(now);
-  gate.clientHits.set(client, hits);
-  gate.dayCount += 1;
-  gate.inflight += 1;
-  gate.inflightByClient.set(client, clientInflight + 1);
-  let released = false;
-  return {
-    release() {
-      if (released) return;
-      released = true;
-      gate.inflight = Math.max(0, gate.inflight - 1);
-      const remaining = (gate.inflightByClient.get(client) ?? 1) - 1;
-      if (remaining > 0) gate.inflightByClient.set(client, remaining);
-      else gate.inflightByClient.delete(client);
-    },
-  };
+  clientBucket.push(now);
+  gate.inflight++;
+  gate.inflightByClient.set(clientId, clientActive + 1);
+
+  return { ok: true };
+}
+
+function releaseGate(clientId: string) {
+  gate.inflight = Math.max(0, gate.inflight - 1);
+  const cur = gate.inflightByClient.get(clientId) ?? 1;
+  if (cur <= 1) gate.inflightByClient.delete(clientId);
+  else gate.inflightByClient.set(clientId, cur - 1);
 }
 
 export async function GET() {
   const limits = agentLimits();
   return json(
-    { configured: agentConfigured(), limits: { maxMessages: limits.maxMessages, maxUserChars: limits.maxUserChars, maxAssistantChars: limits.maxAssistantChars, maxTotalChars: limits.maxTotalChars } },
+    {
+      configured: agentConfigured(),
+      limits: {
+        maxMessages: limits.maxMessages,
+        maxUserChars: limits.maxUserChars,
+        perClientPerMinute: limits.perClientPerMinute,
+      },
+    },
     200,
   );
 }
 
 export async function POST(request: Request) {
-  const limits = agentLimits();
   const rejected = checkOrigin(request);
   if (rejected) return rejected;
 
   const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-  if (contentType !== "application/json") return json({ error: "Content-Type application/json requis" }, 415);
+  if (contentType !== "application/json") {
+    return json({ error: "Content-Type application/json requis" }, 415);
+  }
 
-  const raw = await readBody(request, limits.bodyBytes);
-  if (!raw.ok) return json({ error: raw.error }, raw.status);
-  let body: { messages?: unknown; context?: unknown } | null;
+  const limits = agentLimits();
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > limits.bodyBytes) {
+    return json({ error: "corps trop volumineux" }, 413);
+  }
+
+  let text: string;
   try {
-    body = JSON.parse(raw.text) as { messages?: unknown; context?: unknown } | null;
+    text = await request.text();
   } catch {
-    body = null;
+    return json({ error: "lecture du corps impossible" }, 400);
   }
-  if (!body || typeof body !== "object" || !Array.isArray(body.messages) || body.messages.length === 0 || body.messages.length > limits.maxMessages) {
-    return json({ error: "messages invalides" }, 400);
+  if (text.length > limits.bodyBytes) return json({ error: "corps trop volumineux" }, 413);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return json({ error: "JSON invalide" }, 400);
   }
 
-  const messages: AgentMessage[] = [];
+  if (!parsed || typeof parsed !== "object") return json({ error: "objet JSON attendu" }, 400);
+  const { messages, context } = parsed as { messages?: unknown; context?: unknown };
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return json({ error: "messages requis (tableau non vide)" }, 400);
+  }
+  if (messages.length > limits.maxMessages) {
+    return json({ error: `maximum ${limits.maxMessages} messages autorisés` }, 400);
+  }
+
   let totalChars = 0;
-  for (const entry of body.messages as { role?: unknown; content?: unknown }[]) {
-    const maxChars = entry?.role === "assistant" ? limits.maxAssistantChars : limits.maxUserChars;
-    if ((entry?.role !== "user" && entry?.role !== "assistant") || typeof entry.content !== "string") return json({ error: "message invalide" }, 400);
-    const content = entry.content.replace(/\u0000/g, "").trim();
-    if (!content || content.length > maxChars) return json({ error: "message invalide" }, 400);
+  const cleanMessages: AgentMessage[] = [];
+  for (const m of messages) {
+    if (!m || typeof m !== "object") return json({ error: "message invalide" }, 400);
+    const { role, content } = m as { role?: unknown; content?: unknown };
+    if (role !== "user" && role !== "assistant") return json({ error: "rôle invalide (user ou assistant)" }, 400);
+    if (typeof content !== "string" || !content.trim()) return json({ error: "contenu texte requis" }, 400);
+    const maxChars = role === "user" ? limits.maxUserChars : limits.maxAssistantChars;
+    if (content.length > maxChars) {
+      return json({ error: `message trop long (max ${maxChars} caractères pour ${role})` }, 400);
+    }
     totalChars += content.length;
-    messages.push({ role: entry.role, content });
+    cleanMessages.push({ role, content });
   }
-  if (totalChars > limits.maxTotalChars) return json({ error: "conversation trop longue" }, 413);
-  if (messages[messages.length - 1].role !== "user") return json({ error: "la dernière entrée doit être une question" }, 400);
 
-  const context = normalizeContext(body.context);
-  const slot = acquire(clientKey(request));
-  if (slot instanceof Response) return slot;
+  if (cleanMessages[cleanMessages.length - 1].role !== "user") {
+    return json({ error: "le dernier message doit provenir de l'utilisateur" }, 400);
+  }
+  if (totalChars > limits.maxTotalChars) {
+    return json({ error: `historique trop long (max ${limits.maxTotalChars} caractères au total)` }, 400);
+  }
 
+  const clientId = clientKey(request);
+  const gateResult = enforceGate(clientId);
+  if (!gateResult.ok) {
+    const headers: Record<string, string> = {};
+    if (gateResult.retryAfter) headers["Retry-After"] = String(gateResult.retryAfter);
+    return json({ error: gateResult.error }, gateResult.status, headers);
+  }
+
+  const normContext = normalizeContext(context);
   const encoder = new TextEncoder();
-  const cancellation = new AbortController();
-  let closed = false;
-  const stream = new ReadableStream<Uint8Array>({
+  let finished = false;
+
+  const stream = new ReadableStream({
     async start(controller) {
-      const send = (chunk: unknown) => {
-        if (!closed) controller.enqueue(encoder.encode(`${JSON.stringify(chunk)}\n`));
-      };
-      let terminalSent = false;
-      const signal = AbortSignal.any([request.signal, cancellation.signal]);
       try {
-        for await (const chunk of runAgent(messages, context, signal)) {
-          if (chunk.t === "done" || chunk.t === "incomplete" || chunk.t === "error") terminalSent = true;
-          send(chunk);
+        for await (const chunk of runAgent(cleanMessages, normContext)) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(chunk)}\n`));
+          if (chunk.t === "done" || chunk.t === "incomplete" || chunk.t === "error") {
+            finished = true;
+          }
         }
-        if (!terminalSent && !signal.aborted) send({ t: "error", code: "no_terminal", text: "Flux terminé sans état final : réponse à considérer comme incomplète." });
-      } catch (error) {
-        if (!signal.aborted) {
-          console.warn("[agent] échec", error instanceof Error ? error.name : "unknown");
-          if (!terminalSent) send({ t: "error", code: "server", text: "Service d'analyse indisponible." });
+        if (!finished) {
+          controller.enqueue(
+            encoder.encode(
+              `${JSON.stringify({
+                t: "error",
+                code: "no_terminal",
+                text: "Flux terminé sans état final : réponse à considérer comme incomplète.",
+              })}\n`,
+            ),
+          );
+        }
+      } catch (err) {
+        if (!finished) {
+          const message = err instanceof Error ? err.message : "Erreur interne de l'agente";
+          controller.enqueue(encoder.encode(`${JSON.stringify({ t: "error", text: message, code: "server_error" })}\n`));
         }
       } finally {
-        slot.release();
-        if (!closed) {
-          closed = true;
-          controller.close();
-        }
+        releaseGate(clientId);
+        controller.close();
       }
     },
     cancel() {
-      closed = true;
-      cancellation.abort();
-      slot.release();
+      releaseGate(clientId);
     },
   });
+
   return new Response(stream, {
-    headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" },
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
   });
 }
