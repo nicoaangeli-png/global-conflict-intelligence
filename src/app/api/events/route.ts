@@ -19,10 +19,10 @@ export async function GET(request: Request) {
     return NextResponse.json(data, {
       headers: { "Cache-Control": "no-store" },
     });
-  } catch (err) {
+  } catch {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "agrégation impossible" },
-      { status: 500 },
+      { error: "Données temporairement indisponibles." },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
 }

@@ -13,7 +13,6 @@ const CONFIDENCES = (locale: "fr" | "en"): { key: Confidence; label: string }[] 
   { key: "CONFIRMED", label: locale === "fr" ? "confirmée" : "confirmed" },
   { key: "REPORTED", label: locale === "fr" ? "rapportée" : "reported" },
   { key: "MEDIA_SIGNAL", label: locale === "fr" ? "presse" : "press" },
-  { key: "DEMO", label: locale === "fr" ? "démo" : "demo" },
 ];
 
 const LAYERS = (locale: "fr" | "en"): { key: keyof ReturnType<typeof pickLayers>; label: string }[] => [
@@ -86,7 +85,6 @@ export function FiltersPanel() {
           {[
             { label: locale === "fr" ? "Sources documentées" : "Documented sources", datasets: ["acled", "ucdp", "import:csv"] },
             { label: locale === "fr" ? "Presse GDELT" : "GDELT media", datasets: ["gdelt"] },
-            { label: locale === "fr" ? "Démo fictive" : "Fictional demo", datasets: ["demo:seed"] },
             { label: locale === "fr" ? "Sources + presse" : "Sources + media", datasets: [...REAL_DATASETS] },
           ].map((mode) => (
             <button key={mode.label} type="button" className="chip"
@@ -97,7 +95,7 @@ export function FiltersPanel() {
           ))}
         </div>
         <p className="mt-2 text-[9px] leading-relaxed text-text-faint">
-          {locale === "fr" ? "La démo est exclue par défaut. Un signal presse ne confirme pas un incident. Aucune donnée ne signifie pas absence de conflit." : "Demo is excluded by default. Media signals do not confirm incidents. No data does not mean no conflict."}
+          {locale === "fr" ? "Sources réelles uniquement. Un signal presse ne confirme pas un incident. Aucune donnée ne signifie pas absence de conflit." : "Real sources only. Media signals do not confirm incidents. No data does not mean no conflict."}
         </p>
       </div>
       <div className="hairline mx-3 mt-3" />

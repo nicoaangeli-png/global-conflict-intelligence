@@ -8,9 +8,10 @@ import { ConnectorError, type Connector, safeFetch, providerDate, validCoordinat
  * GDELT analyse en continu la presse internationale et publie, toutes les
  * quinze minutes, les lieux cités par les articles de conflit.
  *
- * Filtrage renforcé : seules les zones de tension et théâtres militaires
- * avérés sont retenus afin d'éliminer les faux positifs (faits divers
- * dans les pays en paix).
+ * Chaque enregistrement est une MENTION (article × lieu cité), pas un incident
+ * vérifié : un lieu cité par un article n'est pas forcément le lieu des faits,
+ * et `eventDate` est la date de PUBLICATION de l'article. Le filtrage (zones et
+ * thèmes comparés par segments/mots entiers) réduit le bruit sans le supprimer.
  */
 
 const GEO_URL = "https://api.gdeltproject.org/api/v1/gkg_geojson";
@@ -34,15 +35,83 @@ const QUERY = [
 const TONE_MAX = -2.5;
 const MAX_SIGNALS = 400;
 
+/**
+ * Zones retenues, comparées par SEGMENT ENTIER normalisé (jamais par
+ * sous-chaîne : « Tirana » ne contient pas « Iran », « Malaysia » pas « Mali »,
+ * « Somalia » pas « Mali »). Les alias couvrent les graphies fréquentes du
+ * gazetteer ; ils ne modifient PAS le nom de pays conservé dans l'événement.
+ */
 const CONFLICT_ZONES = new Set([
-  "ukraine", "russia", "israel", "palestine", "gaza", "west bank",
+  "ukraine", "russia", "israel", "palestine", "gaza", "gaza strip", "west bank",
   "lebanon", "syria", "yemen", "sudan", "myanmar", "somalia",
   "mali", "burkina faso", "niger", "congo", "democratic republic of the congo",
   "drc", "iraq", "pakistan", "afghanistan", "nigeria", "ethiopia",
   "chad", "mozambique", "armenia", "azerbaijan", "taiwan", "iran",
   "libya", "central african republic", "colombia", "haiti", "south sudan",
-  "red sea", "baltic", "black sea", "taiwan strait"
+  "red sea", "baltic", "black sea", "taiwan strait",
 ]);
+
+const ZONE_ALIASES: Record<string, string> = {
+  burma: "myanmar",
+  "russian federation": "russia",
+  "state of palestine": "palestine",
+  "palestinian territories": "palestine",
+  "occupied palestinian territory": "palestine",
+  "islamic republic of iran": "iran",
+  "syrian arab republic": "syria",
+  "dr congo": "drc",
+  "democratic republic of congo": "democratic republic of the congo",
+  "congo kinshasa": "democratic republic of the congo",
+  "republic of south sudan": "south sudan",
+  "republic of the sudan": "sudan",
+};
+
+/** Minuscules, sans diacritiques ni ponctuation, espaces compactés, article initial retiré. */
+export function normalizePlace(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/^the /, "");
+}
+
+/** Le nom de lieu GDELT (« Ville, Région, Pays ») contient-il un segment de zone connu ? */
+export function isConflictZoneName(rawName: string): boolean {
+  return rawName.split(",").some((segment) => {
+    const key = normalizePlace(segment);
+    return CONFLICT_ZONES.has(ZONE_ALIASES[key] ?? key);
+  });
+}
+
+/**
+ * Thèmes GKG : liste séparée par « ; ». Un thème compte s'il est exactement l'un
+ * des codes militaires, ou s'il comporte un MOT entier de la liste (séparateur
+ * « _ »). « AWARD » ou « SOFTWARE » ne contiennent donc pas « WAR ».
+ */
+const MILITARY_THEMES = new Set(["ARMEDCONFLICT", "MILITARY", "AIRSTRIKE", "TERROR", "WAR"]);
+
+export function hasMilitaryTheme(themes: string): boolean {
+  return themes
+    .toUpperCase()
+    .split(/[;,]/)
+    .some((theme) => {
+      const token = theme.trim();
+      return MILITARY_THEMES.has(token) || token.split("_").some((word) => MILITARY_THEMES.has(word));
+    });
+}
+
+/** Titre réel fourni par GDELT, ou null. Un titre n'est jamais construit ni déduit de l'URL. */
+function providedTitle(p: Record<string, unknown>): string | null {
+  for (const key of ["title", "urltitle", "sharetitle"]) {
+    const v = p[key];
+    if (typeof v !== "string") continue;
+    const t = v.replace(/\s+/g, " ").trim();
+    if (t.length >= 8 && !/^https?:\/\//i.test(t)) return t.slice(0, 240);
+  }
+  return null;
+}
 
 interface GkgFeature {
   geometry?: { coordinates?: [number, number] };
@@ -52,6 +121,7 @@ interface GkgFeature {
     urltone?: number;
     urlpubtimedate?: string;
     mentionedthemes?: string;
+    [key: string]: unknown;
   };
 }
 
@@ -101,7 +171,7 @@ export const gdeltConnector: Connector = {
     if (!Array.isArray(json.features)) throw new ConnectorError("Réponse GDELT invalide", "gdelt", "parse");
 
     const now = new Date().toISOString();
-    const byPlace = new Map<string, { event: ConflictEvent; tone: number; count: number }>();
+    const byPlace = new Map<string, { event: ConflictEvent; tone: number }>();
 
     for (const f of json.features ?? []) {
       const coords = f.geometry?.coordinates;
@@ -118,25 +188,9 @@ export const gdeltConnector: Connector = {
 
       const country = parts.length > 1 ? parts[parts.length - 1] : parts[0];
       const locality = parts.length > 1 ? parts[0] : country;
-      const countryLower = country.toLowerCase();
 
-      // Filtrage des faux positifs : on retient les zones de conflit reconnues
-      // ou les articles contenant des thèmes militaires stricts
-      const themes = (p.mentionedthemes ?? "").toUpperCase();
-      const isMilitaryTheme =
-        themes.includes("WAR") ||
-        themes.includes("MILITARY") ||
-        themes.includes("ARMEDCONFLICT") ||
-        themes.includes("AIRSTRIKE") ||
-        themes.includes("TERROR");
-
-      const isConflictZone =
-        CONFLICT_ZONES.has(countryLower) ||
-        [...CONFLICT_ZONES].some((z) => rawName.toLowerCase().includes(z));
-
-      if (!isConflictZone && !isMilitaryTheme) {
-        continue; // Élimine les faits divers dans les pays en paix
-      }
+      // Zones et thèmes comparés par segment / mot entier (voir plus haut).
+      if (!isConflictZoneName(rawName) && !hasMilitaryTheme(p.mentionedthemes ?? "")) continue;
 
       const eventDate = providerDate(p.urlpubtimedate);
       if (!eventDate || Date.parse(eventDate) > Date.parse(now) || Date.parse(eventDate) < Date.parse(now) - days * 86400e3) continue;
@@ -146,21 +200,17 @@ export const gdeltConnector: Connector = {
       article.hash = "";
       const cell = `${article.href}|${eventDate}|${lat}|${lon}`;
 
+      const title = providedTitle(p);
+      const domain = domainOf(article.href);
       const existing = byPlace.get(cell);
       if (existing) {
-        existing.count++;
-        if (tone < existing.tone) {
-          existing.tone = tone;
-          existing.event.source = `GDELT · ${existing.count} dépêche(s) · ${domainOf(p.url ?? "")}`;
-          existing.event.sourceUrl = p.url ?? "";
-          existing.event.eventDate = eventDate;
-        }
+        // Même article, même lieu, même date : mention répétée, pas nouvelle source.
+        if (tone < existing.tone) existing.tone = tone;
         continue;
       }
 
       byPlace.set(cell, {
         tone,
-        count: 1,
         event: {
           id: `gdelt-${createHash("sha256").update(cell).digest("hex").slice(0, 32)}`,
           latitude: lat,
@@ -169,11 +219,12 @@ export const gdeltConnector: Connector = {
           region: parts.length > 2 ? parts[1] : "",
           locality,
           eventType: "Media signal",
-          subEventType: "Alerte presse géolocalisée",
+          subEventType: "Mention presse géolocalisée",
           actors: [],
           fatalities: 0,
-          source: `GDELT · 1 dépêche · ${domainOf(p.url ?? "")}`,
-          sourceUrl: p.url ?? "",
+          // Titre uniquement s'il est fourni par GDELT ; sinon domaine seul.
+          source: title ? `GDELT · ${domain} · « ${title} »` : `GDELT · ${domain} (titre non fourni)`,
+          sourceUrl: article.href,
           sourceDataset: "gdelt",
           confidence: "MEDIA_SIGNAL",
           eventDate,

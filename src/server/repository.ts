@@ -2,6 +2,7 @@ import type { Confidence, ConflictEvent, EventType } from "@/types/conflict";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { assertRealSourceRecords } from "./dataPolicy";
 
 /**
  * Couche de persistance.
@@ -156,7 +157,10 @@ export class LocalRepository implements Repository {
     }
   }
 
-  async upsert(events: ConflictEvent[]) { return this.mutate(events); }
+  async upsert(events: ConflictEvent[]) {
+    assertRealSourceRecords(events);
+    return this.mutate(events);
+  }
   async query(query: EventQuery) { return (await this.read()).filter((event) => matches(event, query)); }
   async byIds(ids: string[]) { return (await this.read()).filter((event) => ids.includes(event.id)); }
   async counts() {
@@ -223,6 +227,7 @@ export class PgRepository implements Repository {
   }
 
   async upsert(events: ConflictEvent[]) {
+    assertRealSourceRecords(events);
     let inserted = 0;
     let updated = 0;
     const chunk = 500;

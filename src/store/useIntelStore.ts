@@ -22,7 +22,7 @@ import { REAL_DATASETS } from "@/types/conflict";
  * rechargement complet de la base.
  */
 
-export type CountryFocus = { name: string; iso: string; lat: number; lon: number } | null;
+export type CountryFocus = { name: string; iso: string; lat: number; lon: number; source?: "globe" | "explorer" } | null;
 
 /** Interrupteurs de couches du globe (contrôle « digital twin »). */
 export interface LayerToggles {
@@ -122,26 +122,27 @@ const queryOf = (filters: EventFilters, degrees: number) => {
 };
 
 let inFlight: AbortController | null = null;
+let refreshSequence = 0;
+let detailSequence = 0;
 
 /**
- * Re-résout un foyer sélectionné dans une nouvelle grille d'agrégation.
- * On cherche la cellule la plus proche (< 4° angulaires) ; à défaut, la
- * sélection d'origine est conservée pour ne pas perdre le contexte de
- * l'analyste lors d'un zoom.
+ * Re-résout un foyer sélectionné uniquement si la nouvelle grille partage
+ * au moins un de ses événements.
  */
 function resolveSelection(prev: ConflictCluster, clusters: ConflictCluster[]): ConflictCluster | null {
-  const exact = clusters.find((c) => c.id === prev.id);
-  if (exact) return exact;
-  const cosLat = Math.cos((prev.latitude * Math.PI) / 180);
   let best: ConflictCluster | null = null;
-  let bestD = 16; // 4° au carré
+  let bestOverlap = 0;
+  let bestDistance = Infinity;
+  const previousEventIds = new Set(prev.eventIds);
   for (const c of clusters) {
-    if (c.country !== prev.country || c.confidence !== prev.confidence) continue;
+    const overlap = c.eventIds.reduce((count, eventId) => count + Number(previousEventIds.has(eventId)), 0);
+    if (overlap === 0) continue;
     const dLat = c.latitude - prev.latitude;
-    const dLon = (c.longitude - prev.longitude) * cosLat;
-    const d = dLat * dLat + dLon * dLon;
-    if (d < bestD) {
-      bestD = d;
+    const dLon = (c.longitude - prev.longitude) * Math.cos((prev.latitude * Math.PI) / 180);
+    const distance = dLat * dLat + dLon * dLon;
+    if (overlap > bestOverlap || (overlap === bestOverlap && distance < bestDistance)) {
+      bestOverlap = overlap;
+      bestDistance = distance;
       best = c;
     }
   }
@@ -227,21 +228,24 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
   refresh: async () => {
     const { filters, degrees } = get();
     inFlight?.abort();
-    inFlight = new AbortController();
-    set({ loading: true, error: null });
+    detailSequence++;
+    const controller = new AbortController();
+    inFlight = controller;
+    const request = ++refreshSequence;
+    set({ loading: true, error: null, selecting: false });
     try {
       const params = queryOf(filters, degrees);
       const [eventsRes, statsRes] = await Promise.all([
-        fetch(`/api/events?${params}`, { signal: inFlight.signal, cache: "no-store" }),
-        fetch(`/api/stats?${params}`, { signal: inFlight.signal, cache: "no-store" }),
+        fetch(`/api/events?${params}`, { signal: controller.signal, cache: "no-store" }),
+        fetch(`/api/stats?${params}`, { signal: controller.signal, cache: "no-store" }),
       ]);
       if (!eventsRes.ok || !statsRes.ok) throw new Error("réponse serveur invalide");
       const events = (await eventsRes.json()) as { clusters: ConflictCluster[]; generatedAt: string };
       const stats = (await statsRes.json()) as StatsResponse;
+      if (controller.signal.aborted || request !== refreshSequence) return;
 
-      // La sélection doit survivre au changement de niveau d'agrégation :
-      // le foyer cliqué est re-résolu dans la nouvelle grille (au plus près),
-      // et conservé tel quel si aucune cellule ne correspond.
+      // La sélection survit au changement de grille par ses événements, jamais
+      // par la seule proximité de coordonnées.
       const prev = get().selected;
       const next = prev ? resolveSelection(prev, events.clusters) : null;
 
@@ -252,20 +256,21 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
         lastSync: events.generatedAt,
         dataEpoch: s.dataEpoch + 1,
         selected: next,
-        // élargit le halo de sélection : le détail est rechargé ci-dessous
-        selectedEvents: next && prev && next.id === prev.id ? s.selectedEvents : [],
+        // Le détail dépend aussi des filtres actifs : ne pas garder l'ancien lot.
+        selectedEvents: [],
       }));
 
       if (next) void get().loadClusterDetail(next);
     } catch (err) {
-      if ((err as Error).name === "AbortError") return;
+      if ((err as Error).name === "AbortError" || request !== refreshSequence) return;
       set({ loading: false, error: err instanceof Error ? err.message : "erreur de chargement" });
     }
   },
 
   select: async (cluster) => {
+    detailSequence++;
     if (!cluster) {
-      set({ selected: null, selectedEvents: [] });
+      set({ selected: null, selectedEvents: [], selecting: false });
       return;
     }
     set({ selected: cluster, selecting: true, selectedEvents: [] });
@@ -274,6 +279,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
   },
 
   loadClusterDetail: async (cluster) => {
+    const request = ++detailSequence;
     set({ selecting: true });
     try {
       const { filters, degrees } = get();
@@ -290,9 +296,9 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       });
       if (!res.ok) throw new Error("détail indisponible");
       const data = (await res.json()) as { events: ConflictEvent[] };
-      if (get().selected?.id === cluster.id) set({ selectedEvents: data.events ?? [], selecting: false });
+      if (request === detailSequence && get().selected?.id === cluster.id) set({ selectedEvents: data.events ?? [], selecting: false });
     } catch {
-      set({ selecting: false });
+      if (request === detailSequence) set({ selecting: false });
     }
   },
 

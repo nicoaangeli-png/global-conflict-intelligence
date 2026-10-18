@@ -7,6 +7,8 @@ import { t } from "@/lib/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { getCountryGeopolitics, normalizeCountry } from "@/data/geopolitics";
 import { CountryProfile } from "./CountryProfile";
+import { canonicalCountryIdentity, normalizeCountryName, resolveCountryIdentity } from "@/lib/geo/country";
+import { countryInteriorPoint } from "@/lib/geo/world";
 
 /**
  * Panneau « GLOBAL SITUATION ».
@@ -76,28 +78,14 @@ function Stat({
 }
 
 type CountryEntry = { name: string; iso: string; center: { lat: number; lon: number } | null };
+type CountryRanking = { country: string; eventCount: number; fatalities: number; intensity: number; mediaSignals: number };
 
-/** Centre approximatif du plus grand polygone (anneau extérieur), pour recentrer le globe. */
-function countryCenter(geometry: { type?: string; coordinates?: unknown } | null | undefined) {
-  const polygons = (geometry?.type === "Polygon" ? [geometry.coordinates] : geometry?.type === "MultiPolygon" ? geometry.coordinates : []) as number[][][][];
-  let ring: number[][] | null = null;
-  for (const polygon of polygons ?? []) {
-    if (Array.isArray(polygon?.[0]) && (!ring || polygon[0].length > ring.length)) ring = polygon[0];
-  }
-  if (!ring?.length) return null;
-  let lat = 0, x = 0, y = 0;
-  for (const [lon, la] of ring) {
-    lat += la;
-    x += Math.cos((lon * Math.PI) / 180);
-    y += Math.sin((lon * Math.PI) / 180);
-  }
-  return { lat: lat / ring.length, lon: (Math.atan2(y, x) * 180) / Math.PI };
-}
-type CountryRanking = { country: string; eventCount: number; fatalities: number; intensity: number; mediaSignals: number; demoEvents: number };
-
-function countryKey(name: string) {
-  const profile = getCountryGeopolitics(name);
-  return normalizeCountry(profile.iso === "N/A" ? name : profile.country);
+function countryKey(name: string, reference: CountryEntry[] = []) {
+  const resolved = resolveCountryIdentity(name)?.iso3;
+  if (resolved) return resolved;
+  const normalized = normalizeCountryName(name);
+  const match = reference.find((country) => country.iso === name.toUpperCase() || normalizeCountryName(country.name) === normalized);
+  return match?.iso ?? normalized;
 }
 
 function CountryRow({ country, index, onSelect }: { country: CountryRanking; index: number; onSelect: () => void }) {
@@ -131,7 +119,7 @@ function CountryRow({ country, index, onSelect }: { country: CountryRanking; ind
           </span>
         </span>
       </span>
-      {country.mediaSignals > 0 || country.demoEvents > 0 ? <span className="text-[8px] text-text-faint">{country.mediaSignals > 0 ? `${country.mediaSignals} ${locale === "fr" ? "presse" : "media"}` : ""}{country.mediaSignals > 0 && country.demoEvents > 0 ? " · " : ""}{country.demoEvents > 0 ? `${country.demoEvents} ${locale === "fr" ? "démo" : "demo"}` : ""}</span> : null}
+      {country.mediaSignals > 0 ? <span className="text-[8px] text-text-faint">{country.mediaSignals} {locale === "fr" ? "presse" : "media"}</span> : null}
     </button>
   );
 }
@@ -142,10 +130,11 @@ export function GlobalSituationPanel() {
   const at = useIntelStore((s) => s.filters.at);
   const locale = useIntelStore((s) => s.locale);
   const focus = useIntelStore((s) => s.focus);
+  const countrySelection = useIntelStore((s) => s.country);
+  const setCountry = useIntelStore((s) => s.setCountry);
   const [countries, setCountries] = useState<CountryEntry[]>([]);
   const [referenceStatus, setReferenceStatus] = useState<"loading" | "ready" | "error">("loading");
   const [query, setQuery] = useState("");
-  const [chosenCountry, setChosenCountry] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoritesReady, setFavoritesReady] = useState(false);
   const [persistenceFailed, setPersistenceFailed] = useState(false);
@@ -160,9 +149,11 @@ export function GlobalSituationPanel() {
       })
       .then((data: { features: { properties: Record<string, unknown>; geometry?: { type?: string; coordinates?: unknown } }[] }) => {
         const entries = data.features.flatMap(({ properties, geometry }) => {
-          const name = properties.ADMIN || properties.NAME;
-          const iso = properties.ISO_A3 !== "-99" ? properties.ISO_A3 : properties.ADM0_A3;
-          return typeof name === "string" && typeof iso === "string" ? [{ name, iso, center: countryCenter(geometry) }] : [];
+          const sourceName = properties.ADMIN || properties.NAME;
+          if (typeof sourceName !== "string") return [];
+          const identity = canonicalCountryIdentity(sourceName, { isoA3: properties.ISO_A3, adm0A3: properties.ADM0_A3, sovA3: properties.SOV_A3 });
+          const iso = identity?.iso3 ?? "";
+          return iso ? [{ name: identity?.name ?? sourceName, iso, center: countryInteriorPoint(geometry) }] : [];
         });
         setCountries(entries);
         setReferenceStatus("ready");
@@ -187,20 +178,20 @@ export function GlobalSituationPanel() {
     const grouped = new Map<string, CountryRanking>();
     for (const cluster of clusters) {
       if (!cluster.country.trim()) continue;
-      const key = countryKey(cluster.country);
-      const country = grouped.get(key) ?? { country: cluster.country, eventCount: 0, fatalities: 0, intensity: 0, mediaSignals: 0, demoEvents: 0 };
+      const key = countryKey(cluster.country, countries);
+      const country = grouped.get(key) ?? { country: cluster.country, eventCount: 0, fatalities: 0, intensity: 0, mediaSignals: 0 };
       country.eventCount += cluster.eventCount;
       country.fatalities += cluster.fatalities;
       country.intensity = Math.max(country.intensity, cluster.intensity);
       country.mediaSignals += cluster.confidenceCounts.MEDIA_SIGNAL ?? 0;
-      country.demoEvents += cluster.confidenceCounts.DEMO ?? 0;
       grouped.set(key, country);
     }
     return [...grouped.values()].sort((first, second) => second.eventCount - first.eventCount || first.country.localeCompare(second.country));
-  }, [clusters]);
+  }, [clusters, countries]);
   const matchingCountries = countries.filter((country) => {
     const profile = getCountryGeopolitics(country.name);
-    return (!favoritesOnly || favorites.includes(country.iso)) && [country.name, country.iso, profile.country].some((value) => normalizeCountry(value).includes(normalizeCountry(query)));
+    const queryKey = resolveCountryIdentity(query)?.iso3 ?? normalizeCountry(query);
+    return (!favoritesOnly || favorites.includes(country.iso)) && (!query || country.iso.includes(query.toUpperCase()) || [country.name, country.iso, profile.country].some((value) => normalizeCountryName(value).includes(normalizeCountryName(query))) || country.iso === queryKey);
   }).sort((first, second) => Number(favorites.includes(second.iso)) - Number(favorites.includes(first.iso)) || first.name.localeCompare(second.name, locale));
 
   const dict = t(locale);
@@ -209,13 +200,16 @@ export function GlobalSituationPanel() {
 
   /** Ouvre la fiche et recentre le globe (référentiel pays, sinon foyer le plus intense). */
   const chooseCountry = (name: string) => {
-    setChosenCountry(name);
-    const center = countries.find((country) => countryKey(country.name) === countryKey(name))?.center;
+    const entry = countries.find((country) => countryKey(country.name, countries) === countryKey(name, countries));
+    const center = entry?.center;
     const hottest = clusters
-      .filter((cluster) => countryKey(cluster.country) === countryKey(name))
+      .filter((cluster) => countryKey(cluster.country, countries) === countryKey(name, countries))
       .sort((first, second) => second.intensity - first.intensity)[0];
     const target = center ?? (hottest ? { lat: hottest.latitude, lon: hottest.longitude } : null);
-    if (target) focus(target.lat, target.lon);
+    if (entry && target) {
+      setCountry({ name: entry.name, iso: entry.iso, lat: target.lat, lon: target.lon, source: "explorer" });
+      focus(target.lat, target.lon);
+    }
   };
   const major = clusters.filter((c) => c.intensity >= 0.5).length;
 
@@ -240,14 +234,15 @@ export function GlobalSituationPanel() {
         />
         <div className="hairline" />
         <Stat
-          label={dict.globalSituation.recorded24h}
-          value={int(stats?.events24h)}
-          hint={locale === "fr" ? "dans les sources et filtres sélectionnés" : "within selected sources and filters"}
+          label={locale === "fr" ? "Enregistrements (24 h)" : "Records (24 h)"}
+          value={int(stats?.periodCounts?.absolute.events24h)}
+          hint={locale === "fr" ? "mêmes filtres · fenêtre absolue" : "same filters · absolute window"}
         />
         <div className="hairline" />
         <Stat
-          label={locale === "fr" ? "Événements (7 jours)" : "Incidents (7 days)"}
-          value={int(stats?.events7d)}
+          label={locale === "fr" ? "Enregistrements (7 jours)" : "Records (7 days)"}
+          value={int(stats?.periodCounts?.absolute.events7d)}
+          hint={locale === "fr" ? "mêmes filtres · fenêtre absolue" : "same filters · absolute window"}
         />
         <div className="hairline" />
         <Stat
@@ -274,7 +269,7 @@ export function GlobalSituationPanel() {
         <span className="label-strong">{locale === "fr" ? "Pays · Top 6" : "Countries · Top 6"}</span>
         <span className="readout text-[9px]">{locale === "fr" ? "événements" : "events"}</span>
       </div>
-      <p className="px-3 pt-1 text-[9px] text-text-faint">{locale === "fr" ? "Période et filtres actifs · Presse et démo incluses si actives · Barre = intensité max. des foyers" : "Active period and filters · Includes media and demo if enabled · Bar = max. cluster intensity"}</p>
+      <p className="px-3 pt-1 text-[9px] text-text-faint">{locale === "fr" ? "Période et filtres actifs · Presse = mentions, pas incidents vérifiés · Barre = intensité max. des foyers" : "Active period and filters · Media are mentions, not verified incidents · Bar = max. cluster intensity"}</p>
       <div className="max-h-[228px] overflow-y-auto py-1 scroll-thin">
         {top.length ? (
           top.map((country, index) => <CountryRow key={countryKey(country.country)} country={country} index={index} onSelect={() => chooseCountry(country.country)} />)
@@ -295,10 +290,10 @@ export function GlobalSituationPanel() {
       </div>
       <div className="scroll-thin max-h-[180px] overflow-y-auto" aria-live="polite">
         {referenceStatus !== "ready" ? <p role="status" className="px-3 py-2 text-[10px] text-text-faint">{referenceStatus === "loading" ? (locale === "fr" ? "Chargement du référentiel…" : "Loading reference…") : (locale === "fr" ? "Référentiel indisponible." : "Reference unavailable.")}</p> : matchingCountries.length ? matchingCountries.map((country) => {
-          const activity = ranking.find((entry) => countryKey(entry.country) === countryKey(country.name));
+          const activity = ranking.find((entry) => countryKey(entry.country, countries) === countryKey(country.name, countries));
           return (
             <div key={country.iso} className="flex items-center gap-1 px-3">
-              <button type="button" className="row-button min-w-0 flex-1 text-left" aria-expanded={chosenCountry === country.name} onClick={() => chooseCountry(country.name)}>
+              <button type="button" className="row-button min-w-0 flex-1 text-left" aria-expanded={countrySelection?.iso === country.iso} onClick={() => chooseCountry(country.name)}>
                 <span className="block truncate text-[11px] text-text">{country.name}</span>
                 <span className="text-[9px] text-text-faint">{country.iso} · {activity ? `${activity.eventCount} ${locale === "fr" ? "événements" : "events"}` : locale === "fr" ? "Aucun événement dans la sélection" : "No events in current selection"}</span>
               </button>
@@ -307,7 +302,7 @@ export function GlobalSituationPanel() {
           );
         }) : <p className="px-3 py-2 text-[10px] text-text-faint">{locale === "fr" ? "Aucun pays correspondant." : "No matching countries."}</p>}
       </div>
-      {chosenCountry && <><div className="flex justify-end px-3 py-1"><button type="button" className="chip" onClick={() => setChosenCountry(null)}>{locale === "fr" ? "Fermer la fiche" : "Close profile"}</button></div><CountryProfile country={chosenCountry} iso={countries.find((country) => country.name === chosenCountry)?.iso ?? ""} locale={locale} /></>}
+      {countrySelection?.source === "explorer" && <><div className="flex justify-end px-3 py-1"><button type="button" className="chip" onClick={() => setCountry(null)}>{locale === "fr" ? "Fermer la fiche" : "Close profile"}</button></div><CountryProfile country={countrySelection.name} iso={countrySelection.iso} locale={locale} /></>}
 
       <div className="hairline mx-3" />
       <div className="flex items-center justify-between px-3 py-2">

@@ -6,8 +6,15 @@ import {
   type Confidence,
   type EventFilters,
   type EventType,
+  type SourceDataset,
+  type ThermalMode,
   type TimeRangeKey,
 } from "@/types/conflict";
+
+export function resolveDatasets(requested: readonly string[]): SourceDataset[] {
+  const known = requested.filter((dataset) => (REAL_DATASETS as readonly string[]).includes(dataset));
+  return known.length ? [...new Set(known)] : [...REAL_DATASETS];
+}
 
 /** Lecture / validation des filtres transmis par l'interface. */
 export function filtersFromSearchParams(params: URLSearchParams): EventFilters {
@@ -25,13 +32,16 @@ export function filtersFromSearchParams(params: URLSearchParams): EventFilters {
   return {
     range: validRange,
     types: list("types").filter((t): t is EventType => (EVENT_TYPES as readonly string[]).includes(t)),
-    datasets: params.has("datasets") ? list("datasets") : [...REAL_DATASETS],
+    datasets: resolveDatasets(list("datasets")),
     confidences: list("confidences").filter((c): c is Confidence =>
       (CONFIDENCE_LEVELS as readonly string[]).includes(c),
     ),
     countries: list("countries"),
     minFatalities: Math.max(0, Number(params.get("minFatalities") ?? 0) || 0),
     at: atDate && !Number.isNaN(atDate.getTime()) ? atDate.toISOString() : null,
+    ...(params.get("thermal") === "all" || params.get("thermal") === "near-conflict"
+      ? { thermal: params.get("thermal") as ThermalMode }
+      : {}),
   };
 }
 

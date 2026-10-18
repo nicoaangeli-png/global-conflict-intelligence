@@ -1,3 +1,5 @@
+import { normalizeCountryName, resolveCountryIdentity } from "@/lib/geo/country";
+
 export interface CountryGeopolitics {
   country: string;
   iso: string;
@@ -616,7 +618,7 @@ export const GEOPOLITICS_DATABASE: Record<string, CountryGeopolitics> = Object.f
 );
 
 export function normalizeCountry(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  return normalizeCountryName(value);
 }
 
 const COUNTRY_ALIASES: Record<string, string> = {
@@ -628,11 +630,36 @@ const COUNTRY_ALIASES: Record<string, string> = {
 export function getCountryGeopolitics(nameOrIso?: string): CountryGeopolitics {
   const clean = nameOrIso?.trim() || "N/A";
   const normalized = normalizeCountry(clean);
-  const alias = COUNTRY_ALIASES[normalized];
+  const identity = resolveCountryIdentity(clean);
+  const alias = Object.entries(COUNTRY_ALIASES).find(([key]) => normalizeCountry(key) === normalized)?.[1];
   const entry = (alias ? GEOPOLITICS_DATABASE[alias] : undefined) ?? Object.entries(GEOPOLITICS_DATABASE).find(
-    ([name, profile]) => [name, profile.country, profile.iso].some((value) => normalizeCountry(value) === normalized),
+    ([name, profile]) => profile.iso === identity?.iso3 || [name, profile.country, profile.iso].some((value) => normalizeCountry(value) === normalized),
   )?.[1];
-  return entry ?? getGenericFallback(clean, "N/A");
+  return entry ? hideUnverifiedAssertions(entry) : getGenericFallback(identity?.name ?? clean, identity?.iso3 ?? "N/A");
+}
+
+/** Keep the legacy snapshot in GEOPOLITICS_DATABASE, but never expose its unsourced claims as facts. */
+function hideUnverifiedAssertions(profile: CountryGeopolitics): CountryGeopolitics {
+  return {
+    ...profile,
+    demographics: { population: "N/A", populationNumeric: null, density: "N/A", capital: "N/A" },
+    military: {
+      activeArmedForces: "N/A", reservePersonnel: "N/A", defenseBudget: "N/A",
+      nuclearStatusFr: "Inconnu", nuclearStatusEn: "Unknown", defensePacts: [],
+      pentagonAlertFr: "Donnée historique non vérifiée",
+      pentagonAlertEn: "Unverified historical data",
+    },
+    regime: { type: "unknown", labelFr: "Non vérifié", labelEn: "Unverified", leader: "N/A", freedomScore: "N/A" },
+    economy: {
+      gdpNominal: "N/A", inflation: "N/A", strategicResourcesFr: [], strategicResourcesEn: [],
+      sanctionsFr: "Inconnu", sanctionsEn: "Unknown", alliances: [],
+    },
+    geopolitics: {
+      summaryFr: "Assertions historiques conservées dans les données, mais non sourcées et non datées; elles ne sont pas présentées comme des faits.",
+      summaryEn: "Historical claims are retained in the data, but are unsourced and undated; they are not presented as facts.",
+      driversFr: [], driversEn: [],
+    },
+  };
 }
 
 function getGenericFallback(country: string, iso: string): CountryGeopolitics {

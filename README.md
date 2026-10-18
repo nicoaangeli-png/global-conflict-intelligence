@@ -36,9 +36,16 @@ variable `NEXT_PUBLIC_*`, un commit ou un message de chat.
 - **GDELT** : mentions de presse géolocalisées, pas des incidents confirmés.
   Aucun nombre de morts n'est déduit d'une mention. Les requêtes ont une
   couverture limitée : ce n'est pas un inventaire exhaustif de tous les conflits.
-- **Démo** : `data/demo-seed.json`, toujours `demo:seed` / `DEMO`, exclue de la
-  sélection initiale. Le mode Démo permet de tester le globe sans accès externe.
-  Les catégories et pays ne sont pas mélangés dans une même cellule agrégée.
+- **Données réelles uniquement** : aucun amorçage ni repli sur la démonstration.
+  Les écritures locales et PostgreSQL refusent les enregistrements de démonstration
+  et les sources non reconnues. Une source réelle ne garantit pas que chaque fait
+  rapporté soit vérifié : provenance, date et niveau de confiance restent nécessaires.
+  L'ancien fichier `data/demo-seed.json` est conservé comme archive, non chargé.
+  Pour assainir un ancien stockage local, vérifier d'abord le rapport de
+  `node scripts/quarantine-demo.cjs --store data/intel-events.json`, puis ajouter
+  `--apply` : verrou exclusif, sauvegarde intégrale vérifiée et remplacement atomique.
+  La sauvegarde `.before-real-only-*.bak` est hors du stockage actif, ignorée par Git.
+  Ce script ne migre pas PostgreSQL ; vérifier son contenu séparément avant déploiement.
 - **Banque mondiale** : population et PIB nominal annuels, avec année et lien
   officiel par indicateur. API sans clé ; cache serveur 24 h pour les succès,
   60 s pour les indisponibilités. Une panne affiche N/A, jamais une valeur inventée.

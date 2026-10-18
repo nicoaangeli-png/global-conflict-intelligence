@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   ingestGate.running = true;
   ingestGate.nextAt = Date.now() + 60_000;
   try {
-    const result = await runIngest({ days, includeDemo: false });
+    const result = await runIngest({ days });
     return NextResponse.json(result, { headers });
   } catch {
     return NextResponse.json({ error: "Ingestion unavailable" }, { status: 503, headers });

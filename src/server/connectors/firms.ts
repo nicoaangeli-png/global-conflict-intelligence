@@ -13,7 +13,11 @@ import { parseCsv } from "./csvImport";
  * Chaque détection est une anomalie thermique repérée par satellite. Ce n'est
  * ni un combat ni une frappe : feux de végétation, torchères et sites
  * industriels y figurent aussi. Le type « Anomalie thermique » ne sert donc
- * qu'à situer une chaleur anormale, jamais à conclure à un conflit.
+ * qu'à situer une chaleur anormale, jamais à conclure à un conflit. Une
+ * détection n'observe aucune victime : `fatalities: 0` y signifie « non
+ * applicable », pas « aucun mort » (voir `fatalitiesApplicable` côté intel).
+ * La couche est indépendante de GDELT/UCDP ; seul l'affichage « près d'un
+ * conflit » (intel.ts) la conditionne, et il est désactivable (`thermal=all`).
  *
  * Clé gratuite (MAP_KEY) envoyée par email : https://firms.modaps.eosdis.nasa.gov/api/map_key/
  * Pour limiter le volume, seules les détections « haute confiance » et de
@@ -62,7 +66,9 @@ export const firmsConnector: Connector = {
     const world = await loadWorldIndex().catch(() => null);
     const events: ConflictEvent[] = [];
     for (const row of parseCsv(await res.text()) as FirmsRow[]) {
-      if (row.confidence !== "h" || Number(row.frp) < MIN_FRP_MW) continue;
+      const frp = Number(row.frp);
+      // FRP absent ou illisible : NaN < seuil est faux, la ligne passait le filtre.
+      if (row.confidence !== "h" || !row.frp?.trim() || !Number.isFinite(frp) || frp < MIN_FRP_MW) continue;
       if (!validCoordinates(row.latitude, row.longitude)) continue;
       const time = (row.acq_time ?? "0000").padStart(4, "0");
       const date = providerDate(`${row.acq_date} ${time.slice(0, 2)}:${time.slice(2, 4)}:00`);
@@ -76,12 +82,12 @@ export const firmsConnector: Connector = {
         longitude: lon,
         country: country?.name ?? "",
         region: country?.continent ?? "",
-        locality: `FRP ${Number(row.frp).toFixed(1)} MW`,
+        locality: `Détection thermique · FRP ${frp.toFixed(1)} MW`,
         eventType: "Thermal anomaly",
         subEventType: row.daynight === "D" ? "Diurne" : "Nocturne",
         actors: [],
         fatalities: 0,
-        source: "NASA FIRMS · VIIRS SNPP",
+        source: "NASA FIRMS · VIIRS SNPP · détection thermique satellitaire (cause non établie)",
         sourceUrl: "https://firms.modaps.eosdis.nasa.gov/map/",
         sourceDataset: "firms",
         confidence: "REPORTED",

@@ -45,6 +45,34 @@ export type SourceDataset = (typeof SOURCE_DATASETS)[number] | (string & {});
  */
 export const REAL_DATASETS = ["acled", "gdelt", "ucdp", "firms", "import:csv"] as const;
 
+/**
+ * Nature d'un enregistrement selon sa source. Les compteurs d'« événements »
+ * ne sont PAS une même unité d'une source à l'autre : une ligne GDELT est une
+ * mention (article × lieu), une ligne FIRMS une détection thermique, une ligne
+ * ACLED/UCDP un incident codé par la source.
+ */
+export type RecordUnit =
+  | "incident_record"
+  | "media_mention"
+  | "thermal_detection"
+  | "operator_import_record"
+  | "fictional_record";
+
+export type DateBasis = "event" | "publication" | "detection" | "declared_by_file" | "fictional";
+
+export interface SourceProfile {
+  dataset: string;
+  provenance: "structured_dataset" | "media_monitoring" | "satellite_observation" | "operator_import" | "demonstration";
+  unit: RecordUnit;
+  /** Ce que signifie `eventDate` pour cette source. */
+  dateBasis: DateBasis;
+  /**
+   * La source mesure-t-elle des pertes humaines ? Si false, `fatalities: 0`
+   * signifie « non applicable », jamais « aucune victime ».
+   */
+  fatalitiesApplicable: boolean;
+}
+
 /** Événement normalisé, unité de base de l'application. */
 export interface ConflictEvent {
   id: string;
@@ -121,6 +149,33 @@ export interface DailyBucket {
   fatalities: number;
 }
 
+/** Compteurs de période, deux contrats distincts (unité : enregistrements, pas incidents distincts). */
+export interface PeriodCounts {
+  /** Borne haute commune des fenêtres glissantes (curseur `at` ou maintenant), ISO 8601. */
+  reference: string;
+  unit: "records";
+  /**
+   * INTERSECTION : enregistrements de la plage sélectionnée ET de la fenêtre
+   * glissante. Mêmes valeurs que `events24h/7d/30d` historiques. Sur une plage
+   * 24 h, 7 j et 30 j valent donc 24 h : ce n'est pas un total absolu.
+   */
+  withinSelection: { events24h: number; events7d: number; events30d: number };
+  /**
+   * ABSOLU : mêmes filtres (types, sources, confiance, pays, minimum de morts)
+   * mais indépendant de la plage choisie. Seul contrat comparable entre plages.
+   */
+  absolute: { events24h: number; events7d: number; events30d: number };
+}
+
+export interface SourceAvailability extends SourceProfile {
+  /** Enregistrements stockés pour la source, toutes périodes. */
+  recordsInStore: number;
+  /** Enregistrements de la sélection courante. */
+  recordsInSelection: number;
+  /** Date d'événement la plus récente disponible dans le stockage (null si aucune). */
+  latestEventAt: string | null;
+}
+
 export interface StatsResponse {
   coverage?: { documented: number; media: number; demo: number; thermal: number };
   generatedAt: string;
@@ -140,6 +195,33 @@ export interface StatsResponse {
   connectors: ConnectorStatus[];
   daily: DailyBucket[];
   ingestReport?: string | null;
+  /** Additif : compteurs de période au contrat explicite. */
+  periodCounts?: PeriodCounts;
+  /** Additif : provenance, unité et dernière date disponible par source. */
+  sources?: SourceAvailability[];
+  /** Additif : dates distinctes, null lorsque l'information n'existe pas. */
+  freshness?: {
+    lastIngestAt: string | null;
+    lastStoreUpdateAt: string | null;
+    latestEventAt: string | null;
+  };
+  /** Additif : le stock total mélange-t-il données réelles et démonstration ? */
+  storeBreakdown?: { real: number; demo: number };
+  /**
+   * Additif : `fatalitiesRange` ne somme que les sources qui mesurent des morts.
+   * `notApplicableRecords` = enregistrements dont `fatalities: 0` est sans objet.
+   */
+  fatalities?: { applicableRecords: number; notApplicableRecords: number };
+  /** Additif : état du filtre de proximité de la couche thermique. */
+  thermal?: ThermalSelection;
+}
+
+export interface ThermalSelection {
+  mode: ThermalMode;
+  /** Détections de la sélection avant filtre de proximité. */
+  detected: number;
+  /** Détections affichées après filtre. */
+  shown: number;
 }
 
 export interface ConnectorStatus {
@@ -161,6 +243,13 @@ export const TIME_RANGES: { key: TimeRangeKey; label: string; days: number }[] =
   { key: "1y", label: "1 AN", days: 365 },
 ];
 
+/**
+ * `near-conflict` (défaut historique) : une détection thermique n'est montrée
+ * que près d'un enregistrement de conflit. `all` : toutes les détections, sans
+ * hypothèse de lien avec un conflit.
+ */
+export type ThermalMode = "near-conflict" | "all";
+
 export interface EventFilters {
   range: TimeRangeKey;
   types: EventType[];
@@ -174,4 +263,6 @@ export interface EventFilters {
    * reconstruit la situation telle qu'elle était à l'instant choisi.
    */
   at: string | null;
+  /** Additif et optionnel : absent = comportement historique (`near-conflict`, sauf sélection thermique seule). */
+  thermal?: ThermalMode;
 }

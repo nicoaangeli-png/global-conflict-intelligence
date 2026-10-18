@@ -7,6 +7,7 @@ import { getCountryGeopolitics } from "@/data/geopolitics";
 import { t } from "@/lib/i18n";
 import { CountryProfileStatus } from "./CountryProfile";
 import { CountryIndicators } from "./CountryIndicators";
+import { countryNamesMatchWhenIsoUnknown, resolveCountryIdentity } from "@/lib/geo/country";
 
 /**
  * Surcouches HUD : équerres de cadre, réticule de survol, fiche pays géopolitique,
@@ -156,7 +157,7 @@ export function HoverCountryBadge() {
 
   if (!hoveredCountry || country) return null;
 
-  const geo = getCountryGeopolitics(hoveredCountry.name);
+  const geo = getCountryGeopolitics(hoveredCountry.iso || hoveredCountry.name);
 
   return (
     <div className="pointer-events-none fixed right-[330px] top-[74px] z-10 flex items-center gap-3 border border-cyan/30 bg-[#020b14]/90 px-3 py-1.5 backdrop-blur-md shadow-[0_0_20px_rgba(0,180,255,0.12)]">
@@ -172,11 +173,6 @@ export function HoverCountryBadge() {
           {coords(hoveredCountry.lat, hoveredCountry.lon)}
         </span>
       </div>
-      <div className="h-3 w-[1px] bg-cyan/20" />
-      <div className="text-[9px] font-mono text-alert-soft">
-        👥 {geo.demographics.population}
-      </div>
-      <div className="h-3 w-[1px] bg-cyan/20" />
       <span className="text-[8px] uppercase tracking-wider text-cyan/70 font-mono">
         {locale === 'fr' ? 'Clic → Fiche pays' : 'Click → Country profile'}
       </span>
@@ -193,11 +189,16 @@ export function CountryCard() {
   const setReconTarget = useIntelStore((s) => s.setReconTarget);
   const locale = useIntelStore((s) => s.locale);
 
-  if (!country) return null;
+  if (!country || country.source === "explorer") return null;
 
   const dict = t(locale);
-  const geo = getCountryGeopolitics(country.name);
-  const local = clusters.filter((c) => c.country === country.name);
+  const geo = getCountryGeopolitics(country.iso || country.name);
+  const iso = resolveCountryIdentity(country.iso || country.name)?.iso3;
+  const local = clusters.filter((c) => {
+    const clusterIso = resolveCountryIdentity(c.country)?.iso3;
+    if (iso && clusterIso) return clusterIso === iso;
+    return countryNamesMatchWhenIsoUnknown(country.name, c.country);
+  });
   const events = local.reduce((a, c) => a + c.eventCount, 0);
   const fatalities = local.reduce((a, c) => a + c.fatalities, 0);
   const best = local.slice().sort((a, b) => b.intensity - a.intensity)[0];
@@ -220,54 +221,12 @@ export function CountryCard() {
       <CountryProfileStatus country={country.name} locale={locale} />
       <CountryIndicators iso={country.iso || geo.iso} locale={locale} />
 
-      {/* Régime politique & Démographie / Population */}
-      <div className="mt-2.5 border border-cyan/20 bg-cyan/5 p-2 space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[8px] uppercase tracking-wider text-cyan">{dict.countryCard.regime}</span>
-          <span className="text-[9px] font-mono font-semibold text-alert-soft">
-            👥 {geo.demographics.population}
-          </span>
-        </div>
-        <div className="text-[10px] font-mono font-medium text-ice leading-tight">
-          {locale === "fr" ? geo.regime.labelFr : geo.regime.labelEn}
-        </div>
-        <div className="flex items-baseline justify-between text-[8px] text-text-faint">
-          <span>{dict.geopolitics.headOfState} :</span>
-          <span className="text-text truncate max-w-[170px]">{geo.regime.leader}</span>
-        </div>
-      </div>
-
-      {/* Renseignement Militaire Pentagone */}
-      <div className="mt-2 border border-alert-soft/20 bg-alert-soft/5 p-2 space-y-1">
-        <div className="text-[8px] uppercase tracking-wider text-alert-soft flex items-center justify-between">
-          <span>{locale === 'fr' ? 'Contexte militaire · fiche statique' : 'Military context · static profile'}</span>
-          <span className="text-[8px] font-mono text-cyan">{geo.military.defenseBudget}</span>
-        </div>
-        <div className="flex items-center justify-between text-[9px] font-mono">
-          <span className="text-text-faint">{locale === 'fr' ? 'Forces armées :' : 'Armed Forces:'}</span>
-          <span className="text-ice">{geo.military.activeArmedForces}</span>
-        </div>
-        <div className="flex items-center justify-between text-[9px] font-mono">
-          <span className="text-text-faint">{locale === 'fr' ? 'Dissuasion :' : 'Deterrence:'}</span>
-          <span className="text-alert-soft text-[8px] truncate max-w-[180px]">
-            {locale === 'fr' ? geo.military.nuclearStatusFr : geo.military.nuclearStatusEn}
-          </span>
-        </div>
-        <div className="text-[8px] font-mono text-cyan-dim border-t border-cyan/10 pt-1">
-          {locale === 'fr' ? geo.military.pentagonAlertFr : geo.military.pentagonAlertEn}
-        </div>
-      </div>
-
-      {/* Indicateurs économiques */}
-      <div className="mt-2 grid grid-cols-2 gap-2 text-[9px] border-b border-[rgba(127,212,255,0.1)] pb-2">
-        <div>
-          <span className="label block text-[8px]">{dict.geopolitics.gdp}</span>
-          <span className="readout text-[10px] text-ice">{geo.economy.gdpNominal}</span>
-        </div>
-        <div>
-          <span className="label block text-[8px]">{dict.geopolitics.inflation}</span>
-          <span className="readout text-[10px] text-alert-soft">{geo.economy.inflation}</span>
-        </div>
+      <div className="mt-2.5 border border-cyan/20 bg-cyan/5 p-2">
+        <p className="text-[9px] leading-relaxed text-text-dim">
+          {locale === "fr"
+            ? "Les anciennes assertions statiques sur la population, les dirigeants, le régime et l’économie ne sont pas datées ni sourcées : elles sont masquées. Les indicateurs ci-dessus affichent leur source et leur année lorsqu’elles sont disponibles."
+            : "Legacy static claims about population, leaders, regime and the economy are undated and unsourced, so they are hidden. Indicators above show their source and year when available."}
+        </p>
       </div>
 
       {/* Métriques de conflit */}

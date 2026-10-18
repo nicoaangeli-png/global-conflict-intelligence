@@ -1,12 +1,25 @@
 import { aggregateClusters, dedupe } from "@/lib/clustering/cluster";
-import { TIME_RANGES, type ConnectorStatus, type DailyBucket, type EventFilters, type TimeRangeKey } from "@/types/conflict";
+import {
+  REAL_DATASETS,
+  TIME_RANGES,
+  type ConflictEvent,
+  type ConnectorStatus,
+  type DailyBucket,
+  type EventFilters,
+  type PeriodCounts,
+  type SourceAvailability,
+  type SourceProfile,
+  type ThermalMode,
+  type ThermalSelection,
+  type TimeRangeKey,
+} from "@/types/conflict";
 import { acledConnector } from "./connectors/acled";
 import { csvConnector } from "./connectors/csvImport";
 import { gdeltConnector } from "./connectors/gdelt";
 import { type Connector } from "./connectors/types";
 import { ucdpConnector } from "./connectors/ucdp";
 import { firmsConnector } from "./connectors/firms";
-import { loadDemoSeed } from "./dataset";
+import { isRealSourceRecord } from "./dataPolicy";
 import { LocalRepository, PgRepository, type Repository } from "./repository";
 import { ConnectorError } from "./connectors/types";
 
@@ -24,7 +37,6 @@ interface IntelState {
   repository: Repository;
   ready: Promise<void> | null;
   lastIngestAt: string | null;
-  lastDemoAt: string | null;
   /** Dernière ingestion ayant ramené des données de source réelle. */
   lastRealIngestAt: number | null;
   statuses: ConnectorStatus[];
@@ -46,7 +58,6 @@ const state: IntelState =
     repository: pickRepository(),
     ready: null,
     lastIngestAt: null,
-    lastDemoAt: null,
     lastRealIngestAt: null,
     statuses: [],
     ingestReport: "aucune ingestion lancée",
@@ -77,7 +88,6 @@ function broadcast(type: string, data: Record<string, unknown>) {
   }
 }
 
-/** Initialise le dépôt et charge le jeu de démonstration si la base est vide. */
 export async function ensureReady(): Promise<void> {
   if (state.ready) return state.ready;
   state.ready = (async () => {
@@ -90,14 +100,6 @@ export async function ensureReady(): Promise<void> {
       await state.repository.init();
     }
 
-    const counts = await state.repository.counts();
-    if (counts.total === 0) {
-      const { events, generatedAt } = await loadDemoSeed();
-      await state.repository.upsert(events);
-      state.lastDemoAt = generatedAt;
-      state.ingestReport = `jeu de démonstration chargé (${events.length} événements)`;
-      state.lastIngestAt = new Date().toISOString();
-    }
     await refreshStatuses();
     startAutoRefresh();
   })().catch((error) => {
@@ -183,14 +185,6 @@ async function refreshStatuses() {
       note: csvConnector.describe(),
       events: counts.byDataset["import:csv"] ?? 0,
     },
-    {
-      id: "demo",
-      label: "Jeu de démonstration",
-      configured: true,
-      reachable: true,
-      note: "Données de démonstration non sourcées — jamais présentées comme un renseignement réel.",
-      events: counts.byDataset["demo:seed"] ?? 0,
-    },
   ];
   for (const status of state.statuses) {
     const prior = previous.find((entry) => entry.id === status.id);
@@ -202,7 +196,7 @@ async function refreshStatuses() {
 }
 
 /** Lance une ingestion complète. */
-export async function runIngest(options: { days?: number; includeDemo?: boolean } = {}) {
+export async function runIngest(options: { days?: number } = {}) {
   const globalIngest = globalThis as unknown as { __orbitalIngest?: Promise<unknown> };
   if (globalIngest.__orbitalIngest) throw new Error("Ingestion already running");
   const pending = ingest(options);
@@ -214,7 +208,7 @@ export async function runIngest(options: { days?: number; includeDemo?: boolean 
   }
 }
 
-async function ingest(options: { days?: number; includeDemo?: boolean }) {
+async function ingest(options: { days?: number }) {
   await ensureReady();
   const days = Math.min(365, Math.max(1, Math.trunc(options.days ?? 30)));
   if (!Number.isFinite(days)) throw new Error("Invalid ingestion window");
@@ -230,7 +224,8 @@ async function ingest(options: { days?: number; includeDemo?: boolean }) {
     try {
       const events = await connector.fetchEvents({ days });
       collected.push(...events);
-      notes.push(`${connector.label} : ${events.length} événements`);
+      const detail = connector.lastReport?.();
+      notes.push(`${connector.label} : ${events.length} événements${detail ? ` (${detail})` : ""}`);
       const st = state.statuses.find((s) => s.id === (connector.id === "csv" ? "import" : connector.id));
       if (st) {
         st.reachable = true;
@@ -252,19 +247,8 @@ async function ingest(options: { days?: number; includeDemo?: boolean }) {
   let upserted = { inserted: 0, updated: 0 };
   if (kept.length) upserted = await state.repository.upsert(kept);
 
-  // Toujours garder l'application démontrable : si aucune source réelle n'a
-  // répondu, on conserve le jeu de démonstration (clairement étiqueté).
-  if (!kept.length && options.includeDemo !== false) {
-    const counts = await state.repository.counts();
-    if (!counts.total) {
-      const { events } = await loadDemoSeed();
-      await state.repository.upsert(events);
-      state.lastDemoAt = new Date().toISOString();
-      notes.push(`démo : ${events.length} événements (aucune source réelle disponible)`);
-    }
-  }
-
   delete zoneRef.__orbitalConflictZones;
+  delete profileRef.__orbitalSourceStats;
   state.lastIngestAt = new Date().toISOString();
   if (collected.some((e) => !e.sourceDataset.startsWith("demo"))) state.lastRealIngestAt = Date.now();
   state.ingestReport = notes.join(" · ") || "aucun événement";
@@ -323,20 +307,82 @@ function nearConflict(cells: Set<string>, lat: number, lon: number): boolean {
   return false;
 }
 
+/**
+ * Nature des enregistrements par source. Table statique : elle décrit ce que
+ * mesure chaque source, pas son contenu. Les sources inconnues sont traitées
+ * comme des imports opérateur (aucune hypothèse de létalité).
+ */
+const SOURCE_PROFILES: Record<string, SourceProfile> = {
+  acled: { dataset: "acled", provenance: "structured_dataset", unit: "incident_record", dateBasis: "event", fatalitiesApplicable: true },
+  ucdp: { dataset: "ucdp", provenance: "structured_dataset", unit: "incident_record", dateBasis: "event", fatalitiesApplicable: true },
+  gdelt: { dataset: "gdelt", provenance: "media_monitoring", unit: "media_mention", dateBasis: "publication", fatalitiesApplicable: false },
+  firms: { dataset: "firms", provenance: "satellite_observation", unit: "thermal_detection", dateBasis: "detection", fatalitiesApplicable: false },
+  "import:csv": { dataset: "import:csv", provenance: "operator_import", unit: "operator_import_record", dateBasis: "declared_by_file", fatalitiesApplicable: true },
+  "demo:seed": { dataset: "demo:seed", provenance: "demonstration", unit: "fictional_record", dateBasis: "fictional", fatalitiesApplicable: true },
+};
+
+function profileOf(dataset: string): SourceProfile {
+  return SOURCE_PROFILES[dataset] ?? { ...SOURCE_PROFILES["import:csv"], dataset };
+}
+
+const isDemoEvent = (e: { sourceDataset: string; confidence: string }) =>
+  e.sourceDataset.startsWith("demo") || e.confidence === "DEMO";
+
+/** Statistiques de stockage par source (date la plus récente), mises en cache jusqu'à la prochaine ingestion. */
+const profileRef = globalThis as unknown as {
+  __orbitalSourceStats?: { at: number; latest: Record<string, string> };
+};
+
+async function latestBySource(): Promise<Record<string, string>> {
+  const cached = profileRef.__orbitalSourceStats;
+  if (cached && Date.now() - cached.at < ZONE_TTL_MS) return cached.latest;
+  const now = Date.now();
+  // Large borne basse : une source en retard (UCDP) doit rester visible.
+  const events = await state.repository.query({ from: new Date(0), to: new Date(now) });
+  const latest: Record<string, string> = {};
+  for (const e of events) if (!latest[e.sourceDataset] || e.eventDate > latest[e.sourceDataset]) latest[e.sourceDataset] = e.eventDate;
+  profileRef.__orbitalSourceStats = { at: now, latest };
+  return latest;
+}
+
+function requestedDatasets(filters: EventFilters): string[] {
+  const allowed = filters.datasets.filter((dataset) => (REAL_DATASETS as readonly string[]).includes(dataset));
+  return allowed.length ? allowed : [...REAL_DATASETS];
+}
+
+/** Mode thermique effectif : explicite, sinon `all` si la sélection est purement thermique. */
+function thermalMode(filters: EventFilters): ThermalMode {
+  if (filters.thermal) return filters.thermal;
+  const onlyThermalType = filters.types.length > 0 && filters.types.every((t) => t === "Thermal anomaly");
+  const onlyFirms = filters.datasets.length > 0 && filters.datasets.every((d) => d === "firms");
+  return onlyThermalType || onlyFirms ? "all" : "near-conflict";
+}
+
 /** Lecture commune à la carte, aux indicateurs et aux listes : mêmes filtres partout. */
-async function selectEvents(filters: EventFilters, from: Date, to: Date) {
-  const events = await state.repository.query({
+async function selectEventsDetailed(filters: EventFilters, from: Date, to: Date) {
+  const storedEvents = await state.repository.query({
     from,
     to,
     types: filters.types.length ? filters.types : undefined,
-    datasets: filters.datasets.length ? filters.datasets : undefined,
+    datasets: requestedDatasets(filters),
     confidences: filters.confidences.length ? filters.confidences : undefined,
     countries: filters.countries.length ? filters.countries : undefined,
     minFatalities: filters.minFatalities || undefined,
   });
-  if (!events.some((event) => event.eventType === "Thermal anomaly")) return events;
+  const events = storedEvents.filter(isRealSourceRecord);
+  const mode = thermalMode(filters);
+  const detected = events.filter((event) => event.eventType === "Thermal anomaly").length;
+  if (!detected || mode === "all") {
+    const thermal: ThermalSelection = { mode, detected, shown: detected };
+    return { events, thermal };
+  }
   const cells = await conflictZones();
-  return events.filter((event) => event.eventType !== "Thermal anomaly" || nearConflict(cells, event.latitude, event.longitude));
+  const kept = events.filter((event) => event.eventType !== "Thermal anomaly" || nearConflict(cells, event.latitude, event.longitude));
+  return { events: kept, thermal: { mode, detected, shown: kept.filter((e) => e.eventType === "Thermal anomaly").length } };
+}
+
+async function selectEvents(filters: EventFilters, from: Date, to: Date) {
+  return (await selectEventsDetailed(filters, from, to)).events;
 }
 
 function bounds(range: TimeRangeKey, now = Date.now(), at?: string | null) {
@@ -349,10 +395,10 @@ function bounds(range: TimeRangeKey, now = Date.now(), at?: string | null) {
 export async function queryClusters(filters: EventFilters, degrees: number) {
   await ensureReady();
   const { from, to } = bounds(filters.range, Date.now(), filters.at);
-  const events = await selectEvents(filters, from, to);
+  const { events, thermal } = await selectEventsDetailed(filters, from, to);
 
   const clusters = aggregateClusters(events, { degrees, now: Date.now() });
-  const totalFatalities = events.reduce((a, e) => a + e.fatalities, 0);
+  const totalFatalities = events.reduce((a, e) => a + (profileOf(e.sourceDataset).fatalitiesApplicable ? e.fatalities : 0), 0);
   const daily = dailyBuckets(events, filters.range, to);
 
   return {
@@ -364,6 +410,7 @@ export async function queryClusters(filters: EventFilters, degrees: number) {
     totalEvents: events.length,
     coverage: coverage(events),
     totalFatalities,
+    thermal,
     clusters,
     daily,
   };
@@ -377,7 +424,7 @@ function distinctDatasets(events: { sourceDataset: string }[]): string {
 }
 
 function coverage(events: { sourceDataset: string; confidence: string; eventType: string }[]) {
-  const demo = events.filter((event) => event.sourceDataset.startsWith("demo") || event.confidence === "DEMO").length;
+  const demo = events.filter(isDemoEvent).length;
   const media = events.filter((event) => !event.sourceDataset.startsWith("demo") && event.confidence !== "DEMO" && event.eventType !== "Thermal anomaly" && (event.confidence === "MEDIA_SIGNAL" || event.sourceDataset === "gdelt")).length;
   const thermal = events.filter((event) => event.eventType === "Thermal anomaly").length;
   return { documented: events.length - demo - media - thermal, media, demo, thermal };
@@ -425,37 +472,82 @@ export async function queryStats(filters: EventFilters, degrees = 2.4) {
   const { from, to } = bounds(filters.range, now, filters.at);
   // Les indicateurs décrivent EXACTEMENT la même sélection que la carte :
   // mêmes bornes, mêmes filtres de type, de source et de confiance.
-  const events = await selectEvents(filters, from, to);
+  const { events, thermal } = await selectEventsDetailed(filters, from, to);
   const counts = await state.repository.counts();
 
   const ref = to.getTime();
   const since = (h: number) => ref - h * 3600e3;
-  const events24h = events.filter((e) => Date.parse(e.eventDate) >= since(24)).length;
-  const events7d = events.filter((e) => Date.parse(e.eventDate) >= since(24 * 7)).length;
-  const events30d = events.filter((e) => Date.parse(e.eventDate) >= since(24 * 30)).length;
+  const countSince = (list: { eventDate: string }[], h: number) => list.filter((e) => Date.parse(e.eventDate) >= since(h)).length;
+  const withinSelection = {
+    events24h: countSince(events, 24),
+    events7d: countSince(events, 24 * 7),
+    events30d: countSince(events, 24 * 30),
+  };
+
+  // Compteurs absolus : mêmes filtres, plage indépendante (30 j glissants
+  // jusqu'à la même borne haute). Réutilise la sélection si elle couvre déjà 30 j.
+  const days = TIME_RANGES.find((r) => r.key === filters.range)?.days ?? 30;
+  const absoluteEvents =
+    days >= 30 ? events : (await selectEventsDetailed(filters, new Date(since(24 * 30)), to)).events;
+  const periodCounts: PeriodCounts = {
+    reference: to.toISOString(),
+    unit: "records",
+    withinSelection,
+    absolute: {
+      events24h: countSince(absoluteEvents, 24),
+      events7d: countSince(absoluteEvents, 24 * 7),
+      events30d: countSince(absoluteEvents, 24 * 30),
+    },
+  };
 
   // Même granularité que la carte : les indicateurs et les foyers affichés
   // décrivent exactement la même agrégation.
   const clusters = aggregateClusters(events, { degrees, now });
   const major = clusters.filter((c) => c.intensity >= 0.5).length;
 
+  const latest = await latestBySource();
+  const inSelection: Record<string, number> = {};
+  for (const e of events) inSelection[e.sourceDataset] = (inSelection[e.sourceDataset] ?? 0) + 1;
+  const sources: SourceAvailability[] = Object.keys({ ...counts.byDataset, ...inSelection })
+    .sort()
+    .map((dataset) => ({
+      ...profileOf(dataset),
+      recordsInStore: counts.byDataset[dataset] ?? 0,
+      recordsInSelection: inSelection[dataset] ?? 0,
+      latestEventAt: latest[dataset] ?? null,
+    }));
+  const applicable = events.filter((e) => profileOf(e.sourceDataset).fatalitiesApplicable).length;
+  const demoInStore = Object.entries(counts.byDataset).reduce((a, [d, n]) => a + (d.startsWith("demo") ? n : 0), 0);
+  const latestEventAt = Object.entries(latest).reduce<string | null>(
+    (max, [d, at]) => (d.startsWith("demo") || (max && max >= at) ? max : at),
+    null,
+  );
+
   return {
     generatedAt: new Date().toISOString(),
     range: filters.range,
     activeZones: clusters.length,
     majorZones: major,
-    events24h,
-    events7d,
-    events30d,
-    fatalitiesRange: events.reduce((a, e) => a + e.fatalities, 0),
-    lastDataUpdate: counts.lastUpdated ?? new Date().toISOString(),
-    lastIngestAt: state.lastIngestAt ?? new Date().toISOString(),
+    // Contrat historique conservé : INTERSECTION plage × fenêtre glissante.
+    // Les compteurs absolus sont dans `periodCounts.absolute`.
+    ...withinSelection,
+    fatalitiesRange: events.reduce((a, e) => a + (profileOf(e.sourceDataset).fatalitiesApplicable ? e.fatalities : 0), 0),
+    // Repli sur des dates réelles du stockage, jamais sur « maintenant » si une
+    // date connue existe. `freshness` expose les valeurs brutes (null = inconnu).
+    lastDataUpdate: counts.lastUpdated ?? state.lastIngestAt ?? new Date().toISOString(),
+    lastIngestAt: state.lastIngestAt ?? counts.lastUpdated ?? new Date().toISOString(),
     dataset: distinctDatasets(events),
     totalInStore: counts.total,
     coverage: coverage(events),
     connectors: state.statuses,
     daily: dailyBuckets(events, filters.range, to),
     ingestReport: state.ingestReport,
+    periodCounts,
+    sources,
+    freshness: { lastIngestAt: state.lastIngestAt, lastStoreUpdateAt: counts.lastUpdated, latestEventAt },
+    storeBreakdown: { real: counts.total - demoInStore, demo: demoInStore },
+    fatalities: { applicableRecords: applicable, notApplicableRecords: events.length - applicable },
+    thermal,
   };
 }
 

@@ -8,6 +8,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const filters = filtersFromSearchParams(searchParams);
   const degrees = degreesFromSearchParams(searchParams);
-  const stats = await queryStats(filters, degrees);
-  return NextResponse.json(stats, { headers: { "Cache-Control": "no-store" } });
+  try {
+    const stats = await queryStats(filters, degrees);
+    return NextResponse.json(stats, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return NextResponse.json(
+      { error: "Données temporairement indisponibles." },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 }
