@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadLayer, parseSanctions, parseSubmarineCables, parseMilitaryBases, parseNuclearPlants, resetLayersCache } from "@/server/layers";
+import { buildMilitaryBasesQuery, loadLayer, parseSanctions, parseSubmarineCables, parseMilitaryBases, parseNuclearPlants, resetLayersCache } from "@/server/layers";
 import { publicationDateFromUrl } from "@/server/layers/sanctions";
 
 const fixture = (name: string) => readFileSync(path.join(__dirname, "fixtures", "layers", name), "utf8");
@@ -20,10 +20,21 @@ describe("parseurs de calques de référence", () => {
     expect(features.map((f) => f.properties.status)).toEqual(["en service", "fermée", "en construction"]);
   });
 
-  it("écarte les bases fermées ou abandonnées sans éliminer la France", () => {
+  it("classe les bases par sitelinks, dérive leur type P31 et écarte les fermées", () => {
     const features = parseMilitaryBases(military);
-    expect(features).toHaveLength(1);
-    expect(features[0]).toMatchObject({ id: "military_bases:Q200", countries: ["FRA"], properties: { type: "base aérienne" } });
+    expect(features.map((feature) => feature.id)).toEqual(["military_bases:Q204", "military_bases:Q200", "military_bases:Q205"]);
+    expect(features.map((feature) => feature.properties.type)).toEqual(["navale", "aérienne", "terrestre"]);
+    expect(features[1]).toMatchObject({ countries: ["FRA", "USA"], properties: { operator: "Forces armées françaises", sitelinks: 40 } });
+  });
+
+  it("demande des casernes notables et une pagination ordonnée par sitelinks", () => {
+    const query = buildMilitaryBasesQuery({ qid: "Q131263", type: "terrestre", minSitelinks: 5 }, 250, 250);
+    expect(query).toContain("VALUES ?type { wd:Q131263 }");
+    expect(query).toContain("wikibase:sitelinks ?sitelinksValue");
+    expect(query).toContain("FILTER(?sitelinksValue >= 5)");
+    expect(query).toContain("ORDER BY DESC(?sitelinks)");
+    expect(query).toContain("LIMIT 250");
+    expect(query).toContain("OFFSET 250");
   });
 
   it("préserve les lignes de câbles et ne déduit pas de pays d'un tracé", () => {

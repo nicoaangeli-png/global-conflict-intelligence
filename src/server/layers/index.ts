@@ -31,7 +31,7 @@ const metadata: Record<LayerId, LayerMeta> = {
     sourceName: "Wikidata",
     homepage: "https://www.wikidata.org/",
     license: "CC0 1.0 Universal",
-    caveat: `Couverture Wikidata inégale selon les pays et ne reflétant pas les déploiements temporaires. Résultat borné aux ${MILITARY_BASE_LIMIT.toLocaleString("fr-FR")} premiers éléments de types explicitement militaires retournés après exclusion des bases fermées, détruites, abandonnées et des types civils. Les dates de fermeture restent incomplètes dans Wikidata.`,
+    caveat: `Couverture Wikidata inégale selon les pays et ne reflétant pas les déploiements temporaires. Sélection classée par nombre de liens Wikipédia (sitelinks), puis bornée aux ${MILITARY_BASE_LIMIT.toLocaleString("fr-FR")} installations issues de classes militaires explicites ; casernes et garnisons exigent au moins cinq sitelinks. Les bases fermées, détruites, abandonnées et les types civils sont exclus. Les dates de fermeture restent incomplètes dans Wikidata.`,
   },
   submarine_cables: {
     layerId: "submarine_cables",
