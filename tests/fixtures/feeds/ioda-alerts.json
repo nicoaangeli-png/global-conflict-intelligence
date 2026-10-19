@@ -1,0 +1,101 @@
+{
+  "type": "outages.alerts",
+  "metadata": {
+    "requestTime": "2026-10-19T16:46:25+00:00",
+    "responseTime": "2026-10-19T16:46:25+00:00"
+  },
+  "requestParameters": {
+    "from": "1792341972",
+    "until": "1792428372",
+    "datasource": null,
+    "limit": 500,
+    "page": null,
+    "relatedTo": null,
+    "entityType": null,
+    "entityCode": null,
+    "ignoreMethods": null,
+    "extendWindow": 0
+  },
+  "error": null,
+  "copyright": "This data is Copyright (c) 2021-2025 Georgia Tech Research Corporation. All Rights Reserved.",
+  "data": [
+    {
+      "datasource": "merit-nt",
+      "entity": {
+        "code": "2984",
+        "name": "Noord-Holland",
+        "subnames": [],
+        "type": "region",
+        "attrs": {
+          "fqid": "geo.netacuity.EU.NL.2984",
+          "country_code": "NL",
+          "country_name": "Netherlands",
+          "ne_region_id": "3486"
+        }
+      },
+      "time": 1792344240,
+      "level": "critical",
+      "condition": "< 0.25",
+      "value": 44,
+      "historyValue": 310,
+      "method": "median"
+    },
+    {
+      "datasource": "merit-nt",
+      "entity": {
+        "code": "2984",
+        "name": "Noord-Holland",
+        "subnames": [],
+        "type": "region",
+        "attrs": {
+          "fqid": "geo.netacuity.EU.NL.2984",
+          "country_code": "NL",
+          "country_name": "Netherlands",
+          "ne_region_id": "3486"
+        }
+      },
+      "time": 1792344720,
+      "level": "normal",
+      "condition": "normal",
+      "value": 295,
+      "historyValue": 310,
+      "method": "median"
+    },
+    {
+      "datasource": "bgp",
+      "entity": {
+        "code": "SV",
+        "name": "El Salvador",
+        "subnames": [],
+        "type": "country",
+        "attrs": {
+          "fqid": "geo.netacuity.NA.SV"
+        }
+      },
+      "time": 1792348200,
+      "level": "critical",
+      "condition": "< 0.99",
+      "value": 2264,
+      "historyValue": 2295,
+      "method": "median"
+    },
+    {
+      "datasource": "bgp",
+      "entity": {
+        "code": "SV",
+        "name": "El Salvador",
+        "subnames": [],
+        "type": "country",
+        "attrs": {
+          "fqid": "geo.netacuity.NA.SV"
+        }
+      },
+      "time": 1792349100,
+      "level": "normal",
+      "condition": "normal",
+      "value": 2295,
+      "historyValue": 2295,
+      "method": "median"
+    }
+  ]
+}

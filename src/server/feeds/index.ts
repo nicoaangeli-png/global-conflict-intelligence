@@ -3,12 +3,15 @@ import type { WorldIndex } from "@/lib/geo/world";
 import { disasterSources } from "./disaster";
 import { economySources } from "./economy";
 import { healthSources } from "./health";
+import { infrastructureSources } from "./infrastructure";
+import { militarySources } from "./military";
 import { nuclearSources } from "./nuclear";
 import { socialSources } from "./social";
 import { spaceSources } from "./space";
 import { unSources } from "./un";
 import { uapSources } from "./uap";
 import { runSource, type FeedSourceDef } from "./util";
+import { weatherSources } from "./weather";
 
 /**
  * Registre des sources de flux mondiaux.
@@ -25,6 +28,9 @@ export const FEED_SOURCES: FeedSourceDef[] = [
   ...unSources,
   ...uapSources,
   ...economySources,
+  ...militarySources,
+  ...weatherSources,
+  ...infrastructureSources,
   ...EXTRA_SOURCES,
 ];
 

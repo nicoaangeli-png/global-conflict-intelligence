@@ -1,0 +1,71 @@
+{
+  "type": "FeatureCollection",
+  "title": "Current watches, warnings, and advisories",
+  "updated": "2026-10-19T16:45:30+00:00",
+  "features": [
+    {
+      "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.4b1ff4be558afbb5e7cdef55d9d9f637922e8e4e.001.1",
+      "type": "Feature",
+      "geometry": null,
+      "properties": {
+        "id": "urn:oid:2.49.0.1.840.0.4b1ff4be558afbb5e7cdef55d9d9f637922e8e4e.001.1",
+        "sent": "2026-10-19T06:34:00-08:00",
+        "effective": "2026-10-19T06:34:00-08:00",
+        "onset": "2026-10-19T22:00:00-08:00",
+        "expires": "2026-10-19T18:45:00-08:00",
+        "ends": "2026-10-21T04:00:00-08:00",
+        "status": "Actual",
+        "severity": "Severe",
+        "event": "Flood Watch",
+        "headline": "Flood Watch issued October 19 at 6:34AM AKDT until October 21 at 4:00AM AKDT by NWS Juneau AK",
+        "description": "An atmospheric river is expected to move into the NE Gulf Coast",
+        "areaDesc": "City and Borough of Yakutat; Glacier Bay; Cape Fairweather to Lisianski Strait"
+      }
+    },
+    {
+      "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.658dc4e5dae666306649f395305d42ff37cae055.001.1",
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -81.5,
+              29.08
+            ],
+            [
+              -81.69,
+              29.32
+            ],
+            [
+              -81.57,
+              29.35
+            ],
+            [
+              -81.42,
+              29.1
+            ],
+            [
+              -81.5,
+              29.08
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "urn:oid:2.49.0.1.840.0.658dc4e5dae666306649f395305d42ff37cae055.001.1",
+        "sent": "2026-10-19T09:56:00-04:00",
+        "effective": "2026-10-19T09:56:00-04:00",
+        "onset": "2026-10-19T09:56:00-04:00",
+        "expires": "2026-10-19T23:15:00-04:00",
+        "ends": null,
+        "status": "Actual",
+        "severity": "Severe",
+        "event": "Flood Warning",
+        "headline": "Flood Warning issued October 19 at 9:56AM EDT by NWS Melbourne FL",
+        "description": "...The Flood Warning continues for the following rivers in Florida...",
+        "areaDesc": "Lake, FL; Volusia, FL"
+      }
+    }
+  ]
+}

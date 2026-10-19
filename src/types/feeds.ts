@@ -19,6 +19,9 @@ export const FEED_CATEGORIES = [
   "social", // manifestations, émeutes, grèves (GDELT 2.0 événements)
   "economy", // marchés, devises
   "uap", // phénomènes aériens non identifiés : rapports publiés
+  "military", // activité militaire observée : aéronefs militaires ADS-B (adsb.lol)
+  "weather", // alertes météo officielles (OMM, NWS, Environnement Canada, NHC)
+  "infrastructure", // pannes d'internet (IODA), perturbations portuaires et détroits (FMI PortWatch)
 ] as const;
 export type FeedCategory = (typeof FEED_CATEGORIES)[number];
 

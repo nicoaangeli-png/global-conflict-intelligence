@@ -1,0 +1,197 @@
+{
+  "type": "FeatureCollection",
+  "timeStamp": "2026-10-19T16:46:24.949132Z",
+  "numberMatched": 11,
+  "numberReturned": 11,
+  "features": [
+    {
+      "id": "1817136761173730213202610180502_fea1-2420",
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -134.0684368,
+              60.00000238
+            ],
+            [
+              -134.09999996,
+              60.00000009
+            ],
+            [
+              -134.14999996,
+              60.00000009
+            ],
+            [
+              -134.15284,
+              60.00000061
+            ],
+            [
+              -134.17862477,
+              60.0000025
+            ],
+            [
+              -134.17866303,
+              59.99990351
+            ],
+            [
+              -134.0684368,
+              60.00000238
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "alert_code": "SPS",
+        "alert_type": "statement",
+        "alert_name_en": "special weather statement",
+        "alert_name_fr": "bulletin météorologique spécial",
+        "publication_datetime": "2026-10-19T12:15:30.158Z",
+        "expiration_datetime": "2026-10-20T04:15:30.158Z",
+        "validity_datetime": "2026-10-20T07:00:00.000Z",
+        "event_end_datetime": "2026-10-21T10:00:00.000Z",
+        "alert_text_en": "Very strong winds expected.",
+        "alert_text_fr": "Vents très forts à prévoir.",
+        "risk_colour_en": null,
+        "risk_colour_fr": null,
+        "confidence_en": null,
+        "confidence_fr": null,
+        "impact_en": null,
+        "impact_fr": null,
+        "feature_name_en": "Atlin",
+        "feature_name_fr": "Atlin",
+        "province": "BC",
+        "status_en": "continued",
+        "status_fr": "maintenu",
+        "feature_id": "fea1-2420"
+      }
+    },
+    {
+      "id": "1802563121346284620202610180507_fea1-880",
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -56.79402914,
+              50.61105708
+            ],
+            [
+              -55.93881899,
+              51.60580345
+            ],
+            [
+              -55.85174145,
+              51.85245902
+            ],
+            [
+              -56.85086724,
+              51.39718763
+            ],
+            [
+              -57.41303765,
+              50.87670507
+            ],
+            [
+              -57.50056146,
+              50.66368888
+            ],
+            [
+              -56.79402914,
+              50.61105708
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "alert_code": "WDW",
+        "alert_type": "warning",
+        "alert_name_en": "wind warning",
+        "alert_name_fr": "avertissement de vent",
+        "publication_datetime": "2026-10-19T13:26:03.721Z",
+        "expiration_datetime": "2026-10-20T02:01:03.721Z",
+        "validity_datetime": "2026-10-19T18:00:00.000Z",
+        "event_end_datetime": "2026-10-20T00:00:00.000Z",
+        "alert_text_en": "Strong winds are expected over some areas.",
+        "alert_text_fr": "On prévoit des vents forts dans certaines régions.",
+        "risk_colour_en": "yellow",
+        "risk_colour_fr": "jaune",
+        "confidence_en": "High",
+        "confidence_fr": "élevée",
+        "impact_en": "Moderate",
+        "impact_fr": "modéré",
+        "feature_name_en": "Port Saunders and the Straits",
+        "feature_name_fr": "Port Saunders et les détroits",
+        "province": "NL",
+        "status_en": "continued",
+        "status_fr": "maintenu",
+        "feature_id": "fea1-880"
+      }
+    },
+    {
+      "id": "429386401928401617202610190507_fea1-882",
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -55.2908275,
+              52.09958661
+            ],
+            [
+              -55.29524477,
+              52.11863455
+            ],
+            [
+              -55.68224996,
+              52.10161823
+            ],
+            [
+              -55.69488902,
+              52.10000797
+            ],
+            [
+              -57.11324907,
+              52.10001783
+            ],
+            [
+              -57.11324912,
+              52.10001783
+            ],
+            [
+              -55.2908275,
+              52.09958661
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "alert_code": "WDW",
+        "alert_type": "warning",
+        "alert_name_en": "wind warning",
+        "alert_name_fr": "avertissement de vent",
+        "publication_datetime": "2026-10-19T13:51:24.276Z",
+        "expiration_datetime": "2026-10-20T02:01:24.276Z",
+        "validity_datetime": "2026-10-19T18:00:00.000Z",
+        "event_end_datetime": "2026-10-20T00:00:00.000Z",
+        "alert_text_en": "Strong winds are expected over some areas.",
+        "alert_text_fr": "On prévoit des vents forts dans certaines régions.",
+        "risk_colour_en": "yellow",
+        "risk_colour_fr": "jaune",
+        "confidence_en": "High",
+        "confidence_fr": "élevée",
+        "impact_en": "Moderate",
+        "impact_fr": "modéré",
+        "feature_name_en": "Red Bay to L'Anse-au-Clair",
+        "feature_name_fr": "de Red Bay à L'Anse-au-Clair",
+        "province": "NL",
+        "status_en": "continued",
+        "status_fr": "maintenu",
+        "feature_id": "fea1-882"
+      }
+    }
+  ]
+}

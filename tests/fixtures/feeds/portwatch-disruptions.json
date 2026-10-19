@@ -1,0 +1,85 @@
+{
+  "objectIdFieldName": "ObjectId",
+  "geometryType": "esriGeometryPolygon",
+  "spatialReference": {
+    "wkid": 102100,
+    "latestWkid": 3857
+  },
+  "features": [
+    {
+      "attributes": {
+        "eventid": 1000000,
+        "eventtype": "OT",
+        "eventname": "RED SEA TENSIONS",
+        "htmlname": "Trade Disruptions in the Red Sea",
+        "htmldescription": "Trade disruptions in the Red Sea (near Bab el-Mandeb Strait) due to attacks on commercial ships",
+        "alertlevel": "RED",
+        "country": null,
+        "fromdate": 1702684800000,
+        "year": 2023,
+        "todate": null,
+        "severitytext": null,
+        "lat": 20.31573,
+        "long": 38.73504,
+        "editdate": 1708595379825,
+        "affectedports": "chokepoint4; chokepoint1; chokepoint7",
+        "n_affectedports": 3,
+        "affectedpopulation": null,
+        "pageid": "573013af3b6545deaeb50ed1cbaf9444",
+        "ObjectId": 89,
+        "Shape__Area": 508756310979.897,
+        "Shape__Length": 4678015.0794346565
+      }
+    },
+    {
+      "attributes": {
+        "eventid": 10000004,
+        "eventtype": "OT",
+        "eventname": "HORMUZ-26",
+        "htmlname": "Trade Disruptions in the Strait of Hormuz",
+        "htmldescription": "Trade Disruptions in the Strait of Hormuz from: 01 Mar 2026  to: - .",
+        "alertlevel": "RED",
+        "country": null,
+        "fromdate": 1772323200000,
+        "year": 2019,
+        "todate": null,
+        "severitytext": "",
+        "lat": 26.29685,
+        "long": 56.85985,
+        "editdate": 1772323200000,
+        "affectedports": "chokepoint6",
+        "n_affectedports": 1,
+        "affectedpopulation": "",
+        "pageid": "cc317ba850e34c4dadbead6f7b336fb1",
+        "ObjectId": 128,
+        "Shape__Area": 17207899494.691406,
+        "Shape__Length": 591676.75462149223
+      }
+    },
+    {
+      "attributes": {
+        "eventid": 1558059,
+        "eventtype": "EQ",
+        "eventname": "Earthquake in Indonesia",
+        "htmlname": "Earthquake in Indonesia",
+        "htmldescription": "Red M 7.7 Earthquake in Indonesia at: 14 Aug 2026 21:58:21.",
+        "alertlevel": "RED",
+        "country": "Indonesia",
+        "fromdate": 1786744701000,
+        "year": 2026,
+        "todate": 1786744701000,
+        "severitytext": "Magnitude 7.7M, Depth:10km",
+        "lat": -8.3101,
+        "long": 121.3517,
+        "editdate": 1786788245013,
+        "affectedports": "port325",
+        "n_affectedports": 1,
+        "affectedpopulation": null,
+        "pageid": "8412a4ae40104c35a27a1a8eded3a165",
+        "ObjectId": 136,
+        "Shape__Area": 32266019709.819336,
+        "Shape__Length": 636841.13573217788
+      }
+    }
+  ]
+}

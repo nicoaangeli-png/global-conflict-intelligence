@@ -1,0 +1,51 @@
+{
+  "itemCount": 1953,
+  "lastUpdated": "2026-10-19 16:41:23",
+  "items": [
+    {
+      "id": "2.49.0.0.724.0.ES.20261019162629.691703COCO20221792427189",
+      "event": "Moderate coastalevent warning",
+      "headline": "Moderate coastalevent warning. Costa - Ampurdán",
+      "sent": "2026-10-19 16:26:29",
+      "expires": "2026-10-20 21:59:59",
+      "areaDesc": "Costa - Ampurdán",
+      "mid": "083",
+      "ra": "6",
+      "s": 2,
+      "u": 2,
+      "c": 3,
+      "capURL": "es-aemet-es/2026/10/19/16/26/29-a10df6f45a54c83b2fc19978b5cf2ad.xml",
+      "effective": "2026-10-19 16:26:29"
+    },
+    {
+      "id": "2.49.0.0.170.1.CO.261019162619.HCRx3jnVdycCxcWIuLWy",
+      "event": "Severe weather warning",
+      "headline": "CAP Alert",
+      "sent": "2026-10-19 16:26:19",
+      "expires": "2026-10-20 16:00:00",
+      "areaDesc": "Caribbean western north; Pacific northern; Pacific central; Pacific southern",
+      "mid": "057",
+      "ra": "3",
+      "s": 3,
+      "u": 2,
+      "c": 3,
+      "url": "co-ideam-es/2026/10/19/16/26/19-84b1515bb1a4558e3fa48371361bb72c.xml",
+      "effective": "2026-10-19 16:26:19"
+    },
+    {
+      "id": "urn:oid:2.49.0.1.840.0.4b1ff4be558afbb5e7cdef55d9d9f637922e8e4e.001.1",
+      "event": "Flood Watch",
+      "headline": "Flood Watch issued October 19 at 6:34AM AKDT until October 21 at 4:00AM AKDT by NWS Juneau AK",
+      "sent": "2026-10-19 14:34:00",
+      "expires": "2026-10-20 02:45:00",
+      "areaDesc": "City and Borough of Yakutat; Glacier Bay; Cape Fairweather to Lisianski Strait",
+      "mid": "093",
+      "ra": "4",
+      "s": 3,
+      "u": 2,
+      "c": 2,
+      "capURL": "us-noaa-nws-en/2026/10/19/14/34/00-27dcb686abc0138a5f59be32fe8fbf10.xml",
+      "effective": "2026-10-19 14:34:00"
+    }
+  ]
+}
