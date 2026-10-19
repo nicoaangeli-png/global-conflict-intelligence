@@ -60,8 +60,8 @@ const pointVertex = /* glsl */ `
       vec2 d = (ahead.xy / ahead.w - gl_Position.xy / gl_Position.w) * uViewport;
       vAngle = atan(d.y, d.x);
     }
-    // Taille fixe à l'écran (silhouette = 80 % du carré) : navires ≈ 18 px, avions ≈ 14 px.
-    float size = aKind > 0.5 ? 22.0 : 17.5;
+    // Taille fixe à l'écran : navires ≈ 26 px (repérage en mer), avions ≈ 14 px.
+    float size = aKind > 0.5 ? 29.0 : 17.5;
     gl_PointSize = (size + aSel * 6.0) * uPixelRatio;
   }
 `;
@@ -89,11 +89,20 @@ const pointFragment = /* glsl */ `
     return max(max(fuselage, wing), tail);
   }
 
-  // Mini navire vu de dessus : coque à étrave pointue (x = 0,9), poupe droite (x = -0,85).
+  // Mini bâtiment de guerre vu de dessus : étrave effilée (x = 0,95), poupe à tableau (x = -0,88),
+  // plus grande largeur au tiers arrière.
   float hull(vec2 q) {
-    float taper = clamp((0.9 - q.x) / 0.7, 0.0, 1.0);
-    float hw = 0.3 * sqrt(taper);
-    return min(min(hw - abs(q.y), q.x + 0.85), 0.9 - q.x);
+    float t = clamp((0.95 - q.x) / 1.0, 0.0, 1.0);
+    float hw = q.x > -0.05 ? 0.25 * pow(t, 0.55) : 0.25 - (-0.05 - q.x) * 0.07;
+    return min(min(hw - abs(q.y), q.x + 0.88), 0.95 - q.x);
+  }
+
+  // Détails de pont : superstructure centrale et deux tourelles (avant et arrière).
+  float deck(vec2 q) {
+    float sup = box(q, -0.38, 0.08, 0.115);
+    float t1 = 0.075 - length(q - vec2(0.38, 0.0));
+    float t2 = 0.065 - length(q - vec2(-0.6, 0.0));
+    return max(sup, max(t1, t2));
   }
 
   void main() {
@@ -103,20 +112,20 @@ const pointFragment = /* glsl */ `
     float c = cos(vAngle);
     float s = sin(vAngle);
     // Silhouette à 80 % du carré : la marge accueille liseré et halo sans coupure.
-    vec2 q = vec2(c * p.x + s * p.y, -s * p.x + c * p.y) * 1.25;
+    vec2 q = vec2(c * p.x + s * p.y, -s * p.x + c * p.y) * (vKind > 0.5 ? 1.12 : 1.25);
     float d;
     if (vKind < 0.5) d = vOriented > 0.5 ? plane(q) : 0.42 - (abs(q.x) + abs(q.y));
     else d = vOriented > 0.5 ? hull(q) : 0.34 - length(q);
     float body = smoothstep(0.0, 0.06, d);
-    // Passerelle du navire : petit rectangle plus sombre au centre de la coque.
-    float bridge = (vKind > 0.5 && vOriented > 0.5) ? smoothstep(0.0, 0.04, box(q, -0.42, 0.02, 0.13)) : 0.0;
+    // Détails de pont du navire, plus sombres que la coque.
+    float bridge = (vKind > 0.5 && vOriented > 0.5) ? smoothstep(0.0, 0.03, deck(q)) : 0.0;
     // Liseré sombre (lisibilité sur les terres) puis halo coloré léger (repérage).
     float outline = smoothstep(-0.12, 0.0, d) * (1.0 - body);
-    float glow = smoothstep(-0.3, 0.0, d) * (1.0 - body) * (vKind > 0.5 ? 0.4 : 0.28);
+    float glow = smoothstep(-0.32, 0.0, d) * (1.0 - body) * (vKind > 0.5 ? 0.45 : 0.28);
     float ring = vSel > 0.0 ? smoothstep(0.08, 0.0, abs(length(uv) - 0.94)) * vSel : 0.0;
     float edge = smoothstep(0.04, 0.22, vFacing);
     float bright = 0.7 + 0.3 * vBright;
-    vec3 fill = mix(mix(vColor, vec3(1.0), 0.15 + vSel * 0.3) * bright, vColor * 0.35, bridge * 0.75);
+    vec3 fill = mix(mix(vColor, vec3(1.0), 0.15 + vSel * 0.3) * bright, vColor * 0.32, bridge * 0.8);
     vec3 dark = vec3(0.01, 0.03, 0.06);
     vec3 color = mix(mix(vColor, dark, outline > glow ? 0.85 : 0.0), fill, body);
     color = mix(color, vec3(1.0), ring * 0.7);
