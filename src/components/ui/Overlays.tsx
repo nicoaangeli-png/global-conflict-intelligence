@@ -8,6 +8,8 @@ import { clusterSummary } from "@/components/feeds/conflictModel";
 import { NATURE_LABELS, THEME_COLORS, THEME_LABELS, label } from "@/components/feeds/feedModel";
 import { countryLabel, useCountryReference } from "@/components/feeds/countryReference";
 import { LAYER_STYLE } from "@/components/layers/layerModel";
+import { formatDuration, trackDurationMs, vehicleOf } from "@/components/feeds/vehicleModel";
+import { VEHICLE_LABELS } from "@/components/feeds/FeedItem";
 import { LayerGlyphIcon } from "@/components/layers/LayersMenu";
 
 /**
@@ -89,12 +91,15 @@ export function HoverFeedReadout() {
       <div className="flex items-center gap-2">
         <span className="category-dot" style={{ background: THEME_COLORS[item.category] }} />
         <span className="meta">
-          {label(THEME_LABELS[item.category], locale)} · {label(NATURE_LABELS[item.nature], locale)}
+          {label(THEME_LABELS[item.category], locale)} · {vehicleOf(item) ? label(VEHICLE_LABELS[vehicleOf(item)!], locale) : label(NATURE_LABELS[item.nature], locale)}
         </span>
       </div>
       <p className="mt-1 line-clamp-3 text-[13px] leading-snug text-[#eaf6ff]">{item.title}</p>
+      {item.summary && vehicleOf(item) ? <p className="meta mt-0.5">{item.summary}</p> : null}
       <p className="meta mt-1">
-        {item.sourceName} · {relativeTime(item.occurredAt ?? item.publishedAt, locale)} · {tr(locale, "clic → détail", "click → details")}
+        {item.sourceName} · {relativeTime(item.occurredAt ?? item.publishedAt, locale)}
+        {vehicleOf(item) && trackDurationMs(item) !== null ? ` · ${tr(locale, "trajet observé", "observed track")} ${formatDuration(trackDurationMs(item)!, locale)}` : ""} ·{" "}
+        {tr(locale, "clic → détail", "click → details")}
       </p>
     </Tip>
   );

@@ -21,7 +21,7 @@ const GlobeScene = dynamic(() => import("@/components/globe/GlobeScene").then((m
 
 /** Polling des flux mondiaux (en plus du rafraîchissement manuel). */
 const FEEDS_POLL_MS = 2 * 60_000;
-/** Positions d'aéronefs militaires : rafraîchies plus souvent quand l'onglet Militaire est ouvert. */
+/** Positions des mobiles militaires : rafraîchies plus souvent que les autres flux. */
 const MILITARY_POLL_MS = 30_000;
 
 /** Détermine si l'utilisateur est en train de saisir dans un champ texte / zone éditable */
@@ -71,12 +71,14 @@ export function IntelApp() {
     return () => clearInterval(id);
   }, [refresh, refreshFeeds]);
 
-  // Onglet Militaire : positions ADS-B rafraîchies en direct (le cache serveur borne le rythme réel).
+  // Mobiles militaires (avions, navires) visibles sur le globe ou onglet Militaire ouvert :
+  // positions et trajets rafraîchis toutes les 30 s (le cache serveur borne le rythme réel).
+  const mobilesLive = useIntelStore((s) => s.mobilesOn.aircraft || s.mobilesOn.vessel);
   useEffect(() => {
-    if (theme !== "military") return;
+    if (theme !== "military" && !mobilesLive) return;
     const id = setInterval(() => void refreshFeedCategory("military"), MILITARY_POLL_MS);
     return () => clearInterval(id);
-  }, [theme, refreshFeedCategory]);
+  }, [theme, mobilesLive, refreshFeedCategory]);
 
   // Sur mobile : une inspection ouvre le volet correspondant.
   useEffect(() => {

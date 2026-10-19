@@ -62,6 +62,13 @@ interface IntelStore {
   /** Rafraîchissement silencieux d'une seule catégorie (positions d'aéronefs en direct). */
   refreshFeedCategory: (category: FeedCategory) => Promise<void>;
 
+  /**
+   * Mobiles militaires en direct sur le globe, quel que soit le thème : ALLUMÉS par
+   * défaut (aéronefs ADS-B, navires AIS), avec leurs trajets observés.
+   */
+  mobilesOn: { aircraft: boolean; vessel: boolean };
+  toggleMobile: (kind: "aircraft" | "vessel") => void;
+
   /** Calques de référence allumés sur le globe : tous éteints par défaut. */
   layersOn: Record<LayerId, boolean>;
   /** Données des calques chargées à la demande (`/api/layers?id=…`), gardées pour la session. */
@@ -290,6 +297,9 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       categoryInFlight.delete(category);
     }
   },
+
+  mobilesOn: { aircraft: true, vessel: true },
+  toggleMobile: (kind) => set((s) => ({ mobilesOn: { ...s.mobilesOn, [kind]: !s.mobilesOn[kind] } })),
 
   layersOn: { nuclear_plants: false, military_bases: false, submarine_cables: false, sanctions: false },
   layers: {},

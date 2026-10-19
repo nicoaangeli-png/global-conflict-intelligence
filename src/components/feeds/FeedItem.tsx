@@ -6,6 +6,69 @@ import { tr, type Locale } from "@/lib/i18n";
 import { useIntelStore } from "@/store/useIntelStore";
 import { NATURE_LABELS, NATURE_TONE, THEME_COLORS, THEME_LABELS, isLive, itemTime, label } from "./feedModel";
 import { countryLabel, useCountryReference } from "./countryReference";
+import { formatDuration, trackPoints, vehicleFacts, vehicleHeading, vehicleOf } from "./vehicleModel";
+
+export const VEHICLE_LABELS = { aircraft: { fr: "Avion", en: "Aircraft" }, vessel: { fr: "Navire", en: "Vessel" } } as const;
+
+/** Bloc « mobile » du détail : identité publiée, altitude/vitesse, dernière position, trajet observé. */
+function VehicleFacts({ item, locale, now }: { item: LiveItem; locale: Locale; now: number }) {
+  const kind = vehicleOf(item);
+  if (!kind) return null;
+  const facts = vehicleFacts(item);
+  const heading = vehicleHeading(item);
+  const pts = trackPoints(item);
+  const last = itemTime(item);
+  const nf = (v: number) => v.toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 0 });
+  return (
+    <dl className="kv mt-3">
+      <dt>{tr(locale, "Mobile", "Vehicle")}</dt>
+      <dd>{label(VEHICLE_LABELS[kind], locale)}</dd>
+      {facts.callsign ? (
+        <>
+          <dt>{tr(locale, "Indicatif", "Callsign")}</dt>
+          <dd>{facts.callsign}</dd>
+        </>
+      ) : null}
+      {facts.type ? (
+        <>
+          <dt>{tr(locale, "Type (code source)", "Type (source code)")}</dt>
+          <dd>{facts.type}</dd>
+        </>
+      ) : null}
+      {facts.registration ? (
+        <>
+          <dt>{tr(locale, "Immatriculation", "Registration")}</dt>
+          <dd>{facts.registration}</dd>
+        </>
+      ) : null}
+      {facts.altitudeFt !== null || facts.speedKt !== null ? (
+        <>
+          <dt>{tr(locale, "Altitude / vitesse", "Altitude / speed")}</dt>
+          <dd>
+            {facts.altitudeFt !== null ? `${nf(facts.altitudeFt)} ft` : tr(locale, "altitude non publiée", "altitude not published")} ·{" "}
+            {facts.speedKt !== null ? `${nf(facts.speedKt)} kt` : tr(locale, "vitesse non publiée", "speed not published")}
+          </dd>
+        </>
+      ) : null}
+      {heading ? (
+        <>
+          <dt>{tr(locale, "Cap", "Heading")}</dt>
+          <dd>
+            {Math.round(heading.deg)}°{heading.from === "track" ? ` ${tr(locale, "(déduit des deux dernières positions)", "(from the last two positions)")}` : ""}
+          </dd>
+        </>
+      ) : null}
+      <dt>{tr(locale, "Dernière position", "Last position")}</dt>
+      <dd>{last ? `${absoluteDateTime(last, locale)} · ${relativeTime(last, locale, now)}` : tr(locale, "non datée par la source", "not dated by the source")}</dd>
+      <dt>{tr(locale, "Trajet observé", "Observed track")}</dt>
+      <dd>
+        {pts.length >= 2
+          ? `${formatDuration(pts[pts.length - 1].t - pts[0].t, locale)} · ${pts.length} ${tr(locale, "positions", "positions")} (${tr(locale, "depuis", "since")} ${absoluteDateTime(new Date(pts[0].t).toISOString(), locale)})`
+          : tr(locale, "pas encore de positions précédentes publiées", "no previous positions published yet")}
+      </dd>
+    </dl>
+  );
+}
 
 /**
  * Briques d'affichage d'un élément de flux : badge de nature, pastille DIRECT,
@@ -90,6 +153,7 @@ export function FeedItemRow({ item, locale, now, showCategory, hideCaveat = fals
         <span className="flex flex-wrap items-center gap-1.5">
           {live ? <LivePill locale={locale} /> : null}
           {showCategory ? <CategoryTag item={item} locale={locale} /> : null}
+          {vehicleOf(item) ? <span className="category-tag text-[#cfe6f5]">{label(VEHICLE_LABELS[vehicleOf(item)!], locale)}</span> : null}
           <NatureBadge item={item} locale={locale} />
           <Metric item={item} />
         </span>
@@ -141,6 +205,7 @@ export function FeedItemDetail({ item, locale, now }: { item: LiveItem; locale: 
       <div className="inspector-body scroll-thin">
         <h2 className="text-[15px] font-light leading-snug text-[#eaf6ff]">{item.title}</h2>
         {item.summary ? <p className="mt-2 text-[12px] leading-relaxed text-[#b6d3e6]">{item.summary}</p> : null}
+        <VehicleFacts item={item} locale={locale} now={now} />
         {item.caveat ? <p className="feed-caveat mt-3 block">{item.caveat}</p> : null}
         <dl className="kv mt-3">
           <dt>{tr(locale, "Source", "Source")}</dt>
@@ -155,7 +220,7 @@ export function FeedItemDetail({ item, locale, now }: { item: LiveItem; locale: 
           ) : null}
           <dt>{tr(locale, "Collecté par ORBITAL", "Collected by ORBITAL")}</dt>
           <dd>{absoluteDateTime(item.fetchedAt, locale)}</dd>
-          {item.metric ? (
+          {item.metric && !vehicleOf(item) ? (
             <>
               <dt>{item.metric.label}</dt>
               <dd>

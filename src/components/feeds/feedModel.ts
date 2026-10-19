@@ -242,10 +242,11 @@ export const themeCovers = (theme: ThemeKey, category: FeedCategory) => theme ==
  * adsb.lol : le serveur l'écrit dans le résumé (« cap 262° ») ; aucun cap n'est déduit.
  */
 export function itemHeading(item: LiveItem): number | null {
-  const extra = (item as LiveItem & { heading?: unknown; track?: unknown }).heading ?? (item as { track?: unknown }).track;
+  // `track` est désormais le trajet observé (tableau) : seul un nombre est lu comme cap.
+  const extra = (item as LiveItem & { heading?: unknown }).heading;
   if (typeof extra === "number" && Number.isFinite(extra)) return ((extra % 360) + 360) % 360;
-  if (item.metric && /^(cap|heading|track)$/i.test(item.metric.label) && Number.isFinite(item.metric.value)) return ((item.metric.value % 360) + 360) % 360;
-  const match = item.summary?.match(/\b(?:cap|heading|track)\s*:?\s*(\d{1,3}(?:[.,]\d+)?)\s*°/i);
+  if (item.metric && /^(cap|route|heading|track|course)$/i.test(item.metric.label) && Number.isFinite(item.metric.value)) return ((item.metric.value % 360) + 360) % 360;
+  const match = item.summary?.match(/\b(?:cap|route|heading|track|course)\s*:?\s*(\d{1,3}(?:[.,]\d+)?)\s*°/i);
   if (!match) return null;
   const value = Number(match[1].replace(",", "."));
   return Number.isFinite(value) && value >= 0 && value <= 360 ? value % 360 : null;

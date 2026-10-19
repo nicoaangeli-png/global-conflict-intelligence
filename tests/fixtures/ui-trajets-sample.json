@@ -1,0 +1,134 @@
+{
+ "_note": "Extrait réel réduit de /api/feeds?category=military (adsb.lol via ORBITAL, 19/10/2026 ~21:25 UTC) : positions et trajets observés inchangés.",
+ "items": [
+  {
+   "id": "adsb-lol-military:7cfa72",
+   "category": "military",
+   "nature": "sensor_measurement",
+   "title": "FA7X — EVY07 — A56-002",
+   "summary": "Altitude 40 000 ft ; vitesse sol 463 kt ; cap 234°",
+   "url": "https://adsb.lol/",
+   "sourceId": "adsb-lol-military",
+   "sourceName": "adsb.lol",
+   "publishedAt": null,
+   "occurredAt": "2026-10-19T21:23:39.000Z",
+   "fetchedAt": "2026-10-19T21:23:39.333Z",
+   "countries": [
+    "AUS"
+   ],
+   "lat": -34.952454,
+   "lon": 150.101381,
+   "severity": null,
+   "metric": {
+    "label": "Altitude",
+    "value": 40000,
+    "unit": "ft"
+   },
+   "caveat": "Position ADS-B transmise volontairement : beaucoup d’aéronefs militaires n’émettent pas ; l’absence d’un appareil ne prouve rien. Le pays survolé est affiché ; la source ne fournit pas le pays de l’opérateur.",
+   "vehicle": "aircraft",
+   "track": [
+    {
+     "lat": -34.61618,
+     "lon": 150.653219,
+     "at": "2026-10-19T21:19:11.250Z"
+    },
+    {
+     "lat": -34.696873,
+     "lon": 150.521564,
+     "at": "2026-10-19T21:20:17.168Z"
+    },
+    {
+     "lat": -34.834946,
+     "lon": 150.295155,
+     "at": "2026-10-19T21:22:06.143Z"
+    },
+    {
+     "lat": -34.952454,
+     "lon": 150.101381,
+     "at": "2026-10-19T21:23:39.000Z"
+    }
+   ]
+  },
+  {
+   "id": "adsb-lol-military:aae4ef",
+   "category": "military",
+   "nature": "sensor_measurement",
+   "title": "C212 — GECKO47 — 90-00178",
+   "summary": "Altitude 2 150 ft ; vitesse sol 123 kt ; cap 22°",
+   "url": "https://adsb.lol/",
+   "sourceId": "adsb-lol-military",
+   "sourceName": "adsb.lol",
+   "publishedAt": null,
+   "occurredAt": "2026-10-19T21:23:39.000Z",
+   "fetchedAt": "2026-10-19T21:23:39.333Z",
+   "countries": [
+    "USA"
+   ],
+   "lat": 35.325747,
+   "lon": -78.852091,
+   "severity": null,
+   "metric": {
+    "label": "Altitude",
+    "value": 2150,
+    "unit": "ft"
+   },
+   "caveat": "Position ADS-B transmise volontairement : beaucoup d’aéronefs militaires n’émettent pas ; l’absence d’un appareil ne prouve rien. Le pays survolé est affiché ; la source ne fournit pas le pays de l’opérateur.",
+   "vehicle": "aircraft",
+   "track": [
+    {
+     "lat": 35.17012,
+     "lon": -78.901342,
+     "at": "2026-10-19T21:19:11.500Z"
+    },
+    {
+     "lat": 35.208755,
+     "lon": -78.891869,
+     "at": "2026-10-19T21:20:17.325Z"
+    },
+    {
+     "lat": 35.272293,
+     "lon": -78.868675,
+     "at": "2026-10-19T21:22:06.185Z"
+    },
+    {
+     "lat": 35.325747,
+     "lon": -78.852091,
+     "at": "2026-10-19T21:23:39.000Z"
+    }
+   ]
+  },
+  {
+   "id": "adsb-lol-military:adfb92",
+   "category": "military",
+   "nature": "sensor_measurement",
+   "title": "TWR — PHXT01 — TWR",
+   "summary": "Altitude -1 000 ft ; vitesse sol 1 kt ; cap 0°",
+   "url": "https://adsb.lol/",
+   "sourceId": "adsb-lol-military",
+   "sourceName": "adsb.lol",
+   "publishedAt": null,
+   "occurredAt": "2026-10-19T21:23:38.998Z",
+   "fetchedAt": "2026-10-19T21:23:39.333Z",
+   "countries": [
+    "USA"
+   ],
+   "lat": 33.514801,
+   "lon": -111.520294,
+   "severity": null,
+   "metric": {
+    "label": "Altitude",
+    "value": -1000,
+    "unit": "ft"
+   },
+   "caveat": "Position ADS-B transmise volontairement : beaucoup d’aéronefs militaires n’émettent pas ; l’absence d’un appareil ne prouve rien. Le pays survolé est affiché ; la source ne fournit pas le pays de l’opérateur.",
+   "vehicle": "aircraft",
+   "track": [
+    {
+     "lat": 33.514801,
+     "lon": -111.520294,
+     "at": "2026-10-19T21:19:09.053Z"
+    }
+   ]
+  }
+ ]
+}

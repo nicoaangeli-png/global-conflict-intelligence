@@ -12,6 +12,8 @@ import { OrbitLayer } from './OrbitLayer';
 import { Starfield } from './Starfield';
 import { ConflictLayer } from '../conflicts/ConflictLayer';
 import { FeedLayer } from './FeedLayer';
+import { MobileLayer } from './MobileLayer';
+import { vehicleOf } from '../feeds/vehicleModel';
 import { ReferenceLayers } from './ReferenceLayers';
 import { LayersMenu } from '../layers/LayersMenu';
 import { LAYER_ORDER, sanctionsByCountry } from '../layers/layerModel';
@@ -21,9 +23,12 @@ import type { LiveItem } from '@/types/feeds';
 import { itemsForTheme, type ThemeKey } from '../feeds/feedModel';
 import { isPointPrecise } from '../feeds/conflictModel';
 
-/** Éléments de flux visibles pour un thème (« conflict » : aucun, « all » : l'actualité). */
+/**
+ * Points de flux visibles pour un thème (« conflict » : aucun, « all » : l'actualité).
+ * Les mobiles militaires ont leur propre calque (`MobileLayer`), visible sur tous les thèmes.
+ */
 function feedItemsFor(theme: ThemeKey, feeds: LiveItem[], allWeather: boolean): LiveItem[] {
-  return itemsForTheme(feeds, theme, Date.now(), { allWeather });
+  return itemsForTheme(feeds, theme, Date.now(), { allWeather }).filter((item) => item.category !== 'military');
 }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -36,6 +41,7 @@ export function GlobeScene() {
   const conflictLayerRef = useRef<ConflictLayer | null>(null);
   const feedLayerRef = useRef<FeedLayer | null>(null);
   const referenceLayersRef = useRef<ReferenceLayers | null>(null);
+  const mobileLayerRef = useRef<MobileLayer | null>(null);
 
   const clusters = useIntelStore((s) => s.clusters);
   const selected = useIntelStore((s) => s.selected);
@@ -52,6 +58,7 @@ export function GlobeScene() {
   const hoveredFeedId = useIntelStore((s) => s.hoveredFeedId);
   const locale = useIntelStore((s) => s.locale);
   const weatherAll = useIntelStore((s) => s.weatherAll);
+  const mobilesOn = useIntelStore((s) => s.mobilesOn);
   const layersOn = useIntelStore((s) => s.layersOn);
   const layers = useIntelStore((s) => s.layers);
   const selectedLayer = useIntelStore((s) => s.selectedLayerFeature);
@@ -137,10 +144,17 @@ export function GlobeScene() {
     globeGroup.add(feedLayer.group);
     feedLayerRef.current = feedLayer;
 
+    // Mobiles militaires (aéronefs, navires) et leurs trajets : au-dessus de tout le reste.
+    const mobileLayer = new MobileLayer(GLOBE.radius);
+    globeGroup.add(mobileLayer.group);
+    mobileLayerRef.current = mobileLayer;
+
     /** Foyer de conflit sous le pointeur, seulement si son calque est allumé. */
     const conflictHit = (rect: DOMRect) =>
       conflictLayerRef.current?.group.visible ? conflictLayerRef.current.hitTest(camera, mouse, rect.width, rect.height) : null;
-    const feedHit = (rect: DOMRect) => feedLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? null;
+    // Un mobile (au-dessus) prime sur un point de flux.
+    const feedHit = (rect: DOMRect) =>
+      mobileLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? feedLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? null;
     /** Élément d'un calque de référence allumé (~20 000 segments de câbles : ~1 ms par test). */
     const layerHit = (rect: DOMRect) => referenceLayersRef.current?.hitTest(camera, mouse, rect.width, rect.height, true) ?? null;
 
@@ -419,7 +433,8 @@ export function GlobeScene() {
       if (orbitLayerRef.current) orbitLayerRef.current.update(elapsedTime, delta);
       if (starfieldRef.current) starfieldRef.current.update(elapsedTime);
       if (conflictLayerRef.current) conflictLayerRef.current.update(elapsedTime, delta, fov, height, dpr);
-      if (feedLayerRef.current) feedLayerRef.current.update(elapsedTime, dpr, width, height);
+      if (feedLayerRef.current) feedLayerRef.current.update(elapsedTime, dpr);
+      if (mobileLayerRef.current) mobileLayerRef.current.update(dpr, width, height);
       if (referenceLayersRef.current) referenceLayersRef.current.update(dpr);
 
       renderer.render(scene, camera);
@@ -445,6 +460,7 @@ export function GlobeScene() {
       conflictLayer.dispose();
       feedLayer.dispose();
       referenceLayers.dispose();
+      mobileLayer.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -514,6 +530,28 @@ export function GlobeScene() {
       hoveredLayer ? { layerId: hoveredLayer.layerId, id: hoveredLayer.feature.id } : null,
     );
   }, [selectedLayer, hoveredLayer, nuclearData, basesData, cablesData]);
+
+  // Mobiles militaires : sur tous les thèmes selon le menu « Calques » (allumés par défaut) ;
+  // l'onglet Militaire les montre toujours. Recalcul à chaque rafraîchissement (30 s sur l'onglet).
+  useEffect(() => {
+    const layer = mobileLayerRef.current;
+    if (!layer) return;
+    const forced = theme === 'military';
+    const apply = () =>
+      layer.setItems(
+        feeds.filter((item) => {
+          const kind = vehicleOf(item);
+          return kind !== null && (forced || mobilesOn[kind]);
+        }),
+      );
+    apply();
+    const id = setInterval(apply, 60_000);
+    return () => clearInterval(id);
+  }, [theme, feeds, mobilesOn]);
+
+  useEffect(() => {
+    mobileLayerRef.current?.setHighlight(selectedFeedId, hoveredFeedId);
+  }, [selectedFeedId, hoveredFeedId, feeds, theme, mobilesOn]);
 
   useEffect(() => {
     feedLayerRef.current?.setHighlight(selectedFeedId, hoveredFeedId);

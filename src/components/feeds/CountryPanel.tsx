@@ -13,6 +13,7 @@ import { clusterBreakdown } from "./conflictModel";
 import { MILITARY_NOW_MS, THEME_COLORS, THEME_LABELS, countryMarkets, countrySections, flagEmoji, isLive, itemTime, label, militaryNow, type CountrySectionKey } from "./feedModel";
 import type { LayerFeature, LayerId } from "@/types/layers";
 import { LAYER_STYLE, featuresInCountry, sanctionsByCountry } from "@/components/layers/layerModel";
+import { vehicleOf } from "./vehicleModel";
 import { ItemTime, LivePill, NatureBadge } from "./FeedItem";
 import { useNow } from "./useNow";
 
@@ -354,15 +355,27 @@ export function CountryPanel() {
         <Section title={tr(locale, "Activité militaire observée", "Observed military activity")} color={THEME_COLORS.military}>
           {aircraft.length ? (
             <>
-              <p className="meta">
-                {tr(locale, `${aircraft.length} aéronef(s) militaire(s) à position publiée au-dessus du pays (dernière heure)`, `${aircraft.length} military aircraft with a published position over the country (last hour)`)}
-              </p>
-              <ul className="mt-1.5 space-y-2">
-                {aircraft.slice(0, 5).map((item, i) => (
-                  <MiniItem key={item.id} item={item} locale={locale} now={now} hideCaveat={i > 0} />
-                ))}
-                {aircraft.length > 5 ? <li className="meta">+ {aircraft.length - 5} {tr(locale, "autres (onglet Militaire)", "more (Military tab)")}</li> : null}
-              </ul>
+              {(["aircraft", "vessel"] as const).map((kind) => {
+                const list = aircraft.filter((item) => vehicleOf(item) === kind);
+                return (
+                  <div key={kind} className="mt-1 first:mt-0">
+                    <p className="meta">
+                      <span className="text-[#e3f3ff]">{kind === "aircraft" ? tr(locale, "Avions", "Aircraft") : tr(locale, "Navires", "Vessels")}</span> ·{" "}
+                      {list.length
+                        ? tr(locale, `${list.length} à position publiée (dernière heure)`, `${list.length} with a published position (last hour)`)
+                        : tr(locale, "rien dans nos sources sur la dernière heure", "nothing in our sources over the last hour")}
+                    </p>
+                    {list.length ? (
+                      <ul className="mt-1.5 space-y-2">
+                        {list.slice(0, 4).map((item, i) => (
+                          <MiniItem key={item.id} item={item} locale={locale} now={now} hideCaveat={i > 0} />
+                        ))}
+                        {list.length > 4 ? <li className="meta">+ {list.length - 4} {tr(locale, "autres (onglet Militaire)", "more (Military tab)")}</li> : null}
+                      </ul>
+                    ) : null}
+                  </div>
+                );
+              })}
             </>
           ) : feedStatus === "loading" ? (
             <p className="meta">{tr(locale, "Chargement…", "Loading…")}</p>
@@ -370,8 +383,8 @@ export function CountryPanel() {
             <p className="empty-line">
               {tr(
                 locale,
-                `Rien dans nos sources sur ${Math.round(MILITARY_NOW_MS / 60e3)} min : aucun aéronef militaire à position ADS-B publiée au-dessus du pays (beaucoup n'émettent pas).`,
-                `Nothing in our sources over ${Math.round(MILITARY_NOW_MS / 60e3)} min: no military aircraft with a published ADS-B position over the country (many do not transmit).`,
+                `Rien dans nos sources sur ${Math.round(MILITARY_NOW_MS / 60e3)} min : aucun avion ni navire militaire à position publiée (beaucoup n'émettent pas).`,
+                `Nothing in our sources over ${Math.round(MILITARY_NOW_MS / 60e3)} min: no military aircraft or vessel with a published position (many do not transmit).`,
               )}
             </p>
           )}

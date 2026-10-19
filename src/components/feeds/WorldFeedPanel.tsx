@@ -6,6 +6,7 @@ import { tr, type Locale } from "@/lib/i18n";
 import { useIntelStore } from "@/store/useIntelStore";
 import type { LiveItem } from "@/types/feeds";
 import { FeedItemRow } from "./FeedItem";
+import { vehicleOf, type VehicleKind } from "./vehicleModel";
 import { ConflictsPanel } from "./ConflictsPanel";
 import {
   PERIODS,
@@ -33,7 +34,7 @@ import { useNow } from "./useNow";
 
 const THEME_SUBTITLES: Partial<Record<ThemeKey, { fr: string; en: string }>> = {
   all: { fr: "Actualité de tous les flux, du plus récent au plus ancien", en: "News from all feeds, newest first" },
-  military: { fr: "Aéronefs militaires dont la position ADS-B est publiée — rafraîchi toutes les 30 s", en: "Military aircraft with a published ADS-B position — refreshed every 30 s" },
+  military: { fr: "Avions (ADS-B) et navires (AIS) militaires dont la position est publiée — rafraîchi toutes les 30 s", en: "Military aircraft (ADS-B) and vessels (AIS) with a published position — refreshed every 30 s" },
   infrastructure: { fr: "Pannes d'internet (IODA) et perturbations des ports et détroits (FMI PortWatch)", en: "Internet outages (IODA) and port and strait disruptions (IMF PortWatch)" },
   social: { fr: "Manifestations, émeutes, grèves — signaux presse", en: "Protests, riots, strikes — press signals" },
   disaster: { fr: "Séismes, cyclones, inondations, feux et alertes météo officielles", en: "Earthquakes, cyclones, floods, fires and official weather alerts" },
@@ -118,7 +119,22 @@ export function WorldFeedPanel() {
     setPeriod(defaultPeriod(theme));
   }, [theme]);
 
-  const themed = useMemo(() => itemsForTheme(feeds, theme, now, { allWeather: weatherAll }), [feeds, theme, now, weatherAll]);
+  // Onglet Militaire : avions et navires distingués (filtre local au fil).
+  const [vehicleFilter, setVehicleFilter] = useState<VehicleKind | "all">("all");
+  const themedAll = useMemo(() => itemsForTheme(feeds, theme, now, { allWeather: weatherAll }), [feeds, theme, now, weatherAll]);
+  const vehicleCounts = useMemo(() => {
+    if (theme !== "military") return null;
+    const out = { aircraft: 0, vessel: 0 };
+    for (const item of themedAll) {
+      const kind = vehicleOf(item);
+      if (kind) out[kind]++;
+    }
+    return out;
+  }, [themedAll, theme]);
+  const themed = useMemo(
+    () => (theme === "military" && vehicleFilter !== "all" ? themedAll.filter((item) => vehicleOf(item) === vehicleFilter) : themedAll),
+    [themedAll, theme, vehicleFilter],
+  );
   // Alertes météo mineures/modérées masquées par défaut (l'OMM en publie plus d'un millier).
   const hasWeather = theme !== "all" && THEME_CATEGORIES[theme]?.includes("weather");
   const weatherCounts = useMemo(() => {
@@ -212,6 +228,22 @@ export function WorldFeedPanel() {
           ) : null}
 
           {theme === "uap" ? <UapNotice locale={locale} /> : null}
+
+          {vehicleCounts ? (
+            <div className="flex flex-wrap items-center gap-1.5 px-4 pt-2" role="group" aria-label={tr(locale, "Mobiles affichés", "Vehicles shown")}>
+              {(
+                [
+                  ["all", tr(locale, "Tous", "All"), vehicleCounts.aircraft + vehicleCounts.vessel],
+                  ["aircraft", tr(locale, "Avions", "Aircraft"), vehicleCounts.aircraft],
+                  ["vessel", tr(locale, "Navires", "Vessels"), vehicleCounts.vessel],
+                ] as const
+              ).map(([key, text, n]) => (
+                <button key={key} type="button" className="chip" data-active={vehicleFilter === key} aria-pressed={vehicleFilter === key} onClick={() => setVehicleFilter(key)}>
+                  {text} · {n}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {weatherCounts ? (
             <div className="flex flex-wrap items-center gap-1.5 px-4 pt-2" role="group" aria-label={tr(locale, "Alertes météo affichées", "Weather alerts shown")}>
