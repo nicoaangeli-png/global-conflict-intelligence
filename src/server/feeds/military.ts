@@ -21,8 +21,71 @@ interface AdsbResponse {
   ac?: AdsbAircraft[];
 }
 
+interface AircraftTrackRecord {
+  lastSeenAt: number;
+  points: NonNullable<LiveItem["track"]>;
+}
+
+type AircraftTrackStore = Map<string, AircraftTrackRecord>;
+
+export const ADSB_TRACK_WINDOW_MS = 3 * 60 * 60_000;
+export const ADSB_MAX_TRACK_POINTS = 60;
+/** Borne défensive, supérieure au volume observé de `/v2/mil`, partagée entre bundles serveur. */
+export const ADSB_MAX_TRACKED_AIRCRAFT = 2_000;
+const ADSB_TRACKS_GLOBAL_KEY = "__orbitalAdsbTracksV1";
+
 const ADSB_CAVEAT =
   "Position ADS-B transmise volontairement : beaucoup d’aéronefs militaires n’émettent pas ; l’absence d’un appareil ne prouve rien. Le pays survolé est affiché ; la source ne fournit pas le pays de l’opérateur.";
+
+function aircraftTracks(): AircraftTrackStore {
+  const global = globalThis as unknown as Record<string, AircraftTrackStore | undefined>;
+  return (global[ADSB_TRACKS_GLOBAL_KEY] ??= new Map());
+}
+
+/** Réservé aux tests : la mémoire applicative est normalement conservée entre les requêtes. */
+export function clearAdsbTracks(): void {
+  aircraftTracks().clear();
+}
+
+export function adsbTrackStats(): { aircraft: number; points: number } {
+  const records = [...aircraftTracks().values()];
+  return { aircraft: records.length, points: records.reduce((total, record) => total + record.points.length, 0) };
+}
+
+function compactTrack(points: NonNullable<LiveItem["track"]>): NonNullable<LiveItem["track"]> {
+  let compacted = points;
+  while (compacted.length > ADSB_MAX_TRACK_POINTS) {
+    const last = compacted.at(-1)!;
+    compacted = compacted.filter((_point, index) => index % 2 === 0);
+    if (compacted.at(-1) !== last) compacted.push(last);
+  }
+  return compacted;
+}
+
+function purgeAircraftTracks(nowMs: number): void {
+  const tracks = aircraftTracks();
+  const cutoff = nowMs - ADSB_TRACK_WINDOW_MS;
+  for (const [hex, record] of tracks) {
+    record.points = record.points.filter((point) => Date.parse(point.at) >= cutoff);
+    if (record.lastSeenAt < cutoff || record.points.length === 0) tracks.delete(hex);
+  }
+  if (tracks.size <= ADSB_MAX_TRACKED_AIRCRAFT) return;
+  const oldest = [...tracks.entries()].sort((a, b) => a[1].lastSeenAt - b[1].lastSeenAt);
+  for (let i = 0; i < oldest.length - ADSB_MAX_TRACKED_AIRCRAFT; i++) tracks.delete(oldest[i][0]);
+}
+
+function observeAircraft(hex: string, lat: number, lon: number, occurredMs: number, nowMs: number): NonNullable<LiveItem["track"]> {
+  const tracks = aircraftTracks();
+  const record = tracks.get(hex) ?? { lastSeenAt: nowMs, points: [] };
+  const point = { lat, lon, at: new Date(occurredMs).toISOString() };
+  const previous = record.points.at(-1);
+  if (!previous || previous.lat !== lat || previous.lon !== lon) record.points.push(point);
+  record.lastSeenAt = nowMs;
+  record.points = compactTrack(record.points.filter((candidate) => Date.parse(candidate.at) >= nowMs - ADSB_TRACK_WINDOW_MS));
+  tracks.set(hex, record);
+  purgeAircraftTracks(nowMs);
+  return [...(tracks.get(hex)?.points ?? [point])];
+}
 
 function aircraftTitle(ac: AdsbAircraft): string {
   const type = plainText(ac.t) || "Aéronef militaire";
@@ -38,6 +101,7 @@ export function parseAdsbMilitary(raw: unknown, ctx: FeedContext): LiveItem[] {
   if (!Array.isArray(aircraft) || now === null) throw new FeedError("adsb.lol : format de réponse inattendu.");
   // L'API expose actuellement `now` en millisecondes ; accepte aussi des secondes Unix sans inventer la date.
   const nowMs = now > 10_000_000_000 ? now : now * 1000;
+  purgeAircraftTracks(nowMs);
   const items: LiveItem[] = [];
   for (const ac of aircraft) {
     const hex = str(ac.hex);
@@ -47,6 +111,7 @@ export function parseAdsbMilitary(raw: unknown, ctx: FeedContext): LiveItem[] {
     if (!hex || lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180 || positionAge === null || positionAge > 300 || positionAge < 0) continue;
     const occurredMs = nowMs - positionAge * 1000;
     if (!Number.isFinite(occurredMs)) continue;
+    const normalizedHex = hex.toLowerCase();
     const altitude = num(ac.alt_baro) ?? num(ac.alt_geom);
     const speed = num(ac.gs);
     const track = num(ac.track);
@@ -58,7 +123,7 @@ export function parseAdsbMilitary(raw: unknown, ctx: FeedContext): LiveItem[] {
       .filter(Boolean)
       .join(" ; ");
     items.push({
-      id: `adsb-lol-military:${hex.toLowerCase()}`,
+      id: `adsb-lol-military:${normalizedHex}`,
       category: "military",
       nature: "sensor_measurement",
       title: aircraftTitle(ac),
@@ -75,6 +140,8 @@ export function parseAdsbMilitary(raw: unknown, ctx: FeedContext): LiveItem[] {
       severity: null,
       metric: altitude !== null ? { label: "Altitude", value: altitude, unit: "ft" } : speed !== null ? { label: "Vitesse sol", value: speed, unit: "kt" } : null,
       caveat: ADSB_CAVEAT,
+      vehicle: "aircraft",
+      track: observeAircraft(normalizedHex, lat, lon, occurredMs, nowMs),
     });
   }
   return items;
@@ -87,7 +154,8 @@ export const militarySources: FeedSourceDef[] = [
     category: "military",
     homepage: "https://adsb.lol/",
     license: "Open Database License (ODbL) 1.0 — attribution « adsb.lol »",
-    ttlMs: 2 * 60_000,
+    // Une collecte au plus par minute quand `/api/feeds` est effectivement sollicitée.
+    ttlMs: 60_000,
     async load(ctx) {
       return parseAdsbMilitary(await fetchJson("https://api.adsb.lol/v2/mil", { maxBytes: 2 * 1024 * 1024 }), ctx);
     },

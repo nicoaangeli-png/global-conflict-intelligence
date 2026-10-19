@@ -1,0 +1,91 @@
+[
+  {
+    "MessageType": "ShipStaticData",
+    "MetaData": {
+      "MMSI": 368207620,
+      "ShipName": "USNS MERCY"
+    },
+    "Message": {
+      "ShipStaticData": {
+        "MessageID": 5,
+        "UserID": 368207620,
+        "Valid": true,
+        "CallSign": "USNS MERCY",
+        "Name": "USNS MERCY",
+        "Type": 35
+      }
+    }
+  },
+  {
+    "MessageType": "PositionReport",
+    "MetaData": {
+      "MMSI": 368207620,
+      "ShipName": "USNS MERCY",
+      "Latitude": 25.7617,
+      "Longitude": -80.1918
+    },
+    "Message": {
+      "PositionReport": {
+        "MessageID": 1,
+        "UserID": 368207620,
+        "Sog": 12.4,
+        "Cog": 86.7,
+        "TrueHeading": 87,
+        "Valid": true
+      }
+    }
+  },
+  {
+    "MessageType": "ShipStaticData",
+    "MetaData": {
+      "MMSI": 227123456,
+      "ShipName": "CIVILIAN FERRY"
+    },
+    "Message": {
+      "ShipStaticData": {
+        "MessageID": 5,
+        "UserID": 227123456,
+        "Valid": true,
+        "CallSign": "FABC",
+        "Name": "CIVILIAN FERRY",
+        "Type": 60
+      }
+    }
+  },
+  {
+    "MessageType": "PositionReport",
+    "MetaData": {
+      "MMSI": 227123456,
+      "ShipName": "CIVILIAN FERRY",
+      "Latitude": 48.3904,
+      "Longitude": -4.4861
+    },
+    "Message": {
+      "PositionReport": {
+        "MessageID": 1,
+        "UserID": 227123456,
+        "Sog": 14.1,
+        "Cog": 240.2,
+        "Valid": true
+      }
+    }
+  },
+  {
+    "MessageType": "PositionReport",
+    "MetaData": {
+      "MMSI": 232123456,
+      "ShipName": "HMS TEST FIXTURE",
+      "Latitude": 50.1,
+      "Longitude": -1.2
+    },
+    "Message": {
+      "PositionReport": {
+        "MessageID": 1,
+        "UserID": 232123456,
+        "Sog": 8.2,
+        "Cog": 180,
+        "Valid": true
+      }
+    }
+  }
+]

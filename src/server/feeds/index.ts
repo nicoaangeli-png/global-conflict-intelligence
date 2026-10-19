@@ -4,6 +4,7 @@ import { disasterSources } from "./disaster";
 import { economySources } from "./economy";
 import { healthSources } from "./health";
 import { infrastructureSources } from "./infrastructure";
+import { maritimeSources } from "./maritime";
 import { militarySources } from "./military";
 import { nuclearSources } from "./nuclear";
 import { socialSources } from "./social";
@@ -29,6 +30,7 @@ export const FEED_SOURCES: FeedSourceDef[] = [
   ...uapSources,
   ...economySources,
   ...militarySources,
+  ...maritimeSources,
   ...weatherSources,
   ...infrastructureSources,
   ...EXTRA_SOURCES,

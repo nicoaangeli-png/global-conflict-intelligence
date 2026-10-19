@@ -63,6 +63,10 @@ export interface LiveItem {
   metric: { label: string; value: number; unit: string | null } | null;
   /** Avertissement à afficher avec l'élément (ex. « témoignage non vérifié »). */
   caveat: string | null;
+  /** Mobile suivi (catégorie « military ») : aéronef ADS-B ou navire AIS. */
+  vehicle?: "aircraft" | "vessel";
+  /** Positions observées précédentes, de la plus ancienne à la plus récente (jamais extrapolées). */
+  track?: { lat: number; lon: number; at: string }[];
 }
 
 export type FeedStatus = "ok" | "error" | "stale" | "not_configured";
