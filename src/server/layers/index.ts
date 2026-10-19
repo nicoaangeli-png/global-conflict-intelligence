@@ -120,6 +120,9 @@ async function loadFresh(id: LayerId, nowMs: number): Promise<LayerResponse> {
   }
 }
 
+/** Délai avant nouvel essai après un échec de la source. */
+export const ERROR_RETRY_MS = 10 * 60_000;
+
 /** Charge un calque de référence : cache mémoire puis disque ; jamais d'exception publique. */
 export async function loadLayer(id: LayerId, deps: LayerDeps = {}): Promise<LayerResponse> {
   const nowMs = (deps.now ?? Date.now)();
@@ -141,18 +144,20 @@ export async function loadLayer(id: LayerId, deps: LayerDeps = {}): Promise<Laye
       await writeCached(id, dir, nowMs, response);
       return response;
     } catch (error) {
+      // Échec : nouvel essai après ERROR_RETRY_MS, et non 24 h plus tard.
+      const retryAt = nowMs - DAY_MS + ERROR_RETRY_MS;
       if (previous?.features.length) {
         const response: LayerResponse = {
           ...previous,
           status: "stale",
           message: `Actualisation impossible : ${readableError(error)} Affichage du dernier cache valide.`,
         };
-        memory.set(id, { checkedAt: nowMs, response });
-        await writeCached(id, dir, nowMs, response);
+        memory.set(id, { checkedAt: retryAt, response });
+        await writeCached(id, dir, retryAt, response);
         return response;
       }
       const response: LayerResponse = { ...metadata[id], asOf: null, fetchedAt: new Date(nowMs).toISOString(), status: "error", message: readableError(error), features: [] };
-      memory.set(id, { checkedAt: nowMs, response });
+      memory.set(id, { checkedAt: retryAt, response });
       return response;
     }
   })();

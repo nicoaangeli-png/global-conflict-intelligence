@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildMilitaryBasesQuery, loadLayer, parseSanctions, parseSubmarineCables, parseMilitaryBases, parseNuclearPlants, resetLayersCache } from "@/server/layers";
+import { buildMilitaryBasesQuery, ERROR_RETRY_MS, loadLayer, parseSanctions, parseSubmarineCables, parseMilitaryBases, parseNuclearPlants, resetLayersCache } from "@/server/layers";
 import { publicationDateFromUrl } from "@/server/layers/sanctions";
 
 const fixture = (name: string) => readFileSync(path.join(__dirname, "fixtures", "layers", name), "utf8");
@@ -74,5 +74,21 @@ describe("cache de 24 h et repli stale", () => {
     expect(stale.status).toBe("stale");
     expect(stale.features).toHaveLength(3);
     expect(stale.message).toMatch(/dernier cache valide/i);
+  });
+
+  it("après un échec sans cache, réessaie au bout de 10 min et non 24 h", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "orbital-layers-"));
+    const now = Date.parse("2026-10-19T00:00:00.000Z");
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+    const failed = await loadLayer("nuclear_plants", { cacheDir: directory, now: () => now });
+    expect(failed.status).toBe("error");
+
+    const fetchMock = vi.fn(async () => new Response(fixture("wikidata-nuclear.json"), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await loadLayer("nuclear_plants", { cacheDir: directory, now: () => now + 5 * 60_000 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const retried = await loadLayer("nuclear_plants", { cacheDir: directory, now: () => now + ERROR_RETRY_MS + 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(retried.status).toBe("ok");
   });
 });

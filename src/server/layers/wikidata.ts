@@ -82,7 +82,7 @@ export function parseNuclearPlants(rows: WikidataBinding[], nowMs = Date.now()):
 }
 
 export async function loadNuclearPlants(nowMs = Date.now()): Promise<LayerFeature[]> {
-  return parseNuclearPlants(await fetchSparql(buildNuclearPlantsQuery()), nowMs);
+  return parseNuclearPlants(await fetchSparql(buildNuclearPlantsQuery(), 5 * 1024 * 1024, 45_000), nowMs);
 }
 
 export function buildMilitaryBasesQuery(
