@@ -18,7 +18,48 @@ import { ConnectorError, type Connector, safeFetch, providerDate, validCoordinat
  */
 
 const BASE = "https://ucdpapi.pcr.uu.se/api";
-const VERSION = process.env.UCDP_VERSION ?? "26.1";
+/**
+ * Version de l'API. Les versions annuelles (ex. 26.1) s'arrêtent à la fin de
+ * l'année précédente ; les versions « candidate » mensuelles (AA.0.M) couvrent
+ * l'année en cours. Sans UCDP_VERSION, la plus récente candidate disponible est
+ * détectée (sondage borné, mis en cache 12 h).
+ */
+const FORCED_VERSION = process.env.UCDP_VERSION?.trim() || null;
+const VERSION_TTL_MS = 12 * 3600e3;
+const versionCache = globalThis as unknown as { __orbitalUcdpVersion?: { at: number; version: string } };
+
+/** Versions candidates à sonder, de la plus récente à la plus ancienne (mois courant → 14 mois en arrière). */
+export function candidateVersions(now = new Date()): string[] {
+  const out: string[] = [];
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth() + 1;
+  for (let i = 0; i < 14; i++) {
+    out.push(`${y % 100}.0.${m}`);
+    m -= 1;
+    if (m === 0) {
+      m = 12;
+      y -= 1;
+    }
+  }
+  return out;
+}
+
+async function resolveVersion(token: string): Promise<string> {
+  if (FORCED_VERSION) return FORCED_VERSION;
+  const cached = versionCache.__orbitalUcdpVersion;
+  if (cached && Date.now() - cached.at < VERSION_TTL_MS) return cached.version;
+  for (const version of candidateVersions()) {
+    const res = await fetch(`${BASE}/gedevents/${version}?pagesize=1`, {
+      headers: { Accept: "application/json", "x-ucdp-access-token": token },
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    if (res?.ok) {
+      versionCache.__orbitalUcdpVersion = { at: Date.now(), version };
+      return version;
+    }
+  }
+  throw new ConnectorError("Aucune version candidate UCDP disponible", "ucdp", "network");
+}
 const DOWNLOADS = "https://ucdp.uu.se/downloads/";
 const CANDIDATE_TTL_MS = 12 * 3600e3;
 
@@ -116,7 +157,10 @@ export const ucdpConnector: Connector = {
   },
 
   describe() {
-    if (process.env.UCDP_ACCESS_TOKEN) return `API UCDP GED ${VERSION} — jeu de données académique géoréférencé (validation).`;
+    if (process.env.UCDP_ACCESS_TOKEN) {
+      const version = FORCED_VERSION ?? versionCache.__orbitalUcdpVersion?.version ?? "candidate";
+      return `API UCDP GED ${version} — données candidates mensuelles géoréférencées. Décalage de publication : 1 à 2 mois.`;
+    }
     const latest = candidateCache.__orbitalUcdpCandidate?.events.reduce((max, e) => (e.eventDate > max ? e.eventDate : max), "");
     return `UCDP GED Candidate — fichiers publics mensuels (CC BY 4.0)${latest ? `, données jusqu'au ${latest.slice(0, 10)}` : ""}. Décalage de publication : 1 à 2 mois.`;
   },
@@ -124,22 +168,27 @@ export const ucdpConnector: Connector = {
   async fetchEvents({ days }) {
     if (!this.isConfigured()) throw new ConnectorError("UCDP non configuré", "ucdp", "config");
     if (!process.env.UCDP_ACCESS_TOKEN) return fetchCandidate(days);
-    const start = new Date(Date.now() - days * 86400e3).toISOString().slice(0, 10);
+    const token = process.env.UCDP_ACCESS_TOKEN;
+    const version = await resolveVersion(token);
+    // Décalage de publication de 1 à 2 mois : comme pour les fichiers publics, au moins un an
+    // est chargé pour que les vues longues soient alimentées (sinon une fenêtre de 30 j serait vide).
+    const start = new Date(Date.now() - Math.max(days, 365) * 86400e3).toISOString().slice(0, 10);
     const params = new URLSearchParams({ pagesize: "1000", StartDate: start, EndDate: new Date().toISOString().slice(0, 10) });
     const rows: UcdpRow[] = [];
     let complete = false;
-    for (let page = 1; page <= 100; page++) {
+    // Les pages de l'API UCDP commencent à 0.
+    for (let page = 0; page < 100; page++) {
       params.set("page", String(page));
-      const res = await safeFetch("ucdp", `${BASE}/gedevents/${VERSION}?${params.toString()}`, {
+      const res = await safeFetch("ucdp", `${BASE}/gedevents/${version}?${params.toString()}`, {
         headers: {
           Accept: "application/json",
-          "x-ucdp-access-token": process.env.UCDP_ACCESS_TOKEN ?? "",
+          "x-ucdp-access-token": token,
         },
       });
       const json = (await res.json()) as { Result?: UcdpRow[]; NextPageUrl?: string | null; TotalPages?: number };
       if (!Array.isArray(json.Result)) throw new ConnectorError("Réponse UCDP invalide", "ucdp", "parse");
       rows.push(...json.Result);
-      if (json.NextPageUrl === null || (typeof json.TotalPages === "number" && page >= json.TotalPages) || (json.NextPageUrl === undefined && json.Result.length < 1000)) {
+      if (json.NextPageUrl === null || (typeof json.TotalPages === "number" && page + 1 >= json.TotalPages) || (json.NextPageUrl === undefined && json.Result.length < 1000)) {
         complete = true;
         break;
       }
