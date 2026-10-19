@@ -18,7 +18,7 @@ import { ConnectorError, type Connector, safeFetch, providerDate, validCoordinat
  */
 
 const BASE = "https://ucdpapi.pcr.uu.se/api";
-const VERSION = process.env.UCDP_VERSION ?? "25.1";
+const VERSION = process.env.UCDP_VERSION ?? "26.1";
 const DOWNLOADS = "https://ucdp.uu.se/downloads/";
 const CANDIDATE_TTL_MS = 12 * 3600e3;
 
