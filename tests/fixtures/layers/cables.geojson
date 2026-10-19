@@ -1,0 +1,6 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "id": "fr-test", "name": "France &amp; Test", "color": "#123456", "coordinates": [2.0, 48.0] }, "geometry": { "type": "MultiLineString", "coordinates": [[[1, 48], [2, 49]]] } }
+  ]
+}

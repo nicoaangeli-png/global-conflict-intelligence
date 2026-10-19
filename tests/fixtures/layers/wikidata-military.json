@@ -1,0 +1,9 @@
+{
+  "head": { "vars": ["item", "itemLabel", "coord", "countryIso", "operatorLabel", "typeLabel", "closed", "conditionLabel"] },
+  "results": { "bindings": [
+    { "item": { "value": "http://www.wikidata.org/entity/Q200" }, "itemLabel": { "value": "Base française" }, "coord": { "value": "Point(2.1 48.9)" }, "countryIso": { "value": "FRA" }, "operatorLabel": { "value": "Forces armées françaises" }, "typeLabel": { "value": "base aérienne" } },
+    { "item": { "value": "http://www.wikidata.org/entity/Q201" }, "itemLabel": { "value": "Base fermée" }, "coord": { "value": "Point(2.2 48.8)" }, "closed": { "value": "2001-01-01T00:00:00Z" } },
+    { "item": { "value": "http://www.wikidata.org/entity/Q202" }, "itemLabel": { "value": "Base abandonnée" }, "coord": { "value": "Point(2.3 48.7)" }, "conditionLabel": { "value": "abandoned" } },
+    { "item": { "value": "http://www.wikidata.org/entity/Q203" }, "itemLabel": { "value": "Base fermée par état" }, "coord": { "value": "Point(2.4 48.6)" }, "conditionLabel": { "value": "fermé définitivement" } }
+  ] }
+}

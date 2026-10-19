@@ -35,5 +35,8 @@ Thumbs.db
 # Bilan du jour (cache quotidien)
 data/briefing/
 
+# Calques de référence (cache quotidien des sources externes)
+data/layers/
+
 # Extraits vocaux générés localement (non versionnés)
 public/voice-samples/

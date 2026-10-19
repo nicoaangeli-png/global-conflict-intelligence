@@ -1,0 +1,8 @@
+{
+  "head": { "vars": ["item", "itemLabel", "coord", "countryIso", "operatorLabel", "start", "closed", "capacity", "isProject"] },
+  "results": { "bindings": [
+    { "item": { "value": "http://www.wikidata.org/entity/Q100" }, "itemLabel": { "value": "Centrale de test" }, "coord": { "value": "Point(2.35 48.85)" }, "countryIso": { "value": "FRA" }, "operatorLabel": { "value": "Opérateur &amp; Co" }, "start": { "value": "2000-01-01T00:00:00Z" }, "capacity": { "value": "900" } },
+    { "item": { "value": "http://www.wikidata.org/entity/Q101" }, "itemLabel": { "value": "Centrale fermée" }, "coord": { "value": "Point(3 49)" }, "countryIso": { "value": "FRA" }, "closed": { "value": "2020-03-01T00:00:00Z" } },
+    { "item": { "value": "http://www.wikidata.org/entity/Q102" }, "itemLabel": { "value": "Projet nucléaire" }, "coord": { "value": "Point(4 50)" }, "countryIso": { "value": "FRA" }, "isProject": { "value": "true" } }
+  ] }
+}
