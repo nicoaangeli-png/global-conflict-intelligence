@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FeedsResponse } from "@/types/feeds";
+import { FEED_CATEGORIES, type FeedsResponse } from "@/types/feeds";
 
 const mocks = vi.hoisted(() => ({ getFeeds: vi.fn() }));
 
@@ -66,7 +66,7 @@ describe("outil AURA get_live_feeds", () => {
       type: "object",
       additionalProperties: false,
       properties: {
-        category: { enum: ["disaster", "health", "space", "nuclear", "un", "social", "economy", "uap"] },
+        category: { enum: [...FEED_CATEGORIES] },
         country_iso3: { pattern: "^[A-Z]{3}$" },
         hours: { minimum: 1, maximum: 720 },
         limit: { minimum: 1, maximum: LIVE_FEEDS_MAX_LIMIT },
