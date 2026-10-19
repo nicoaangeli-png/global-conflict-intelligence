@@ -10,7 +10,9 @@ import { resolveCountryIdentity, countryNamesMatchWhenIsoUnknown } from "@/lib/g
 import { useIntelStore } from "@/store/useIntelStore";
 import { countryLabel, useCountryReference } from "./countryReference";
 import { clusterBreakdown } from "./conflictModel";
-import { THEME_COLORS, THEME_LABELS, countryMarkets, countrySections, flagEmoji, isLive, itemTime, label, type CountrySectionKey } from "./feedModel";
+import { MILITARY_NOW_MS, THEME_COLORS, THEME_LABELS, countryMarkets, countrySections, flagEmoji, isLive, itemTime, label, militaryNow, type CountrySectionKey } from "./feedModel";
+import type { LayerFeature, LayerId } from "@/types/layers";
+import { LAYER_STYLE, featuresInCountry, sanctionsByCountry } from "@/components/layers/layerModel";
 import { ItemTime, LivePill, NatureBadge } from "./FeedItem";
 import { useNow } from "./useNow";
 
@@ -37,13 +39,14 @@ function Section({ title, color, children }: { title: string; color?: string; ch
   );
 }
 
-function MiniItem({ item, locale, now }: { item: LiveItem; locale: Locale; now: number }) {
+function MiniItem({ item, locale, now, hideCaveat = false }: { item: LiveItem; locale: Locale; now: number; hideCaveat?: boolean }) {
   const selectFeedItem = useIntelStore((s) => s.selectFeedItem);
   return (
     <li className="mini-item">
       <div className="flex flex-wrap items-center gap-1.5">
-        {isLive(item, now) ? <LivePill locale={locale} /> : null}
+        {isLive(item, now) && item.category !== "military" ? <LivePill locale={locale} /> : null}
         <NatureBadge item={item} locale={locale} />
+        {item.metric && item.category === "military" ? <span className="metric">{item.metric.value.toLocaleString("fr-FR")}{item.metric.unit ? ` ${item.metric.unit}` : ""}</span> : null}
       </div>
       <button type="button" className="mini-title" onClick={() => selectFeedItem(item)} title={tr(locale, "Afficher le détail", "Show details")}>
         {item.title}
@@ -59,7 +62,7 @@ function MiniItem({ item, locale, now }: { item: LiveItem; locale: Locale; now: 
           </a>
         ) : null}
       </div>
-      {item.caveat ? <p className="feed-caveat">{item.caveat}</p> : null}
+      {item.caveat && !hideCaveat ? <p className="feed-caveat">{item.caveat}</p> : null}
     </li>
   );
 }
@@ -70,19 +73,23 @@ function FeedSection({
   locale,
   now,
   status,
+  title,
 }: {
   sectionKey: CountrySectionKey;
   data: { recent: LiveItem[]; older: LiveItem | null };
   locale: Locale;
   now: number;
   status: Load<unknown>["status"];
+  title?: string;
 }) {
+  const shown = data.recent.slice(0, 5);
   return (
-    <Section title={label(THEME_LABELS[sectionKey], locale)} color={THEME_COLORS[sectionKey]}>
+    <Section title={title ?? label(THEME_LABELS[sectionKey], locale)} color={THEME_COLORS[sectionKey]}>
       {data.recent.length ? (
         <ul className="space-y-2">
-          {data.recent.slice(0, 5).map((item) => (
-            <MiniItem key={item.id} item={item} locale={locale} now={now} />
+          {shown.map((item, i) => (
+            // Un avertissement identique au précédent n'est pas répété.
+            <MiniItem key={item.id} item={item} locale={locale} now={now} hideCaveat={shown.slice(0, i).some((prev) => prev.caveat === item.caveat)} />
           ))}
           {data.recent.length > 5 ? <li className="meta">+ {data.recent.length - 5} {tr(locale, "autres sur 24 h", "more over 24 h")}</li> : null}
         </ul>
@@ -105,6 +112,42 @@ function FeedSection({
   );
 }
 
+/** Liste repliable des installations connues d'un calque (centrales, bases) pour un pays. */
+function FacilityList({ layerId, features, locale, status }: { layerId: LayerId; features: LayerFeature[]; locale: Locale; status: "loading" | "ready" | "error" | "source-error" }) {
+  const selectLayerFeature = useIntelStore((s) => s.selectLayerFeature);
+  const toggleLayer = useIntelStore((s) => s.toggleLayer);
+  const style = LAYER_STYLE[layerId];
+  const name = style.label[locale];
+  if (status === "loading") return <p className="meta">{name} : {tr(locale, "source en cours de chargement…", "source loading…")}</p>;
+  if (status === "error" || status === "source-error") return <p className="meta">{name} : {tr(locale, "source indisponible pour le moment.", "source unavailable right now.")}</p>;
+  if (!features.length) return <p className="empty-line">{name} : {tr(locale, "rien dans nos sources.", "nothing in our sources.")}</p>;
+  return (
+    <details className="facility-list">
+      <summary>
+        <span className="text-[#e3f3ff]">{name}</span> · {int(features.length)} {tr(locale, "connue(s)", "known")}
+      </summary>
+      <ul className="mt-1.5 space-y-1">
+        {features.map((f) => (
+          <li key={f.id}>
+            <button
+              type="button"
+              className="link-button text-[12px]"
+              onClick={() => {
+                // Le calque s'allume pour montrer l'élément sur le globe.
+                if (!useIntelStore.getState().layersOn[layerId]) toggleLayer(layerId);
+                selectLayerFeature({ layerId, feature: f });
+              }}
+            >
+              {f.name}
+            </button>
+            {typeof f.properties.status === "string" ? <span className="meta"> · {f.properties.status}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function CountryPanel() {
   const country = useIntelStore((s) => s.country);
   const locale = useIntelStore((s) => s.locale);
@@ -114,6 +157,8 @@ export function CountryPanel() {
   const setCountry = useIntelStore((s) => s.setCountry);
   const select = useIntelStore((s) => s.select);
   const openAura = useIntelStore((s) => s.openAura);
+  const layers = useIntelStore((s) => s.layers);
+  const ensureLayer = useIntelStore((s) => s.ensureLayer);
   const { ref } = useCountryReference();
   const now = useNow();
   const iso = country ? (resolveCountryIdentity(country.iso || country.name)?.iso3 ?? country.iso) : "";
@@ -169,6 +214,12 @@ export function CountryPanel() {
     return () => controller.abort();
   }, [iso, validIso]);
 
+  // Calques de référence utiles à la fiche (chargés une fois pour la session, même éteints).
+  useEffect(() => {
+    if (!validIso) return;
+    for (const id of ["sanctions", "nuclear_plants", "military_bases"] as const) void ensureLayer(id);
+  }, [validIso, ensureLayer]);
+
   // Les éléments déjà chargés par le fil complètent la requête pays (même contrat).
   const items = useMemo(() => {
     const map = new Map<string, LiveItem>();
@@ -179,6 +230,18 @@ export function CountryPanel() {
 
   const sections = useMemo(() => countrySections(items, iso, now), [items, iso, now]);
   const markets = useMemo(() => countryMarkets(items, iso), [items, iso]);
+  const aircraft = useMemo(() => militaryNow(items, iso, now), [items, iso, now]);
+  const layerStatus = (id: LayerId) => {
+    const l = layers[id];
+    if (!l || l.status === "loading") return "loading" as const;
+    if (l.status === "error" && !l.data) return "error" as const;
+    if (l.data?.status === "error") return "source-error" as const;
+    return "ready" as const;
+  };
+  const sanctionsData = layers.sanctions?.data ?? null;
+  const sanctions = useMemo(() => (sanctionsData ? (sanctionsByCountry(sanctionsData.features).get(iso) ?? null) : null), [sanctionsData, iso]);
+  const nuclearFeatures = useMemo(() => featuresInCountry(layers.nuclear_plants?.data?.features ?? [], iso), [layers.nuclear_plants?.data, iso]);
+  const baseFeatures = useMemo(() => featuresInCountry(layers.military_bases?.data?.features ?? [], iso), [layers.military_bases?.data, iso]);
 
   const local = useMemo(
     () =>
@@ -288,10 +351,85 @@ export function CountryPanel() {
           )}
         </Section>
 
+        <Section title={tr(locale, "Activité militaire observée", "Observed military activity")} color={THEME_COLORS.military}>
+          {aircraft.length ? (
+            <>
+              <p className="meta">
+                {tr(locale, `${aircraft.length} aéronef(s) militaire(s) à position publiée au-dessus du pays (dernière heure)`, `${aircraft.length} military aircraft with a published position over the country (last hour)`)}
+              </p>
+              <ul className="mt-1.5 space-y-2">
+                {aircraft.slice(0, 5).map((item, i) => (
+                  <MiniItem key={item.id} item={item} locale={locale} now={now} hideCaveat={i > 0} />
+                ))}
+                {aircraft.length > 5 ? <li className="meta">+ {aircraft.length - 5} {tr(locale, "autres (onglet Militaire)", "more (Military tab)")}</li> : null}
+              </ul>
+            </>
+          ) : feedStatus === "loading" ? (
+            <p className="meta">{tr(locale, "Chargement…", "Loading…")}</p>
+          ) : (
+            <p className="empty-line">
+              {tr(
+                locale,
+                `Rien dans nos sources sur ${Math.round(MILITARY_NOW_MS / 60e3)} min : aucun aéronef militaire à position ADS-B publiée au-dessus du pays (beaucoup n'émettent pas).`,
+                `Nothing in our sources over ${Math.round(MILITARY_NOW_MS / 60e3)} min: no military aircraft with a published ADS-B position over the country (many do not transmit).`,
+              )}
+            </p>
+          )}
+        </Section>
+
         <FeedSection sectionKey="social" data={sections.social} locale={locale} now={now} status={feedStatus} />
         <FeedSection sectionKey="disaster" data={sections.disaster} locale={locale} now={now} status={feedStatus} />
+        <FeedSection sectionKey="weather" title={tr(locale, "Alertes météo officielles", "Official weather alerts")} data={sections.weather} locale={locale} now={now} status={feedStatus} />
+        <FeedSection sectionKey="infrastructure" title={tr(locale, "Pannes internet et ports", "Internet outages and ports")} data={sections.infrastructure} locale={locale} now={now} status={feedStatus} />
         <FeedSection sectionKey="health" data={sections.health} locale={locale} now={now} status={feedStatus} />
         <FeedSection sectionKey="un" data={sections.un} locale={locale} now={now} status={feedStatus} />
+
+        <Section title={tr(locale, "Sanctions OFAC (États-Unis)", "OFAC sanctions (United States)")} color={LAYER_STYLE.sanctions.color}>
+          {layerStatus("sanctions") === "loading" ? (
+            <p className="meta">{tr(locale, "Source en cours de chargement…", "Source loading…")}</p>
+          ) : layerStatus("sanctions") !== "ready" ? (
+            <p className="meta">
+              {tr(locale, "Liste OFAC indisponible pour le moment", "OFAC list unavailable right now")}
+              {sanctionsData?.message ? ` : ${sanctionsData.message}` : layers.sanctions?.error ? ` : ${layers.sanctions.error}` : "."}
+            </p>
+          ) : sanctions ? (
+            <>
+              <dl className="kv">
+                <dt>{tr(locale, "Entités listées", "Listed entities")}</dt>
+                <dd>{int(sanctions.entities)} · {tr(locale, "adresse dans le pays", "address in the country")}</dd>
+                {sanctions.programs.length ? (
+                  <>
+                    <dt>{tr(locale, "Programmes", "Programs")}</dt>
+                    <dd>
+                      {sanctions.programs
+                        .slice(0, 8)
+                        .map((p) => (p.count === null ? p.name : `${p.name} (${p.count})`))
+                        .join(", ")}
+                      {sanctions.programs.length > 8 ? ` … +${sanctions.programs.length - 8}` : ""}
+                    </dd>
+                  </>
+                ) : null}
+              </dl>
+              {sanctionsData?.caveat ? <p className="feed-caveat mt-1">{sanctionsData.caveat}</p> : null}
+            </>
+          ) : (
+            <p className="empty-line">{tr(locale, "Rien dans nos sources : aucune entité de la liste SDN de l'OFAC avec une adresse dans ce pays.", "Nothing in our sources: no entity of the OFAC SDN list with an address in this country.")}</p>
+          )}
+          {sanctionsData ? (
+            <p className="meta mt-1">
+              {sanctionsData.sourceName}
+              {sanctionsData.asOf ? ` · ${tr(locale, "liste du", "list as of")} ${absoluteDateTime(sanctionsData.asOf, locale)}` : ` · ${tr(locale, "date de la liste non publiée par la source", "list date not published by the source")}`}
+            </p>
+          ) : null}
+        </Section>
+
+        <Section title={tr(locale, "Installations connues", "Known facilities")}>
+          <div className="space-y-1.5">
+            <FacilityList layerId="nuclear_plants" features={nuclearFeatures} locale={locale} status={layerStatus("nuclear_plants")} />
+            <FacilityList layerId="military_bases" features={baseFeatures} locale={locale} status={layerStatus("military_bases")} />
+          </div>
+          <p className="meta mt-1">{tr(locale, "Source : Wikidata (base collaborative, couverture non exhaustive).", "Source: Wikidata (collaborative, coverage not exhaustive).")}</p>
+        </Section>
         {(["nuclear", "space", "uap"] as const).map((key) =>
           sections[key].recent.length ? <FeedSection key={key} sectionKey={key} data={sections[key]} locale={locale} now={now} status={feedStatus} /> : null,
         )}

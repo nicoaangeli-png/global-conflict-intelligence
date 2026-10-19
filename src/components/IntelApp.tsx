@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Header } from "@/components/ui/Header";
 import { SettingsPanel } from "@/components/ui/SettingsPanel";
 import { BriefingModal } from "@/components/briefing/BriefingModal";
-import { BootOverlay, FrameCorners, HoverCountryBadge, HoverFeedReadout, HoverReadout } from "@/components/ui/Overlays";
+import { BootOverlay, FrameCorners, HoverCountryBadge, HoverFeedReadout, HoverLayerReadout, HoverReadout } from "@/components/ui/Overlays";
 import { ThemeBar } from "@/components/feeds/ThemeBar";
 import { WorldFeedPanel } from "@/components/feeds/WorldFeedPanel";
 import { Inspector, hasInspection } from "@/components/feeds/Inspector";
@@ -21,6 +21,8 @@ const GlobeScene = dynamic(() => import("@/components/globe/GlobeScene").then((m
 
 /** Polling des flux mondiaux (en plus du rafraîchissement manuel). */
 const FEEDS_POLL_MS = 2 * 60_000;
+/** Positions d'aéronefs militaires : rafraîchies plus souvent quand l'onglet Militaire est ouvert. */
+const MILITARY_POLL_MS = 30_000;
 
 /** Détermine si l'utilisateur est en train de saisir dans un champ texte / zone éditable */
 function isTypingContext(e: KeyboardEvent): boolean {
@@ -53,6 +55,8 @@ export function IntelApp() {
   const error = useIntelStore((s) => s.error);
   const agentOpen = useIntelStore((s) => s.agentOpen);
   const inspecting = useIntelStore(hasInspection);
+  const theme = useIntelStore((s) => s.theme);
+  const refreshFeedCategory = useIntelStore((s) => s.refreshFeedCategory);
 
   // Langue du document synchronisée (évite la « traduction » automatique de Chrome).
   useEffect(() => {
@@ -66,6 +70,13 @@ export function IntelApp() {
     const id = setInterval(() => void refreshFeeds(), FEEDS_POLL_MS);
     return () => clearInterval(id);
   }, [refresh, refreshFeeds]);
+
+  // Onglet Militaire : positions ADS-B rafraîchies en direct (le cache serveur borne le rythme réel).
+  useEffect(() => {
+    if (theme !== "military") return;
+    const id = setInterval(() => void refreshFeedCategory("military"), MILITARY_POLL_MS);
+    return () => clearInterval(id);
+  }, [theme, refreshFeedCategory]);
 
   // Sur mobile : une inspection ouvre le volet correspondant.
   useEffect(() => {
@@ -121,6 +132,7 @@ export function IntelApp() {
         return;
       }
       if (s.selectedFeedItem) return s.selectFeedItem(null);
+      if (s.selectedLayerFeature) return s.selectLayerFeature(null);
       if (s.selected) return void s.select(null);
       if (s.country) return s.setCountry(null);
     };
@@ -163,6 +175,7 @@ export function IntelApp() {
         <HoverCountryBadge />
         <HoverReadout />
         <HoverFeedReadout />
+        <HoverLayerReadout />
 
         {/* Sélecteur de volet (écran étroit uniquement) */}
         <div role="group" aria-label={tr(locale, "Volet affiché", "Visible pane")} className="mobile-switch">
@@ -186,7 +199,7 @@ export function IntelApp() {
             <span className="corner" />
             <div className="text-[13px] text-[#ff8a70]">{tr(locale, "Données de conflit indisponibles", "Conflict data unavailable")}</div>
             <div className="meta mt-1">{error}</div>
-            <button type="button" className="chip mt-3 w-full text-center" onClick={() => void refresh()}>\
+            <button type="button" className="chip mt-3 w-full text-center" onClick={() => void refresh()}>
               {tr(locale, "Réessayer", "Retry")}
             </button>
           </div>

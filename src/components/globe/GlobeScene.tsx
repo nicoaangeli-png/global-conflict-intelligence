@@ -12,15 +12,18 @@ import { OrbitLayer } from './OrbitLayer';
 import { Starfield } from './Starfield';
 import { ConflictLayer } from '../conflicts/ConflictLayer';
 import { FeedLayer } from './FeedLayer';
+import { ReferenceLayers } from './ReferenceLayers';
+import { LayersMenu } from '../layers/LayersMenu';
+import { LAYER_ORDER, sanctionsByCountry } from '../layers/layerModel';
 import { useIntelStore } from '@/store/useIntelStore';
 import { tr } from '@/lib/i18n';
 import type { LiveItem } from '@/types/feeds';
 import { itemsForTheme, type ThemeKey } from '../feeds/feedModel';
 import { isPointPrecise } from '../feeds/conflictModel';
 
-/** Éléments de flux visibles pour un thème (« conflict » : aucun, « all » : tous). */
-function feedItemsFor(theme: ThemeKey, feeds: LiveItem[]): LiveItem[] {
-  return itemsForTheme(feeds, theme);
+/** Éléments de flux visibles pour un thème (« conflict » : aucun, « all » : l'actualité). */
+function feedItemsFor(theme: ThemeKey, feeds: LiveItem[], allWeather: boolean): LiveItem[] {
+  return itemsForTheme(feeds, theme, Date.now(), { allWeather });
 }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -32,6 +35,7 @@ export function GlobeScene() {
   const starfieldRef = useRef<Starfield | null>(null);
   const conflictLayerRef = useRef<ConflictLayer | null>(null);
   const feedLayerRef = useRef<FeedLayer | null>(null);
+  const referenceLayersRef = useRef<ReferenceLayers | null>(null);
 
   const clusters = useIntelStore((s) => s.clusters);
   const selected = useIntelStore((s) => s.selected);
@@ -47,6 +51,11 @@ export function GlobeScene() {
   const selectedFeedId = useIntelStore((s) => s.selectedFeedItem?.id ?? null);
   const hoveredFeedId = useIntelStore((s) => s.hoveredFeedId);
   const locale = useIntelStore((s) => s.locale);
+  const weatherAll = useIntelStore((s) => s.weatherAll);
+  const layersOn = useIntelStore((s) => s.layersOn);
+  const layers = useIntelStore((s) => s.layers);
+  const selectedLayer = useIntelStore((s) => s.selectedLayerFeature);
+  const hoveredLayer = useIntelStore((s) => s.hoveredLayerFeature);
 
   const sphericalRef = useRef<{
     distance: number;
@@ -118,6 +127,11 @@ export function GlobeScene() {
     globeGroup.add(conflictLayer.group);
     conflictLayerRef.current = conflictLayer;
 
+    // Calques de référence (installations, câbles, sanctions) : sous les foyers et les flux.
+    const referenceLayers = new ReferenceLayers(GLOBE.radius);
+    globeGroup.add(referenceLayers.group);
+    referenceLayersRef.current = referenceLayers;
+
     // Calque des flux mondiaux : au-dessus des foyers, sans toucher au rendu de la Terre.
     const feedLayer = new FeedLayer(GLOBE.radius);
     globeGroup.add(feedLayer.group);
@@ -127,6 +141,8 @@ export function GlobeScene() {
     const conflictHit = (rect: DOMRect) =>
       conflictLayerRef.current?.group.visible ? conflictLayerRef.current.hitTest(camera, mouse, rect.width, rect.height) : null;
     const feedHit = (rect: DOMRect) => feedLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? null;
+    /** Élément d'un calque de référence allumé (~20 000 segments de câbles : ~1 ms par test). */
+    const layerHit = (rect: DOMRect) => referenceLayersRef.current?.hitTest(camera, mouse, rect.width, rect.height, true) ?? null;
 
     // Raycasting & picking analytique exact sur la sphère terrestre
     const raycaster = new THREE.Raycaster();
@@ -188,6 +204,7 @@ export function GlobeScene() {
         hover(null);
         setHoveredCountry(null);
         useIntelStore.getState().hoverFeed(null);
+        useIntelStore.getState().hoverLayerFeature(null);
       } else {
         if (e.target !== renderer.domElement || Math.abs(mouse.x) > 1 || Math.abs(mouse.y) > 1) {
           container.style.cursor = 'default';
@@ -195,13 +212,16 @@ export function GlobeScene() {
           setHoveredCountry(null);
           // Le survol d'une ligne du fil (hors canevas) garde la main sur le point surligné.
           if (e.target === renderer.domElement) useIntelStore.getState().hoverFeed(null);
+          useIntelStore.getState().hoverLayerFeature(null);
           return;
         }
         raycaster.setFromCamera(mouse, camera);
         const hit = conflictHit(rect);
         const itemHit = hit ? null : feedHit(rect);
+        const refHit = hit || itemHit ? null : layerHit(rect);
         useIntelStore.getState().hoverFeed(itemHit?.id ?? null);
-        if (hit || itemHit) {
+        useIntelStore.getState().hoverLayerFeature(refHit);
+        if (hit || itemHit || refHit) {
           container.style.cursor = 'pointer';
           hover(hit?.id ?? null);
           setHoveredCountry(null);
@@ -251,10 +271,13 @@ export function GlobeScene() {
       raycaster.setFromCamera(mouse, camera);
       const hit = conflictHit(rect);
       const itemHit = hit ? null : feedHit(rect);
+      const refHit = hit || itemHit ? null : layerHit(rect);
       if (hit) {
         void select(hit);
       } else if (itemHit) {
         useIntelStore.getState().selectFeedItem(itemHit);
+      } else if (refHit) {
+        useIntelStore.getState().selectLayerFeature(refHit);
       } else {
         // Clic sur un pays pour ouvrir la fiche détaillée Pentagone
         if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
@@ -396,7 +419,8 @@ export function GlobeScene() {
       if (orbitLayerRef.current) orbitLayerRef.current.update(elapsedTime, delta);
       if (starfieldRef.current) starfieldRef.current.update(elapsedTime);
       if (conflictLayerRef.current) conflictLayerRef.current.update(elapsedTime, delta, fov, height, dpr);
-      if (feedLayerRef.current) feedLayerRef.current.update(elapsedTime, dpr);
+      if (feedLayerRef.current) feedLayerRef.current.update(elapsedTime, dpr, width, height);
+      if (referenceLayersRef.current) referenceLayersRef.current.update(dpr);
 
       renderer.render(scene, camera);
     };
@@ -420,6 +444,7 @@ export function GlobeScene() {
       starfield.dispose();
       conflictLayer.dispose();
       feedLayer.dispose();
+      referenceLayers.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -441,12 +466,54 @@ export function GlobeScene() {
     if (conflictLayerRef.current) conflictLayerRef.current.group.visible = theme === 'all' || theme === 'conflict';
     const layer = feedLayerRef.current;
     if (!layer) return;
-    const apply = () => layer.setItems(feedItemsFor(theme, feeds));
+    const apply = () => layer.setItems(feedItemsFor(theme, feeds, weatherAll));
     apply();
     // Les halos « < 2 h » et l'éclat suivent l'âge réel : recalcul chaque minute.
     const id = setInterval(apply, 60_000);
     return () => clearInterval(id);
-  }, [theme, feeds]);
+  }, [theme, feeds, weatherAll]);
+
+  // Calques de référence : visibilité (éteints par défaut) et données chargées à la demande.
+  useEffect(() => {
+    const ref = referenceLayersRef.current;
+    if (!ref) return;
+    for (const id of LAYER_ORDER) ref.setVisible(id, layersOn[id] && Boolean(layers[id]?.data?.features.length));
+  }, [layersOn, layers]);
+
+  const nuclearData = layers.nuclear_plants?.data ?? null;
+  const basesData = layers.military_bases?.data ?? null;
+  const cablesData = layers.submarine_cables?.data ?? null;
+  const sanctionsData = layers.sanctions?.data ?? null;
+  useEffect(() => {
+    referenceLayersRef.current?.setFeatures('nuclear_plants', nuclearData?.features ?? null);
+  }, [nuclearData]);
+  useEffect(() => {
+    referenceLayersRef.current?.setFeatures('military_bases', basesData?.features ?? null);
+  }, [basesData]);
+  useEffect(() => {
+    referenceLayersRef.current?.setFeatures('submarine_cables', cablesData?.features ?? null);
+  }, [cablesData]);
+  useEffect(() => {
+    if (!sanctionsData?.features.length) return;
+    let cancelled = false;
+    const isos = new Set(sanctionsByCountry(sanctionsData.features).keys());
+    // Les contours viennent du même référentiel Natural Earth que le globe.
+    loadWorld()
+      .then((world) => {
+        if (!cancelled) referenceLayersRef.current?.setSanctions(isos, world);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [sanctionsData]);
+
+  useEffect(() => {
+    referenceLayersRef.current?.setHighlight(
+      selectedLayer ? { layerId: selectedLayer.layerId, id: selectedLayer.feature.id } : null,
+      hoveredLayer ? { layerId: hoveredLayer.layerId, id: hoveredLayer.feature.id } : null,
+    );
+  }, [selectedLayer, hoveredLayer, nuclearData, basesData, cablesData]);
 
   useEffect(() => {
     feedLayerRef.current?.setHighlight(selectedFeedId, hoveredFeedId);
@@ -533,6 +600,7 @@ export function GlobeScene() {
         <button type="button" onClick={handleResetView} title={tr(locale, 'Vue globale initiale', 'Reset global view')} aria-label={tr(locale, 'Vue globale initiale', 'Reset global view')}>
           ⟳
         </button>
+        <LayersMenu />
       </div>
     </div>
   );

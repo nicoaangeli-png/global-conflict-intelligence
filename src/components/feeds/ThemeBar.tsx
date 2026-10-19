@@ -3,14 +3,14 @@
 import { useMemo } from "react";
 import { tr } from "@/lib/i18n";
 import { useIntelStore } from "@/store/useIntelStore";
-import { THEMES, THEME_COLORS, THEME_LABELS, inPeriod, itemsForTheme, label, type ThemeKey } from "./feedModel";
-import { CountrySearch } from "./CountrySearch";
+import { THEMES, THEME_COLORS, THEME_TAB_LABELS, inPeriod, itemsForTheme, label, type ThemeKey } from "./feedModel";
 import { useNow } from "./useNow";
 
 /**
  * Navigation par thèmes : chaque onglet filtre le FIL MONDIAL et n'allume
  * sur le globe que le calque correspondant. Le compteur = éléments datés
- * des dernières 24 h (zones signalées pour « Conflits »).
+ * des dernières 24 h (zones signalées pour « Conflits »). La recherche de pays
+ * est dans l'en-tête : la barre reste entièrement aux onglets.
  */
 export function ThemeBar() {
   const theme = useIntelStore((s) => s.theme);
@@ -21,12 +21,11 @@ export function ThemeBar() {
   const now = useNow(60_000);
 
   const counts = useMemo(() => {
-    const out: Partial<Record<ThemeKey, number>> = { all: 0 };
-    for (const item of feeds) {
-      if (!inPeriod(item, "24h", now)) continue;
-      out[item.category] = (out[item.category] ?? 0) + 1;
+    const out: Partial<Record<ThemeKey, number>> = {};
+    for (const key of THEMES) {
+      if (key === "conflict") continue;
+      out[key] = itemsForTheme(feeds, key, now).filter((item) => inPeriod(item, "24h", now)).length;
     }
-    out.all = itemsForTheme(feeds, "all", now).filter((item) => inPeriod(item, "24h", now)).length;
     out.conflict = clusters.length;
     return out;
   }, [feeds, clusters, now]);
@@ -49,18 +48,17 @@ export function ThemeBar() {
               title={
                 key === "conflict"
                   ? tr(locale, `${count ?? 0} zones signalées sur la période choisie`, `${count ?? 0} reported areas over the chosen period`)
-                  : tr(locale, `${count ?? 0} éléments datés des dernières 24 h`, `${count ?? 0} items dated within the last 24 h`)
+                  : key === "military"
+                    ? tr(locale, `${count ?? 0} aéronefs militaires dont la position ADS-B est publiée (24 h)`, `${count ?? 0} military aircraft with a published ADS-B position (24 h)`)
+                    : tr(locale, `${count ?? 0} éléments datés des dernières 24 h`, `${count ?? 0} items dated within the last 24 h`)
               }
             >
               <span className="category-dot" style={{ background: THEME_COLORS[key] }} />
-              {label(THEME_LABELS[key], locale)}
+              {label(THEME_TAB_LABELS[key], locale)}
               {count ? <span className="theme-count">{count > 999 ? "999+" : count}</span> : null}
             </button>
           );
         })}
-      </div>
-      <div className="theme-search">
-        <CountrySearch />
       </div>
     </nav>
   );

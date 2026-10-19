@@ -7,6 +7,8 @@ import { useIntelStore } from "@/store/useIntelStore";
 import { clusterSummary } from "@/components/feeds/conflictModel";
 import { NATURE_LABELS, THEME_COLORS, THEME_LABELS, label } from "@/components/feeds/feedModel";
 import { countryLabel, useCountryReference } from "@/components/feeds/countryReference";
+import { LAYER_STYLE } from "@/components/layers/layerModel";
+import { LayerGlyphIcon } from "@/components/layers/LayersMenu";
 
 /**
  * Surcouches HUD : équerres de cadre, info-bulles de survol (zone de conflit,
@@ -93,6 +95,31 @@ export function HoverFeedReadout() {
       <p className="mt-1 line-clamp-3 text-[13px] leading-snug text-[#eaf6ff]">{item.title}</p>
       <p className="meta mt-1">
         {item.sourceName} · {relativeTime(item.occurredAt ?? item.publishedAt, locale)} · {tr(locale, "clic → détail", "click → details")}
+      </p>
+    </Tip>
+  );
+}
+
+/** Info-bulle au survol d'un élément de calque de référence (installation, câble). */
+export function HoverLayerReadout() {
+  const hovered = useIntelStore((s) => s.hoveredLayerFeature);
+  const meta = useIntelStore((s) => (hovered ? (s.layers[hovered.layerId]?.data ?? null) : null));
+  const locale = useIntelStore((s) => s.locale);
+  const { ref } = useCountryReference();
+  const pos = usePointer();
+  if (!hovered || pos.x < 420) return null;
+  const style = LAYER_STYLE[hovered.layerId];
+  const countries = hovered.feature.countries.slice(0, 3).map((iso) => countryLabel(iso, ref, locale));
+  return (
+    <Tip x={pos.x} y={pos.y}>
+      <div className="flex items-center gap-2">
+        <LayerGlyphIcon glyph={style.glyph} color={style.color} />
+        <span className="meta">{style.label[locale]}</span>
+      </div>
+      <p className="mt-1 break-words text-[13px] leading-snug text-[#eaf6ff]">{hovered.feature.name}</p>
+      <p className="meta mt-1">
+        {countries.length ? `${countries.join(", ")} · ` : ""}
+        {meta?.sourceName ?? ""} · {tr(locale, "clic → détail", "click → details")}
       </p>
     </Tip>
   );

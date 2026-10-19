@@ -12,8 +12,31 @@ import type { Locale } from "@/lib/i18n";
 /** Thème de navigation : tout, conflits armés (données du store) ou une catégorie de flux. */
 export type ThemeKey = "all" | "conflict" | FeedCategory;
 
-export const THEMES: readonly ThemeKey[] = ["all", "conflict", "social", "disaster", "health", "un", "space", "nuclear", "economy", "uap"];
+/**
+ * Onglets de la barre des thèmes. Douze au plus : « Météo » rejoint
+ * « Catastrophes » (même nature de risque), « Militaire » jouxte « Conflits »,
+ * « Réseaux » regroupe pannes d'internet et perturbations portuaires.
+ */
+export const THEMES: readonly ThemeKey[] = ["all", "conflict", "military", "social", "disaster", "health", "un", "space", "nuclear", "infrastructure", "economy", "uap"];
 
+/** Catégories de flux couvertes par un onglet (« all » : filtre dédié, « conflict » : aucune). */
+export const THEME_CATEGORIES: Record<ThemeKey, readonly FeedCategory[]> = {
+  all: FEED_CATEGORIES,
+  conflict: [],
+  disaster: ["disaster", "weather"],
+  weather: ["weather"],
+  health: ["health"],
+  space: ["space"],
+  nuclear: ["nuclear"],
+  un: ["un"],
+  social: ["social"],
+  economy: ["economy"],
+  uap: ["uap"],
+  military: ["military"],
+  infrastructure: ["infrastructure"],
+};
+
+/** Libellé d'une catégorie (étiquette d'un élément, section de fiche pays). */
 export const THEME_LABELS: Record<ThemeKey, { fr: string; en: string }> = {
   all: { fr: "Tout", en: "All" },
   conflict: { fr: "Conflits", en: "Conflicts" },
@@ -25,9 +48,22 @@ export const THEME_LABELS: Record<ThemeKey, { fr: string; en: string }> = {
   nuclear: { fr: "Nucléaire", en: "Nuclear" },
   economy: { fr: "Économie", en: "Economy" },
   uap: { fr: "OVNI", en: "UAP" },
+  military: { fr: "Militaire", en: "Military" },
+  weather: { fr: "Météo", en: "Weather" },
+  infrastructure: { fr: "Réseaux", en: "Networks" },
 };
 
-/** Couleur de calque par thème (globe + pastilles). Conflits = rouge historique du globe. */
+/** Libellé d'onglet : un onglet qui regroupe plusieurs catégories le dit. */
+export const THEME_TAB_LABELS: Record<ThemeKey, { fr: string; en: string }> = {
+  ...THEME_LABELS,
+  disaster: { fr: "Catastrophes & météo", en: "Disasters & weather" },
+};
+
+/**
+ * Couleur de calque par thème (globe + pastilles). Conflits = rouge historique du globe.
+ * Nouvelles catégories en teintes désaturées, pour ne pas concurrencer les signaux existants :
+ * olive (militaire), bleu ciel pâle (météo), argent (réseaux).
+ */
 export const THEME_COLORS: Record<ThemeKey, string> = {
   all: "#7fd4ff",
   conflict: "#ff4a3f",
@@ -39,6 +75,9 @@ export const THEME_COLORS: Record<ThemeKey, string> = {
   nuclear: "#d4ff4f",
   economy: "#3fe0d0",
   uap: "#ff7ad9",
+  military: "#b4c48e",
+  weather: "#8fc8ff",
+  infrastructure: "#cfd9e6",
 };
 
 export const NATURE_LABELS: Record<FeedNature, { fr: string; en: string }> = {
@@ -103,6 +142,8 @@ export type PeriodKey = "24h" | "7d" | "30d" | "all";
  */
 export function defaultPeriod(theme: ThemeKey): PeriodKey {
   if (theme === "uap") return "all";
+  // Perturbations portuaires : épisodes longs, datés de leur début (parfois il y a des mois) et toujours en cours.
+  if (theme === "infrastructure") return "all";
   if (theme === "un" || theme === "health" || theme === "nuclear" || theme === "space") return "7d";
   return "24h";
 }
@@ -158,15 +199,72 @@ export function isFuture(item: LiveItem, now = Date.now()): boolean {
   return !Number.isNaN(t) && t > now;
 }
 
+/** Sévérités météo retenues dans « Tout » (les alertes mineures/modérées restent dans leur onglet). */
+const ALL_FEED_WEATHER = new Set(["severe", "extreme"]);
+
+/**
+ * Élément retenu dans « Tout » = l'actualité. En sont exclus, car ils noieraient
+ * le fil et restent dans leur onglet : éléments futurs (Espace, « À venir »),
+ * cotations/devises, positions d'aéronefs (Militaire), mesures automatiques de
+ * connectivité (Réseaux) et alertes météo mineures ou modérées.
+ */
+export function inAllFeed(item: LiveItem, now = Date.now()): boolean {
+  if (item.category === "economy" || item.nature === "market_quote" || isFuture(item, now)) return false;
+  if (item.category === "military") return false;
+  if (item.category === "infrastructure" && item.nature === "sensor_measurement") return false;
+  if (!isMajorWeather(item)) return false;
+  return true;
+}
+
+/**
+ * Alerte météo retenue par défaut : sévère ou extrême (ou sévérité non publiée,
+ * ex. avis de cyclone NHC). L'OMM publie plus d'un millier d'alertes : le reste
+ * s'affiche sur demande (« Toutes les alertes ») et dans la fiche pays.
+ */
+export const isMajorWeather = (item: LiveItem) => item.category !== "weather" || item.severity === null || ALL_FEED_WEATHER.has(item.severity);
+
 /**
  * Filtre d'affichage du fil pour un thème (« conflict » n'a pas d'élément de flux).
- * « Tout » = l'actualité : sans éléments futurs (ils restent dans Espace, « À venir »)
- * ni cotations/devises (onglet Économie et fiche pays).
+ * `allWeather` : inclure les alertes météo mineures et modérées.
  */
-export function itemsForTheme(items: LiveItem[], theme: ThemeKey, now = Date.now()): LiveItem[] {
-  if (theme === "all") return items.filter((item) => item.category !== "economy" && item.nature !== "market_quote" && !isFuture(item, now));
+export function itemsForTheme(items: LiveItem[], theme: ThemeKey, now = Date.now(), options: { allWeather?: boolean } = {}): LiveItem[] {
+  if (theme === "all") return items.filter((item) => inAllFeed(item, now));
   if (theme === "conflict") return [];
-  return items.filter((item) => item.category === theme);
+  const categories = THEME_CATEGORIES[theme] ?? [theme];
+  return items.filter((item) => categories.includes(item.category) && (options.allWeather || isMajorWeather(item)));
+}
+
+/** Catégories d'un onglet (« all » : toutes). */
+export const themeCovers = (theme: ThemeKey, category: FeedCategory) => theme === "all" || (THEME_CATEGORIES[theme] ?? []).includes(category);
+
+/**
+ * Cap d'un aéronef (degrés, sens horaire depuis le nord) si la source le publie.
+ * adsb.lol : le serveur l'écrit dans le résumé (« cap 262° ») ; aucun cap n'est déduit.
+ */
+export function itemHeading(item: LiveItem): number | null {
+  const extra = (item as LiveItem & { heading?: unknown; track?: unknown }).heading ?? (item as { track?: unknown }).track;
+  if (typeof extra === "number" && Number.isFinite(extra)) return ((extra % 360) + 360) % 360;
+  if (item.metric && /^(cap|heading|track)$/i.test(item.metric.label) && Number.isFinite(item.metric.value)) return ((item.metric.value % 360) + 360) % 360;
+  const match = item.summary?.match(/\b(?:cap|heading|track)\s*:?\s*(\d{1,3}(?:[.,]\d+)?)\s*°/i);
+  if (!match) return null;
+  const value = Number(match[1].replace(",", "."));
+  return Number.isFinite(value) && value >= 0 && value <= 360 ? value % 360 : null;
+}
+
+/** Fenêtre « en ce moment » pour une position d'aéronef. */
+export const MILITARY_NOW_MS = 60 * 60e3;
+
+/** Aéronefs militaires observés au-dessus d'un pays dans l'heure (position datée, passée). */
+export function militaryNow(items: LiveItem[], iso3: string, now = Date.now()): LiveItem[] {
+  return sortChronological(
+    items.filter((item) => {
+      if (item.category !== "military" || !item.countries.includes(iso3)) return false;
+      const iso = itemTime(item);
+      const t = iso ? Date.parse(iso) : NaN;
+      return !Number.isNaN(t) && t <= now + 60e3 && now - t <= MILITARY_NOW_MS;
+    }),
+    now,
+  );
 }
 
 /** Résultat d'une requête par catégorie (succès ou échec réseau / HTTP). */
@@ -231,7 +329,7 @@ export function sourceStatusLabel(state: FeedSourceState, locale: Locale): strin
 
 /** Sources en échec à signaler dans le fil d'un thème (« Source indisponible : … »). */
 export function failingSourcesFor(sources: FeedSourceState[], theme: ThemeKey): FeedSourceState[] {
-  return sources.filter((s) => (s.status === "error" || s.status === "stale") && (theme === "all" || s.category === theme));
+  return sources.filter((s) => (s.status === "error" || s.status === "stale") && themeCovers(theme, s.category));
 }
 
 /** Catégories effectivement demandées au serveur (une requête par catégorie). */
@@ -246,7 +344,7 @@ export function flagEmoji(iso2: string | null | undefined): string | null {
 }
 
 /** Sections de la fiche pays construites sur les flux. */
-export type CountrySectionKey = "social" | "disaster" | "health" | "un" | "nuclear" | "space" | "uap";
+export type CountrySectionKey = "social" | "disaster" | "health" | "un" | "nuclear" | "space" | "uap" | "weather" | "infrastructure";
 
 /**
  * Répartit les éléments d'un pays par section : éléments des dernières 24 h,
@@ -257,7 +355,7 @@ export function countrySections(
   iso3: string,
   now = Date.now(),
 ): Record<CountrySectionKey, { recent: LiveItem[]; older: LiveItem | null }> {
-  const keys: CountrySectionKey[] = ["social", "disaster", "health", "un", "nuclear", "space", "uap"];
+  const keys: CountrySectionKey[] = ["social", "disaster", "health", "un", "nuclear", "space", "uap", "weather", "infrastructure"];
   const out = {} as Record<CountrySectionKey, { recent: LiveItem[]; older: LiveItem | null }>;
   for (const key of keys) {
     const mine = sortChronological(items.filter((item) => item.category === key && item.countries.includes(iso3)), now);

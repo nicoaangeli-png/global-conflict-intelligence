@@ -13,7 +13,9 @@ import type {
 import type { Locale } from "@/lib/i18n";
 import { REAL_DATASETS } from "@/types/conflict";
 import type { FeedCategory, FeedSourceState, FeedsResponse, LiveItem } from "@/types/feeds";
-import { FETCH_CATEGORIES, mergeCategoryResults, type CategoryResult, type ThemeKey } from "@/components/feeds/feedModel";
+import { FETCH_CATEGORIES, inAllFeed, mergeCategoryResults, themeCovers, type CategoryResult, type ThemeKey } from "@/components/feeds/feedModel";
+import type { LayerFeature, LayerId } from "@/types/layers";
+import { featureAnchor, isLayerResponse, parseLayerCatalog, type LayerLoad, type LayerSummary } from "@/components/layers/layerModel";
 
 /**
  * État global de l'application.
@@ -29,6 +31,9 @@ export type CountryFocus = { name: string; iso: string; lat: number; lon: number
 /** État de chargement des flux mondiaux (`/api/feeds`). */
 export type FeedsStatus = "idle" | "loading" | "ready" | "error";
 
+/** Élément d'un calque de référence (inspecté ou survolé). */
+export type LayerSelection = { layerId: LayerId; feature: LayerFeature } | null;
+
 interface IntelStore {
   locale: Locale;
   setLocale: (locale: Locale) => void;
@@ -39,6 +44,9 @@ interface IntelStore {
    */
   theme: ThemeKey;
   setTheme: (theme: ThemeKey) => void;
+  /** Afficher aussi les alertes météo mineures et modérées (fil et globe). Désactivé par défaut. */
+  weatherAll: boolean;
+  setWeatherAll: (on: boolean) => void;
 
   /** Flux mondiaux (hors conflits armés), fusionnés depuis une requête par catégorie. */
   feeds: LiveItem[];
@@ -51,6 +59,24 @@ interface IntelStore {
   /** Fin du dernier rafraîchissement côté client (réussi ou non). */
   feedsCheckedAt: string | null;
   refreshFeeds: () => Promise<void>;
+  /** Rafraîchissement silencieux d'une seule catégorie (positions d'aéronefs en direct). */
+  refreshFeedCategory: (category: FeedCategory) => Promise<void>;
+
+  /** Calques de référence allumés sur le globe : tous éteints par défaut. */
+  layersOn: Record<LayerId, boolean>;
+  /** Données des calques chargées à la demande (`/api/layers?id=…`), gardées pour la session. */
+  layers: Partial<Record<LayerId, LayerLoad>>;
+  /** Catalogue `/api/layers` (source, date, nombre d'éléments) pour la légende. */
+  layerCatalog: { status: "idle" | "loading" | "ready" | "error"; items: LayerSummary[]; error: string | null };
+  loadLayerCatalog: () => Promise<void>;
+  toggleLayer: (id: LayerId) => void;
+  /** Charge un calque s'il ne l'est pas déjà (nouvel essai possible après 60 s en cas d'échec). */
+  ensureLayer: (id: LayerId, force?: boolean) => Promise<void>;
+  selectedLayerFeature: LayerSelection;
+  selectLayerFeature: (selection: LayerSelection) => void;
+  hoveredLayerFeature: LayerSelection;
+  hoverLayerFeature: (selection: LayerSelection) => void;
+
   /** Élément de flux inspecté (clic sur un point du globe ou dans le fil). */
   selectedFeedItem: LiveItem | null;
   selectFeedItem: (item: LiveItem | null) => void;
@@ -136,10 +162,18 @@ let feedsInFlight: AbortController | null = null;
 
 /** Une requête par catégorie : une catégorie volumineuse n'évince jamais les autres. */
 const FEEDS_PER_CATEGORY = 150;
+/**
+ * Plafonds propres : toutes les positions d'aéronefs publiées (un instantané, pas un
+ * historique) ; davantage d'alertes météo (l'OMM en publie plus d'un millier).
+ */
+const FEEDS_LIMITS: Partial<Record<FeedCategory, number>> = { military: 1000, weather: 300 };
+
+/** Nouvel essai d'un calque en échec au plus tôt après ce délai. */
+const LAYER_RETRY_MS = 60_000;
 
 async function fetchCategory(category: FeedCategory, signal: AbortSignal): Promise<CategoryResult> {
   try {
-    const res = await fetch(`/api/feeds?category=${category}&limit=${FEEDS_PER_CATEGORY}`, { signal, cache: "no-store" });
+    const res = await fetch(`/api/feeds?category=${category}&limit=${FEEDS_LIMITS[category] ?? FEEDS_PER_CATEGORY}`, { signal, cache: "no-store" });
     if (!res.ok) return { category, ok: false, error: res.status === 404 ? "service des flux absent (HTTP 404)" : `HTTP ${res.status}` };
     const body = (await res.json()) as FeedsResponse;
     if (!body || !Array.isArray(body.items)) return { category, ok: false, error: "réponse invalide" };
@@ -151,6 +185,7 @@ async function fetchCategory(category: FeedCategory, signal: AbortSignal): Promi
 }
 let refreshSequence = 0;
 let detailSequence = 0;
+const categoryInFlight = new Set<FeedCategory>();
 
 /**
  * Re-résout un foyer sélectionné uniquement si la nouvelle grille partage
@@ -184,7 +219,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
   setTheme: (theme) => {
     const { selectedFeedItem, selected } = get();
     // Changer de thème ferme l'inspection qui n'appartient plus au calque visible.
-    const keepItem = selectedFeedItem && (theme === "all" || selectedFeedItem.category === theme);
+    const keepItem = selectedFeedItem && themeCovers(theme, selectedFeedItem.category) && (theme !== "all" || inAllFeed(selectedFeedItem));
     const keepCluster = selected && (theme === "all" || theme === "conflict");
     set({
       theme,
@@ -193,6 +228,9 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       ...(keepCluster ? {} : { selected: null, selectedEvents: [] }),
     });
   },
+
+  weatherAll: false,
+  setWeatherAll: (weatherAll) => set({ weatherAll }),
 
   feeds: [],
   feedSources: [],
@@ -224,11 +262,101 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       set({ feedsStatus: "error", feedsCheckedAt: new Date().toISOString() });
     }
   },
+  refreshFeedCategory: async (category) => {
+    // Le rafraîchissement complet en cours couvre déjà la catégorie.
+    if (feedsInFlight && !feedsInFlight.signal.aborted && get().feedsStatus === "loading") return;
+    if (categoryInFlight.has(category)) return;
+    categoryInFlight.add(category);
+    const controller = new AbortController();
+    try {
+      const result = await fetchCategory(category, controller.signal);
+      set((s) => {
+        const failures = s.feedFailures.filter((f) => f.category !== category);
+        if (!result.ok) return { feedFailures: [...failures, { category, error: result.error }] };
+        const fresh = mergeCategoryResults([result]);
+        const selected = s.selectedFeedItem;
+        return {
+          feeds: [...s.feeds.filter((item) => item.category !== category), ...fresh.items],
+          feedSources: [...s.feedSources.filter((src) => src.category !== category), ...fresh.sources],
+          feedFailures: failures,
+          feedsCheckedAt: new Date().toISOString(),
+          // L'élément inspecté suit sa nouvelle position (même identifiant).
+          selectedFeedItem: selected && selected.category === category ? (fresh.items.find((item) => item.id === selected.id) ?? selected) : selected,
+        };
+      });
+    } catch {
+      // Requête annulée : rien à faire.
+    } finally {
+      categoryInFlight.delete(category);
+    }
+  },
+
+  layersOn: { nuclear_plants: false, military_bases: false, submarine_cables: false, sanctions: false },
+  layers: {},
+  layerCatalog: { status: "idle", items: [], error: null },
+  loadLayerCatalog: async () => {
+    if (get().layerCatalog.status === "loading") return;
+    set((s) => ({ layerCatalog: { ...s.layerCatalog, status: "loading" } }));
+    try {
+      const res = await fetch("/api/layers", { cache: "no-store" });
+      if (!res.ok) throw new Error(res.status === 404 ? "service des calques absent (HTTP 404)" : `HTTP ${res.status}`);
+      const items = parseLayerCatalog(await res.json());
+      set({ layerCatalog: { status: "ready", items, error: null } });
+    } catch (err) {
+      set((s) => ({ layerCatalog: { ...s.layerCatalog, status: "error", error: err instanceof Error && err.message !== "Failed to fetch" ? err.message : "réseau indisponible" } }));
+    }
+  },
+  toggleLayer: (id) => {
+    const on = !get().layersOn[id];
+    set((s) => ({
+      layersOn: { ...s.layersOn, [id]: on },
+      // Éteindre un calque ferme l'inspection de l'un de ses éléments.
+      ...(on || s.selectedLayerFeature?.layerId !== id ? {} : { selectedLayerFeature: null }),
+      ...(on || s.hoveredLayerFeature?.layerId !== id ? {} : { hoveredLayerFeature: null }),
+    }));
+    if (on) void get().ensureLayer(id);
+  },
+  ensureLayer: async (id, force = false) => {
+    const current = get().layers[id];
+    if (current?.status === "loading") return;
+    if (!force && current?.status === "ready" && current.data?.status !== "error") return;
+    if (!force && current && Date.now() - current.requestedAt < LAYER_RETRY_MS) return;
+    const requestedAt = Date.now();
+    set((s) => ({ layers: { ...s.layers, [id]: { status: "loading", data: current?.data ?? null, error: null, requestedAt } } }));
+    try {
+      const res = await fetch(`/api/layers?id=${id}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(res.status === 404 ? "service des calques absent (HTTP 404)" : `HTTP ${res.status}`);
+      const body: unknown = await res.json();
+      if (!isLayerResponse(body, id)) throw new Error("réponse invalide");
+      set((s) => ({ layers: { ...s.layers, [id]: { status: "ready", data: body, error: null, requestedAt } } }));
+    } catch (err) {
+      const error = err instanceof Error && err.message !== "Failed to fetch" ? err.message : "réseau indisponible";
+      set((s) => ({ layers: { ...s.layers, [id]: { status: "error", data: current?.data ?? null, error, requestedAt } } }));
+    }
+  },
+  selectedLayerFeature: null,
+  selectLayerFeature: (selection) => {
+    if (!selection) {
+      set({ selectedLayerFeature: null });
+      return;
+    }
+    detailSequence++;
+    // Sélection unique : un élément de calque remplace fiche pays, foyer et élément de flux.
+    set({ selectedLayerFeature: selection, country: null, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null });
+    const anchor = featureAnchor(selection.feature);
+    if (anchor) get().focus(anchor.lat, anchor.lon);
+  },
+  hoveredLayerFeature: null,
+  hoverLayerFeature: (selection) => {
+    const prev = get().hoveredLayerFeature;
+    if ((prev?.feature.id ?? null) !== (selection?.feature.id ?? null)) set({ hoveredLayerFeature: selection });
+  },
+
   selectedFeedItem: null,
   selectFeedItem: (item) => {
     detailSequence++;
-    // Sélection unique : inspecter un élément ferme la fiche pays et le foyer.
-    set(item ? { selectedFeedItem: item, country: null, selected: null, selectedEvents: [], selecting: false } : { selectedFeedItem: null });
+    // Sélection unique : inspecter un élément ferme la fiche pays, le foyer et l'élément de calque.
+    set(item ? { selectedFeedItem: item, country: null, selected: null, selectedEvents: [], selecting: false, selectedLayerFeature: null } : { selectedFeedItem: null });
     if (item && item.lat !== null && item.lon !== null) get().focus(item.lat, item.lon);
   },
   hoveredFeedId: null,
@@ -345,8 +473,8 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       set({ selected: null, selectedEvents: [], selecting: false });
       return;
     }
-    // Sélection unique : un foyer ferme la fiche pays et l'élément de flux inspecté.
-    set({ selected: cluster, selecting: true, selectedEvents: [], country: null, selectedFeedItem: null });
+    // Sélection unique : un foyer ferme la fiche pays et l'élément (flux ou calque) inspecté.
+    set({ selected: cluster, selecting: true, selectedEvents: [], country: null, selectedFeedItem: null, selectedLayerFeature: null });
     get().focus(cluster.latitude, cluster.longitude);
     await get().loadClusterDetail(cluster);
   },
@@ -384,7 +512,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
     }
     // Sélection unique : la fiche pays remplace foyer et élément inspectés.
     detailSequence++;
-    set({ country, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null });
+    set({ country, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null, selectedLayerFeature: null });
   },
   setHoveredCountry: (hoveredCountry) => set({ hoveredCountry }),
   setStreamStatus: (streamStatus) => set({ streamStatus }),

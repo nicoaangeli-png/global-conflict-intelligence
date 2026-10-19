@@ -32,8 +32,10 @@ const byId = (prefix: string) => items.find((i) => i.id.startsWith(prefix))!;
 const NOW = Date.parse("2026-10-18T11:00:00Z");
 
 describe("navigation par thèmes", () => {
-  it("propose exactement les thèmes utiles, dans l'ordre demandé", () => {
-    expect(THEMES).toEqual(["all", "conflict", "social", "disaster", "health", "un", "space", "nuclear", "economy", "uap"]);
+  it("propose exactement les thèmes utiles, dans l'ordre demandé (météo regroupée avec les catastrophes)", () => {
+    expect(THEMES).toEqual(["all", "conflict", "military", "social", "disaster", "health", "un", "space", "nuclear", "infrastructure", "economy", "uap"]);
+    expect(THEMES).not.toContain("weather");
+    expect(THEMES.length).toBeLessThanOrEqual(12);
   });
 
   it("filtre le fil par catégorie ; « Conflits » ne contient aucun élément de flux", () => {

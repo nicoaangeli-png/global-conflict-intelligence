@@ -55,8 +55,12 @@ export function ItemTime({ item, locale, now }: { item: LiveItem; locale: Locale
 function Metric({ item }: { item: LiveItem }) {
   if (!item.metric) return null;
   const { value, unit, label: metricLabel } = item.metric;
-  const signed = unit === "%" ? `${value > 0 ? "+" : ""}${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %` : `${value.toLocaleString("fr-FR")}${unit ? ` ${unit}` : ""}`;
-  const tone = unit === "%" ? (value > 0 ? "up" : value < 0 ? "down" : "flat") : "flat";
+  // Signe et couleur seulement pour une variation de cotation : une « baisse de connectivité
+  // de 1,4 % » n'est pas une hausse verte.
+  const quote = item.nature === "market_quote" && unit === "%";
+  const number = value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+  const signed = quote ? `${value > 0 ? "+" : ""}${number} %` : `${number}${unit ? ` ${unit}` : ""}`;
+  const tone = quote ? (value > 0 ? "up" : value < 0 ? "down" : "flat") : "flat";
   return (
     <span className="metric" data-tone={tone} title={metricLabel}>
       {signed}
@@ -64,13 +68,14 @@ function Metric({ item }: { item: LiveItem }) {
   );
 }
 
-export function FeedItemRow({ item, locale, now, showCategory }: { item: LiveItem; locale: Locale; now: number; showCategory: boolean }) {
+export function FeedItemRow({ item, locale, now, showCategory, hideCaveat = false }: { item: LiveItem; locale: Locale; now: number; showCategory: boolean; hideCaveat?: boolean }) {
   const selectFeedItem = useIntelStore((s) => s.selectFeedItem);
   const selectedId = useIntelStore((s) => s.selectedFeedItem?.id ?? null);
   const hoverFeed = useIntelStore((s) => s.hoverFeed);
   const { ref } = useCountryReference();
   const countries = item.countries.slice(0, 3).map((iso) => countryLabel(iso, ref, locale));
-  const live = isLive(item, now);
+  // Une position d'aéronef est par nature récente : pas de pastille DIRECT sur chaque ligne.
+  const live = isLive(item, now) && item.category !== "military";
 
   return (
     <li className="feed-row" data-active={selectedId === item.id}>
@@ -101,7 +106,7 @@ export function FeedItemRow({ item, locale, now, showCategory }: { item: LiveIte
             <ItemTime item={item} locale={locale} now={now} />
           </span>
         </span>
-        {item.caveat ? <span className="feed-caveat">{item.caveat}</span> : null}
+        {item.caveat && !hideCaveat ? <span className="feed-caveat">{item.caveat}</span> : null}
       </button>
       {item.url ? (
         <a className="feed-link" href={item.url} target="_blank" rel="noopener noreferrer" title={tr(locale, "Ouvrir la source d'origine", "Open the original source")}>

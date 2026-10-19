@@ -1,0 +1,571 @@
+{
+ "_note": "Extraits réels réduits de /api/layers (serveur ORBITAL, 19/10/2026) et /api/feeds (catégories military, weather, infrastructure). Coordonnées et attributs inchangés.",
+ "nuclear_plants": {
+  "layerId": "nuclear_plants",
+  "title": "Centrales nucléaires",
+  "sourceName": "Wikidata",
+  "homepage": "https://www.wikidata.org/",
+  "license": "CC0 1.0 Universal",
+  "caveat": "Couverture Wikidata non exhaustive ; cette base collaborative n'est pas une source officielle. PRIS/AIEA n'est pas interrogé car inaccessible aux robots.",
+  "asOf": null,
+  "fetchedAt": "2026-10-19T16:56:18.773Z",
+  "status": "ok",
+  "message": null,
+  "features": [
+   {
+    "id": "nuclear_plants:Q82404",
+    "name": "centrale nucléaire de Chashma",
+    "countries": [
+     "PAK"
+    ],
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      71.463777,
+      32.39157
+     ]
+    },
+    "properties": {
+     "operator": "Pakistan Atomic Energy Commission",
+     "status": "en service",
+     "commissioningDate": "2000-09-15",
+     "closureDate": null,
+     "capacity": 1330
+    },
+    "url": "https://www.wikidata.org/wiki/Q82404"
+   },
+   {
+    "id": "nuclear_plants:Q94805",
+    "name": "centrale nucléaire de Biblis",
+    "countries": [
+     "DEU"
+    ],
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      8.415277777,
+      49.71
+     ]
+    },
+    "properties": {
+     "operator": "RWE",
+     "status": "en service",
+     "commissioningDate": "1974-08-25",
+     "closureDate": null,
+     "capacity": 2525
+    },
+    "url": "https://www.wikidata.org/wiki/Q94805"
+   },
+   {
+    "id": "nuclear_plants:Q113368",
+    "name": "Phénix",
+    "countries": [
+     "FRA"
+    ],
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      4.71166667,
+      44.14333333
+     ]
+    },
+    "properties": {
+     "operator": "Commissariat à l'énergie atomique et aux énergies alternatives",
+     "status": "en service",
+     "commissioningDate": "1974-07-14",
+     "closureDate": null,
+     "capacity": 130
+    },
+    "url": "https://www.wikidata.org/wiki/Q113368"
+   },
+   {
+    "id": "nuclear_plants:Q154006",
+    "name": "centrale nucléaire du Tricastin",
+    "countries": [
+     "FRA"
+    ],
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      4.73148,
+      44.331
+     ]
+    },
+    "properties": {
+     "operator": "Électricité de France",
+     "status": "en service",
+     "commissioningDate": "1980-05-31",
+     "closureDate": null,
+     "capacity": 3660
+    },
+    "url": "https://www.wikidata.org/wiki/Q154006"
+   }
+  ]
+ },
+ "military_bases": {
+  "layerId": "military_bases",
+  "title": "Bases militaires",
+  "sourceName": "Wikidata",
+  "homepage": "https://www.wikidata.org/",
+  "license": "CC0 1.0 Universal",
+  "caveat": "Couverture Wikidata inégale selon les pays et ne reflétant pas les déploiements temporaires. Résultat borné aux 1 000 premiers éléments retournés après exclusion des bases fermées, détruites, abandonnées et des types manifestement civils. Les dates de fermeture restent incomplètes dans Wikidata.",
+  "asOf": null,
+  "fetchedAt": "2026-10-19T17:08:43.519Z",
+  "status": "ok",
+  "message": null,
+  "features": [
+   {
+    "id": "military_bases:Q2152030",
+    "name": "Riedenburgkaserne",
+    "countries": [
+     "AUT"
+    ],
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      13.0304,
+      47.7966
+     ]
+    },
+    "properties": {
+     "operator": null,
+     "type": "caserne",
+     "condition": null
+    },
+    "url": "https://www.wikidata.org/wiki/Q2152030"
+   },
+   {
+    "id": "military_bases:Q2167653",
+    "name": "Caserne Rossauer",
+    "countries": [
+     "AUT"
+    ],
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      16.367169444,
+      48.217969444
+     ]
+    },
+    "properties": {
+     "operator": null,
+     "type": "caserne",
+     "condition": null
+    },
+    "url": "https://www.wikidata.org/wiki/Q2167653"
+   }
+  ]
+ },
+ "submarine_cables": {
+  "layerId": "submarine_cables",
+  "title": "Câbles sous-marins",
+  "sourceName": "TeleGeography Submarine Cable Map",
+  "homepage": "https://www.submarinecablemap.com/",
+  "license": "Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0)",
+  "caveat": "Les tracés proviennent de TeleGeography ; les pays d'atterrissement ne sont pas déduits lorsqu'ils ne sont pas publiés dans le GeoJSON. Licence non commerciale : vérifier l'adéquation de l'usage avant toute redistribution.",
+  "asOf": null,
+  "fetchedAt": "2026-10-19T16:56:18.773Z",
+  "status": "ok",
+  "message": null,
+  "features": [
+   {
+    "id": "submarine_cables:apx-west",
+    "name": "APX West",
+    "countries": [],
+    "geometry": {
+     "type": "MultiLineString",
+     "coordinates": [
+      [
+       [
+        106.16405663257127,
+        -5.366704978908298
+       ],
+       [
+        106.82782855810404,
+        -6.171876390816321
+       ]
+      ],
+      [
+       [
+        115.85731638027985,
+        -31.95343894398052
+       ],
+       [
+        114.13028260891589,
+        -30.931258723611858
+       ],
+       [
+        113.71057720425226,
+        -30.214779621341833
+       ],
+       [
+        112.52700242756961,
+        -27.039336730901844
+       ],
+       [
+        110.83405333664875,
+        -21.285565722968173
+       ],
+       [
+        110.17995666234283,
+        -19.529719049118565
+       ],
+       [
+        106.94036792030401,
+        -11.766862303366128
+       ],
+       [
+        105.35416153691037,
+        -7.473340693368665
+       ],
+       [
+        105.18554659591588,
+        -6.655308287028106
+       ],
+       [
+        105.36659692030412,
+        -6.284345801279556
+       ],
+       [
+        106.81933450102512,
+        -4.611628206622588
+       ],
+       [
+        107.01562342447218,
+        -3.029995968008661
+       ],
+       [
+        106.43495977331989,
+        -1.748865498857823
+       ],
+       [
+        105.98362663278256,
+        -1.029988015414064
+       ],
+       [
+        105.29999964043219,
+        0.118588418888312
+       ],
+       [
+        104.81054686156915,
+        0.214388716665165
+       ],
+       [
+        104.17500043739219,
+        0.627825578639147
+       ],
+       [
+        104.0166370000003,
+        1.066798000000349
+       ],
+       [
+        104.00411055785635,
+        1.373499297000449
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "color": "#939597",
+     "landingPoint": "[108.3366528539496,-15.112706723519855]"
+    },
+    "url": "https://www.submarinecablemap.com/cable/apx-west"
+   }
+  ]
+ },
+ "sanctions": {
+  "layerId": "sanctions",
+  "title": "Sanctions OFAC par pays d'adresse",
+  "sourceName": "U.S. Treasury OFAC — SDN List",
+  "homepage": "https://sanctionssearch.ofac.treas.gov/",
+  "license": "Domaine public (gouvernement fédéral des États-Unis) ; vérifier les conditions d'utilisation OFAC.",
+  "caveat": "Liste des États-Unis uniquement (pas l'UE ni l'ONU) ; une entité est comptée dans chaque pays où elle a une adresse ; ce n'est pas une mesure de risque.",
+  "asOf": "2026-10-16",
+  "fetchedAt": "2026-10-19T17:08:54.134Z",
+  "status": "ok",
+  "message": null,
+  "features": [
+   {
+    "id": "sanctions:AFG",
+    "name": "AFG",
+    "countries": [
+     "AFG"
+    ],
+    "geometry": null,
+    "properties": {
+     "entityCount": 80,
+     "programs": "{\"ELECTION-EO13848\":1,\"FTO\":4,\"GLOMAG\":4,\"IFSR\":3,\"IRAN\":1,\"SDGT\":59,\"SDNTK\":16,\"TCO\":1}"
+    },
+    "url": "https://sanctionssearch.ofac.treas.gov/"
+   },
+   {
+    "id": "sanctions:FRA",
+    "name": "FRA",
+    "countries": [
+     "FRA"
+    ],
+    "geometry": null,
+    "properties": {
+     "entityCount": 48,
+     "programs": "{\"CUBA\":4,\"DPRK3\":1,\"DRCONGO\":3,\"IFSR\":4,\"IRAN\":4,\"IRAN-EO13902\":1,\"LEBANON\":1,\"NPWMD\":2,\"PAARSSR-EO13894\":1,\"RUSSIA-EO14024\":21,\"SDGT\":14,\"SDNTK\":1,\"UKRAINE-EO13661\":1}"
+    },
+    "url": "https://sanctionssearch.ofac.treas.gov/"
+   },
+   {
+    "id": "sanctions:IRN",
+    "name": "IRN",
+    "countries": [
+     "IRN"
+    ],
+    "geometry": null,
+    "properties": {
+     "entityCount": 1705,
+     "programs": "{\"CAATSA - IRAN\":20,\"CYBER2\":20,\"CYBER4\":5,\"DPRK\":2,\"DPRK2\":1,\"ELECTION-EO13848\":20,\"FTO\":8,\"GLOMAG\":2,\"HOSTAGES-EO14078\":10,\"HRIT-IR\":15,\"IFCA\":13,\"IFSR\":753,\"ILLICIT-DRUGS-EO14059\":1,\"IRAN\":278,\"IRAN-CON-ARMS-EO\":34,\"IRAN-EO13846\":59,\"IRAN-EO13871\":35,\"IRAN-EO13876\":110,\"IRAN-EO13902\":210,\"IRAN-HR\":208,\"IRAN-TRA\":25,\"IRAQ3\":5,\"IRGC\":216,\"NPWMD\":435,\"PAARSSR-EO13894\":1,\"RUSSIA-EO14024\":17,\"SDGT\":366,\"SDNTK\":1,\"TCO\":3,\"UKRAINE-EO13662\":1}"
+    },
+    "url": "https://sanctionssearch.ofac.treas.gov/"
+   }
+  ]
+ },
+ "catalog": {
+  "layers": [
+   {
+    "layerId": "nuclear_plants",
+    "title": "Centrales nucléaires",
+    "sourceName": "Wikidata",
+    "homepage": "https://www.wikidata.org/",
+    "license": "CC0 1.0 Universal",
+    "caveat": "Couverture Wikidata non exhaustive ; cette base collaborative n'est pas une source officielle. PRIS/AIEA n'est pas interrogé car inaccessible aux robots.",
+    "asOf": null,
+    "fetchedAt": "2026-10-19T16:56:18.773Z",
+    "status": "ok",
+    "message": null,
+    "itemCount": 374
+   },
+   {
+    "layerId": "military_bases",
+    "title": "Bases militaires",
+    "sourceName": "Wikidata",
+    "homepage": "https://www.wikidata.org/",
+    "license": "CC0 1.0 Universal",
+    "caveat": "Couverture Wikidata inégale selon les pays et ne reflétant pas les déploiements temporaires. Résultat borné aux 1 000 premiers éléments retournés après exclusion des bases fermées, détruites, abandonnées et des types manifestement civils. Les dates de fermeture restent incomplètes dans Wikidata.",
+    "asOf": null,
+    "fetchedAt": "2026-10-19T17:08:43.519Z",
+    "status": "ok",
+    "message": null,
+    "itemCount": 89
+   },
+   {
+    "layerId": "submarine_cables",
+    "title": "Câbles sous-marins",
+    "sourceName": "TeleGeography Submarine Cable Map",
+    "homepage": "https://www.submarinecablemap.com/",
+    "license": "Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0)",
+    "caveat": "Les tracés proviennent de TeleGeography ; les pays d'atterrissement ne sont pas déduits lorsqu'ils ne sont pas publiés dans le GeoJSON. Licence non commerciale : vérifier l'adéquation de l'usage avant toute redistribution.",
+    "asOf": null,
+    "fetchedAt": "2026-10-19T16:56:18.773Z",
+    "status": "ok",
+    "message": null,
+    "itemCount": 712
+   },
+   {
+    "layerId": "sanctions",
+    "title": "Sanctions OFAC par pays d'adresse",
+    "sourceName": "U.S. Treasury OFAC — SDN List",
+    "homepage": "https://sanctionssearch.ofac.treas.gov/",
+    "license": "Domaine public (gouvernement fédéral des États-Unis) ; vérifier les conditions d'utilisation OFAC.",
+    "caveat": "Liste des États-Unis uniquement (pas l'UE ni l'ONU) ; une entité est comptée dans chaque pays où elle a une adresse ; ce n'est pas une mesure de risque.",
+    "asOf": "2026-10-16",
+    "fetchedAt": "2026-10-19T17:08:54.134Z",
+    "status": "ok",
+    "message": null,
+    "itemCount": 145
+   }
+  ]
+ },
+ "feeds": [
+  {
+   "id": "adsb-lol:0d0943",
+   "category": "military",
+   "nature": "sensor_measurement",
+   "title": "C501 — FAM3934 — 3934",
+   "summary": "Altitude 12 650 ft ; vitesse sol 197 kt ; cap 262°",
+   "url": "https://adsb.lol/",
+   "sourceId": "adsb-lol-military",
+   "sourceName": "adsb.lol",
+   "publishedAt": null,
+   "occurredAt": "2026-10-19T16:55:17.001Z",
+   "fetchedAt": "2026-10-19T16:55:17.274Z",
+   "countries": [
+    "MEX"
+   ],
+   "lat": 19.731073,
+   "lon": -98.990112,
+   "severity": null,
+   "metric": {
+    "label": "Altitude",
+    "value": 12650,
+    "unit": "ft"
+   },
+   "caveat": "Position ADS-B transmise volontairement : beaucoup d’aéronefs militaires n’émettent pas ; l’absence d’un appareil ne prouve rien. Le pays affiché est celui survolé ; la source ne fournit pas le pays de l’opérateur."
+  },
+  {
+   "id": "adsb-lol:341391",
+   "category": "military",
+   "nature": "sensor_measurement",
+   "title": "F900 — AME4586 — T.18-2",
+   "summary": "Altitude 40 975 ft ; vitesse sol 412 kt ; cap 201°",
+   "url": "https://adsb.lol/",
+   "sourceId": "adsb-lol-military",
+   "sourceName": "adsb.lol",
+   "publishedAt": null,
+   "occurredAt": "2026-10-19T16:55:17.001Z",
+   "fetchedAt": "2026-10-19T16:55:17.274Z",
+   "countries": [
+    "ESP"
+   ],
+   "lat": 42.471313,
+   "lon": -0.611614,
+   "severity": null,
+   "metric": {
+    "label": "Altitude",
+    "value": 40975,
+    "unit": "ft"
+   },
+   "caveat": "Position ADS-B transmise volontairement : beaucoup d’aéronefs militaires n’émettent pas ; l’absence d’un appareil ne prouve rien. Le pays affiché est celui survolé ; la source ne fournit pas le pays de l’opérateur."
+  },
+  {
+   "id": "adsb-lol:497cd2",
+   "category": "military",
+   "nature": "sensor_measurement",
+   "title": "DRON — KNIGT76 — UAFAP3",
+   "summary": "Altitude 4 825 ft ; vitesse sol 58 kt ; cap 90°",
+   "url": "https://adsb.lol/",
+   "sourceId": "adsb-lol-military",
+   "sourceName": "adsb.lol",
+   "publishedAt": null,
+   "occurredAt": "2026-10-19T16:55:17.001Z",
+   "fetchedAt": "2026-10-19T16:55:17.274Z",
+   "countries": [
+    "PRT"
+   ],
+   "lat": 41.660342,
+   "lon": -6.872715,
+   "severity": null,
+   "metric": {
+    "label": "Altitude",
+    "value": 4825,
+    "unit": "ft"
+   },
+   "caveat": "Position ADS-B transmise volontairement : beaucoup d’aéronefs militaires n’émettent pas ; l’absence d’un appareil ne prouve rien. Le pays affiché est celui survolé ; la source ne fournit pas le pays de l’opérateur."
+  },
+  {
+   "id": "nhc:ep212026",
+   "category": "weather",
+   "nature": "official_alert",
+   "title": "Tempête tropicale Trudy",
+   "summary": "Vent maximal : 50 kt. Pression : 999 hPa. Déplacement : 7 kt vers 250°",
+   "url": "https://www.nhc.noaa.gov/text/MIATCPEP1.shtml",
+   "sourceId": "noaa-nhc",
+   "sourceName": "NOAA National Hurricane Center",
+   "publishedAt": "2026-10-19T15:00:00.000Z",
+   "occurredAt": "2026-10-19T15:00:00.000Z",
+   "fetchedAt": "2026-10-19T16:55:17.306Z",
+   "countries": [],
+   "lat": 19.5,
+   "lon": -108.5,
+   "severity": null,
+   "metric": {
+    "label": "Vent maximal",
+    "value": 50,
+    "unit": "kt"
+   },
+   "caveat": "Cyclone actif selon le NHC ; la trajectoire et l’intensité peuvent évoluer à chaque avis."
+  },
+  {
+   "id": "nws:urn:oid:2.49.0.1.840.0.4b1ff4be558afbb5e7cdef55d9d9f637922e8e4e.001.1",
+   "category": "weather",
+   "nature": "official_alert",
+   "title": "Flood Watch issued October 19 at 6:34AM AKDT until October 21 at 4:00AM AKDT by NWS Juneau AK",
+   "summary": "City and Borough of Yakutat; Glacier Bay; Cape Fairweather to Lisianski Strait. Expiration : 2026-10-20T02:45:00.000Z. An atmospheric river is expected to move into the NE Gulf Coast tonight and continue through Tuesday. Multiple periods of heavy rain are expected for the Icy Strait corridor and northeast Gulf Coast, including the following communities: Yakutat, Elfin Cove, Pelican, Gustavus…",
+   "url": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.4b1ff4be558afbb5e7cdef55d9d9f637922e8e4e.001.1",
+   "sourceId": "nws-alerts",
+   "sourceName": "US National Weather Service",
+   "publishedAt": "2026-10-19T14:34:00.000Z",
+   "occurredAt": "2026-10-19T14:34:00.000Z",
+   "fetchedAt": "2026-10-19T16:55:17.306Z",
+   "countries": [
+    "USA"
+   ],
+   "lat": null,
+   "lon": null,
+   "severity": "severe",
+   "metric": null,
+   "caveat": null
+  },
+  {
+   "id": "wmo-severe-weather:2.49.0.1.360.0.2026.10.19.16.12.004",
+   "category": "weather",
+   "nature": "official_alert",
+   "title": "Hujan Lebat disertai Petir di Sumatera Utara",
+   "summary": "Sumatera Utara. Expiration : 2026-10-19T19:56:00.000Z",
+   "url": "https://severeweather.wmo.int/v2/cap-alerts/id-inatews-id/2026/10/19/16/25/00-93d7c0bbec9b98b67191b939c48cf12c.xml",
+   "sourceId": "wmo-severe-weather",
+   "sourceName": "OMM Severe Weather Information Centre",
+   "publishedAt": "2026-10-19T16:25:00.000Z",
+   "occurredAt": "2026-10-19T16:55:00.000Z",
+   "fetchedAt": "2026-10-19T16:55:17.306Z",
+   "countries": [],
+   "lat": null,
+   "lon": null,
+   "severity": "moderate",
+   "metric": null,
+   "caveat": "Alerte CAP agrégée par l’OMM ; le sommaire mondial ne fournit pas le polygone, donc aucune position n’est inventée."
+  },
+  {
+   "id": "ioda:geo.netacuity.AF.GM:1792427100",
+   "category": "infrastructure",
+   "nature": "sensor_measurement",
+   "title": "Baisse de connectivité IODA — Gambia",
+   "summary": "Détecteur : bgp. Valeur mesurée : 1064, référence historique : 1079. Baisse estimée : 1.4 %",
+   "url": "https://ioda.inetintel.cc.gatech.edu/",
+   "sourceId": "ioda-outages",
+   "sourceName": "IODA (Georgia Tech)",
+   "publishedAt": null,
+   "occurredAt": "2026-10-19T16:25:00.000Z",
+   "fetchedAt": "2026-10-19T16:55:17.317Z",
+   "countries": [],
+   "lat": null,
+   "lon": null,
+   "severity": "severe",
+   "metric": {
+    "label": "Baisse de connectivité",
+    "value": 1.4,
+    "unit": "%"
+   },
+   "caveat": "Mesure automatique de connectivité (IODA) : une baisse peut avoir une cause technique, électrique ou politique"
+  },
+  {
+   "id": "imf-portwatch:10000004",
+   "category": "infrastructure",
+   "nature": "official_publication",
+   "title": "Trade Disruptions in the Strait of Hormuz",
+   "summary": "Trade Disruptions in the Strait of Hormuz from: 01 Mar 2026 to: - .. 1 port ou passage affecté. Épisode déclaré en cours",
+   "url": "https://portwatch.imf.org/",
+   "sourceId": "imf-portwatch",
+   "sourceName": "FMI PortWatch",
+   "publishedAt": "2026-03-01T00:00:00.000Z",
+   "occurredAt": "2026-03-01T00:00:00.000Z",
+   "fetchedAt": "2026-10-19T16:55:17.317Z",
+   "countries": [],
+   "lat": 26.29685,
+   "lon": 56.85985,
+   "severity": "severe",
+   "metric": {
+    "label": "Ports ou passages affectés",
+    "value": 1,
+    "unit": null
+   },
+   "caveat": "Perturbation recensée par PortWatch ; l’enregistrement décrit des ports ou passages affectés, pas nécessairement une fermeture totale."
+  }
+ ]
+}

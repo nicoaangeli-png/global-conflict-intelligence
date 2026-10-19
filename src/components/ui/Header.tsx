@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useIntelStore } from "@/store/useIntelStore";
 import { t, tr } from "@/lib/i18n";
 import { SourcesButton } from "@/components/feeds/SourcesPopover";
+import { CountrySearch } from "@/components/feeds/CountrySearch";
 
 /**
  * En-tête sur une seule ligne : identité, horloge UTC, état réel du direct
@@ -51,6 +52,11 @@ export function Header({
         <span className="brand">ORBITAL</span>
         <span className="brand-tagline">{dict.tagline}</span>
         <UtcClock locale={locale} />
+      </div>
+
+      {/* Recherche de pays : au centre de l'en-tête, la barre des thèmes reste aux onglets. */}
+      <div className="header-search">
+        <CountrySearch />
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
