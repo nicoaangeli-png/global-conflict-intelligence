@@ -63,7 +63,8 @@ for (const width of [360, 375, 390, 430, 768]) {
       await expect(trigger.locator(".settings-trigger-label")).toBeVisible();
       const brandBounds = await page.locator(".app-header .brand").boundingBox();
       const toolsBounds = await page.locator(".mobile-tools summary").boundingBox();
-      expect(brandBounds!.x + brandBounds!.width).toBeLessThanOrEqual(toolsBounds!.x);
+      // Tolérance de 0,5 px : l'arrondi sous-pixel des polices diffère entre macOS et Linux (CI).
+      expect(brandBounds!.x + brandBounds!.width).toBeLessThanOrEqual(toolsBounds!.x + 0.5);
       await trigger.click();
       const dialog = page.getByRole("dialog", { name: "Paramètres · Sources & déploiement", exact: true });
       await expect(dialog).toBeVisible();
