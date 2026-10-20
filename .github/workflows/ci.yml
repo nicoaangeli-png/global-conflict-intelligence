@@ -124,3 +124,46 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  postgres:
+    name: Migrations PostgreSQL (base réelle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Même logique que e2e : une base réelle n'apporte rien si le code ne compile pas.
+    needs: validate
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: orbital
+          POSTGRES_PASSWORD: orbital
+          POSTGRES_DB: orbital_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U orbital"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Installer Node.js (.nvmrc) et activer le cache pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Installer les dépendances verrouillées
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrations et dépôt PostgreSQL
+        run: pnpm vitest run tests/postgres-migrations.test.ts
+        env:
+          ORBITAL_TEST_DATABASE_URL: postgresql://orbital:orbital@localhost:5432/orbital_test

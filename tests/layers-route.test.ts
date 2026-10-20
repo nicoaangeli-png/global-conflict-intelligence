@@ -30,6 +30,14 @@ describe("GET /api/layers", () => {
     expect(body).toMatchObject({ layerId: "nuclear_plants", status: "ok", features: [{ countries: ["FRA"] }] });
   });
 
+  it("filtre par pays (fiche pays) sans charger le calque entier dans le navigateur", async () => {
+    layers.loadLayer.mockResolvedValue({ layerId: "nuclear_plants", status: "ok", features: [{ id: "a", countries: ["FRA"] }, { id: "b", countries: ["DEU"] }, { id: "c", countries: ["FRA", "BEL"] }] });
+    const body = await (await GET(new Request("http://localhost/api/layers?id=nuclear_plants&country=FRA"))).json();
+    expect(body.features.map((feature: { id: string }) => feature.id)).toEqual(["a", "c"]);
+    expect((await GET(new Request("http://localhost/api/layers?id=nuclear_plants&country=fr"))).status).toBe(400);
+    expect((await GET(new Request("http://localhost/api/layers?country=FRA"))).status).toBe(400);
+  });
+
   it("liste les métadonnées et le nombre sans les features", async () => {
     layers.listLayers.mockResolvedValue([{ layerId: "nuclear_plants", title: "Centrales nucléaires", sourceName: "Wikidata", asOf: null, itemCount: 374 }]);
     const response = await GET(new Request("http://localhost/api/layers"));

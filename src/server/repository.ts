@@ -1,9 +1,11 @@
+import "server-only";
 import type { Confidence, ConflictEvent, EventType } from "@/types/conflict";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertRealSourceRecords } from "./dataPolicy";
 import { SqliteRepository } from "./sqliteRepository";
+import { migratePostgres, type PostgresMigrationReport } from "./migrations/postgres";
 
 /**
  * Couche de persistance.
@@ -39,6 +41,8 @@ export interface Repository {
   counts(): Promise<{ total: number; byDataset: Record<string, number>; lastUpdated: string | null }>;
   clear(): Promise<void>;
   close?(): void | Promise<void>;
+  /** Version du schéma et intégrité (SQLite, PostgreSQL) ; absent pour les dépôts sans schéma. */
+  diagnostics?(): { schemaVersion: number | null; appliedMigrations: number[]; integrity: string | null };
 }
 
 /** Sélectionne le stockage sans changer la priorité historique de PostgreSQL. */
@@ -183,41 +187,18 @@ export class LocalRepository implements Repository {
   async clear() { await this.mutate(null); }
 }
 
-export const SCHEMA_SQL = `
--- Schéma PostgreSQL. Créer l'extension PostGIS est OPTIONNEL :
---   CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE TABLE IF NOT EXISTS conflict_events (
-  id              TEXT PRIMARY KEY,
-  source_dataset  TEXT        NOT NULL,
-  latitude        DOUBLE PRECISION NOT NULL,
-  longitude       DOUBLE PRECISION NOT NULL,
-  country         TEXT        NOT NULL DEFAULT '',
-  region          TEXT        NOT NULL DEFAULT '',
-  locality        TEXT        NOT NULL DEFAULT '',
-  event_type      TEXT        NOT NULL,
-  sub_event_type  TEXT        NOT NULL DEFAULT '',
-  actors          TEXT[]      NOT NULL DEFAULT '{}',
-  fatalities      INTEGER     NOT NULL DEFAULT 0,
-  source          TEXT        NOT NULL DEFAULT '',
-  source_url      TEXT        NOT NULL DEFAULT '',
-  confidence      TEXT        NOT NULL DEFAULT 'REPORTED',
-  event_date      TIMESTAMPTZ NOT NULL,
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS conflict_events_date_idx    ON conflict_events (event_date);
-CREATE INDEX IF NOT EXISTS conflict_events_dataset_idx ON conflict_events (source_dataset);
-CREATE INDEX IF NOT EXISTS conflict_events_type_idx    ON conflict_events (event_type);
-CREATE INDEX IF NOT EXISTS conflict_events_geo_idx     ON conflict_events (latitude, longitude);
-CREATE INDEX IF NOT EXISTS conflict_events_country_idx ON conflict_events (country);
--- Variante PostGIS (si l'extension est présente) :
--- ALTER TABLE conflict_events ADD COLUMN IF NOT EXISTS geom geography(Point,4326);
--- CREATE INDEX IF NOT EXISTS conflict_events_geom_idx ON conflict_events USING GIST (geom);
-`;
+export { SCHEMA_SQL } from "./migrations/postgres";
 
 /** Implémentation PostgreSQL (activée par DATABASE_URL). */
 export class PgRepository implements Repository {
   readonly kind = "postgres" as const;
   private pool: import("pg").Pool | null = null;
+  private migration: PostgresMigrationReport | null = null;
+
+  /** Version du schéma et migrations appliquées à l'ouverture. */
+  diagnostics(): { schemaVersion: number | null; appliedMigrations: number[]; integrity: string | null } {
+    return { schemaVersion: this.migration?.to ?? null, appliedMigrations: this.migration?.applied ?? [], integrity: null };
+  }
 
   constructor(private connectionString: string) {}
 
@@ -225,7 +206,7 @@ export class PgRepository implements Repository {
     const { Pool } = await import("pg");
     this.pool = new Pool({ connectionString: this.connectionString, max: 6 });
     try {
-      await this.pool.query(SCHEMA_SQL);
+      this.migration = await migratePostgres(this.pool);
     } catch (error) {
       await this.pool.end().catch(() => undefined);
       this.pool = null;
@@ -247,7 +228,7 @@ export class PgRepository implements Repository {
       const slice = events.slice(i, i + chunk);
       const values: unknown[] = [];
       const tuples = slice.map((e, idx) => {
-        const b = idx * 15;
+        const b = idx * 17;
         values.push(
           e.id,
           e.sourceDataset,
@@ -264,14 +245,16 @@ export class PgRepository implements Repository {
           e.sourceUrl,
           e.confidence,
           e.eventDate,
+          countryIso3Of(e),
+          JSON.stringify(e),
         );
-        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11},$${b + 12},$${b + 13},$${b + 14},$${b + 15})`;
+        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11},$${b + 12},$${b + 13},$${b + 14},$${b + 15},$${b + 16},$${b + 17}::jsonb)`;
       });
       const res = await this.db.query(
         `INSERT INTO conflict_events (
            id, source_dataset, latitude, longitude, country, region, locality,
            event_type, sub_event_type, actors, fatalities, source, source_url,
-           confidence, event_date
+           confidence, event_date, country_iso3, payload
          ) VALUES ${tuples.join(",")}
          ON CONFLICT (id) DO UPDATE SET
            source_dataset = EXCLUDED.source_dataset,
@@ -288,6 +271,8 @@ export class PgRepository implements Repository {
            fatalities = EXCLUDED.fatalities,
            confidence = EXCLUDED.confidence,
            source = EXCLUDED.source,
+           country_iso3 = EXCLUDED.country_iso3,
+           payload = EXCLUDED.payload,
            updated_at = now()
          RETURNING (xmax = 0) AS inserted`,
         values,
@@ -295,7 +280,18 @@ export class PgRepository implements Repository {
       inserted += res.rows.filter((row) => row.inserted).length;
       updated += res.rows.filter((row) => !row.inserted).length;
     }
+    await this.purgeExpired();
     return { inserted, updated };
+  }
+
+  /** Rétention des flux volumineux, identique à SQLite (ORBITAL_RETENTION_GDELT_DAYS / _FIRMS_DAYS). */
+  async purgeExpired(now = new Date()): Promise<{ gdelt: number; firms: number }> {
+    const purge = async (dataset: "gdelt" | "firms", days: number) => {
+      if (days === 0) return 0;
+      const res = await this.db.query("DELETE FROM conflict_events WHERE source_dataset = $1 AND event_date < $2", [dataset, new Date(now.getTime() - days * 86_400_000).toISOString()]);
+      return res.rowCount ?? 0;
+    };
+    return { gdelt: await purge("gdelt", retentionDays("ORBITAL_RETENTION_GDELT_DAYS", 30)), firms: await purge("firms", retentionDays("ORBITAL_RETENTION_FIRMS_DAYS", 14)) };
   }
 
   async query(q: EventQuery) {
@@ -308,13 +304,18 @@ export class PgRepository implements Repository {
     if (q.types?.length) add("event_type = ANY($?)", q.types);
     if (q.datasets?.length) add("source_dataset = ANY($?)", q.datasets);
     if (q.confidences?.length) add("confidence = ANY($?)", q.confidences);
-    if (q.countries?.length) add("country = ANY($?)", q.countries);
+    if (q.countries?.length) {
+      // Comme SQLite : nom stocké ou code ISO3.
+      add("(country = ANY($?)", q.countries);
+      values.push(q.countries.map((country) => country.toUpperCase()));
+      where[where.length - 1] += ` OR country_iso3 = ANY($${values.length}))`;
+    }
     if (q.minFatalities != null) add("fatalities >= $?", q.minFatalities);
 
     const res = await this.db.query(
       `SELECT id, latitude, longitude, country, region, locality, event_type,
               sub_event_type, actors, fatalities, source, source_url,
-              source_dataset, confidence, event_date, updated_at
+              source_dataset, confidence, event_date, updated_at, payload
          FROM conflict_events
         WHERE ${where.join(" AND ")}
         ORDER BY event_date DESC, id`,
@@ -328,7 +329,7 @@ export class PgRepository implements Repository {
     const res = await this.db.query(
       `SELECT id, latitude, longitude, country, region, locality, event_type,
               sub_event_type, actors, fatalities, source, source_url,
-              source_dataset, confidence, event_date, updated_at
+              source_dataset, confidence, event_date, updated_at, payload
          FROM conflict_events WHERE id = ANY($1) LIMIT 5000`,
       [ids],
     );
@@ -373,9 +374,24 @@ interface PgRow {
   confidence: string;
   event_date: Date | string;
   updated_at: Date | string;
+  /** JSON complet (schéma v2) ; null pour les lignes écrites avant la migration. */
+  payload?: ConflictEvent | null;
+}
+
+function retentionDays(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const parsed = raw == null || raw.trim() === "" ? fallback : Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function countryIso3Of(event: ConflictEvent): string | null {
+  const candidate = (event as ConflictEvent & { countryIso3?: unknown }).countryIso3;
+  return typeof candidate === "string" && /^[A-Z]{3}$/.test(candidate) ? candidate : null;
 }
 
 function rowToEvent(r: PgRow): ConflictEvent {
+  // Le JSON complet fait foi (champs additifs des connecteurs) ; colonnes = repli historique.
+  if (r.payload && typeof r.payload === "object") return { ...r.payload, updatedAt: new Date(r.updated_at).toISOString() };
   return {
     id: r.id,
     latitude: Number(r.latitude),

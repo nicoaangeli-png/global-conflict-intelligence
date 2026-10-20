@@ -199,14 +199,13 @@ export function CountryPanel() {
   const setCountry = useIntelStore((s) => s.setCountry);
   const select = useIntelStore((s) => s.select);
   const openAura = useIntelStore((s) => s.openAura);
-  const layers = useIntelStore((s) => s.layers);
-  const ensureLayer = useIntelStore((s) => s.ensureLayer);
+  const storeLayers = useIntelStore((s) => s.layers);
   const { ref } = useCountryReference();
   const now = useNow();
   const iso = country ? (resolveCountryIdentity(country.iso || country.name)?.iso3 ?? country.iso) : "";
   const validIso = /^[A-Z]{3}$/.test(iso);
 
-  const { countryFeeds, indicators } = useCountryData(iso, validIso, ensureLayer);
+  const { countryFeeds, indicators, layers } = useCountryData(iso, validIso, storeLayers);
 
   // Les éléments déjà chargés par le fil complètent la requête pays (même contrat).
   const items = useMemo(() => {
@@ -221,7 +220,7 @@ export function CountryPanel() {
     .sort((first, second) => Date.parse(itemTime(second)!) - Date.parse(itemTime(first)!)).slice(0, 5), [sections]);
   const markets = useMemo(() => countryMarkets(items, iso), [items, iso]);
   const aircraft = useMemo(() => militaryNow(items, iso, now), [items, iso, now]);
-  const layerStatus = (id: LayerId) => {
+  const layerStatus = (id: keyof typeof layers) => {
     const l = layers[id];
     if (!l || l.status === "loading") return "loading" as const;
     if (l.status === "error" && !l.data) return "error" as const;

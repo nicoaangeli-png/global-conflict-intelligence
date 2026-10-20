@@ -1,3 +1,4 @@
+import "server-only";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { LAYER_IDS, type LayerId, type LayerResponse } from "@/types/layers";
@@ -73,7 +74,8 @@ export interface LayerDeps {
 }
 
 export interface LayerSummary extends Omit<LayerResponse, "features"> {
-  itemCount: number;
+  /** Nombre d'éléments connus, ou null si le calque n'a pas encore été chargé. */
+  itemCount: number | null;
 }
 
 function isLayerId(value: string): value is LayerId {
@@ -187,9 +189,27 @@ export async function loadLayer(id: LayerId, deps: LayerDeps = {}): Promise<Laye
   }
 }
 
+/**
+ * Catalogue : métadonnées + nombre d'éléments DÉJÀ connus (mémoire ou cache disque).
+ * Ne déclenche aucun appel réseau : ouvrir le menu « Calques » ne doit pas télécharger
+ * les quatre jeux complets (jusqu'à ~750 Ko chacun) ni solliciter Wikidata/OFAC.
+ * Un calque jamais chargé renvoie `itemCount: null` ; l'interface affiche
+ * « Chargé à l'allumage ».
+ */
 export async function listLayers(deps: LayerDeps = {}): Promise<LayerSummary[]> {
-  const layers = await Promise.all(LAYER_IDS.map((id) => loadLayer(id, deps)));
-  return layers.map(({ features, ...layer }) => ({ ...layer, itemCount: features.length }));
+  const dir = deps.cacheDir ?? defaultDir();
+  return Promise.all(
+    LAYER_IDS.map(async (id) => {
+      const entry = memory.get(id);
+      const inMemory = entry && (entry.response.features.length > 0 || !entry.inflight) ? entry.response : null;
+      const data = inMemory ?? (await readCached(id, dir))?.response ?? null;
+      if (!data) {
+        return { ...metadata[id], asOf: null, fetchedAt: "", status: "ok" as const, message: null, itemCount: null };
+      }
+      const { features, ...summary } = data;
+      return { ...summary, itemCount: features.length };
+    }),
+  );
 }
 
 /** Remise à zéro du cache mémoire, réservée aux tests. */

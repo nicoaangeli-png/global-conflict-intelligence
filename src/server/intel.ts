@@ -1,3 +1,4 @@
+import "server-only";
 import { aggregateClusters, dedupe } from "@/lib/clustering/cluster";
 import {
   REAL_DATASETS,
@@ -89,6 +90,23 @@ const state: IntelState =
     statuses: [],
     ingestReport: "aucune ingestion lancée",
   });
+
+/**
+ * Arrêt normal (SIGTERM/SIGINT donnant lieu à un `exit`) : ferme le dépôt pour
+ * checkpoint du WAL SQLite. Un arrêt brutal reste couvert par la journalisation WAL
+ * (testé dans `sqlite-migrations.test.ts`).
+ */
+const shutdownRef = globalThis as unknown as { __orbitalShutdownHooked?: boolean };
+if (!shutdownRef.__orbitalShutdownHooked) {
+  shutdownRef.__orbitalShutdownHooked = true;
+  process.once("exit", () => {
+    try {
+      void state.repository.close?.();
+    } catch {
+      // Rien à faire à l'arrêt.
+    }
+  });
+}
 
 function pickRepository(): Repository {
   return createRepository();
@@ -280,6 +298,7 @@ async function ingest(options: { days?: number }) {
   const { kept, removed } = dedupe(collected);
   let upserted = { inserted: 0, updated: 0 };
   if (kept.length) upserted = await state.repository.upsert(kept);
+  bumpStoreVersion();
 
   delete zoneRef.__orbitalConflictZones;
   delete profileRef.__orbitalSourceStats;
@@ -393,7 +412,48 @@ function thermalMode(filters: EventFilters): ThermalMode {
 }
 
 /** Lecture commune à la carte, aux indicateurs et aux listes : mêmes filtres partout. */
-async function selectEventsDetailed(filters: EventFilters, from: Date, to: Date) {
+/**
+ * Cache court de la sélection d'événements : chaque appel relisait et décodait tout le JSON
+ * de la période (≈ 12 Mo et 270 ms pour 20 000 lignes en production) à chaque zoom ou filtre,
+ * alors que la base ne change qu'à l'ingestion. Invalidé à chaque écriture ; 60 s au plus.
+ * Les appelants reçoivent une copie du tableau (certains trient en place).
+ */
+const SELECTION_CACHE_TTL_MS = 60_000;
+/** Deux bornes : nombre d'entrées et total d'événements retenus (≈ 500 octets chacun). */
+const SELECTION_CACHE_MAX = 8;
+const SELECTION_CACHE_MAX_EVENTS = 60_000;
+type SelectionResult = { events: ConflictEvent[]; thermal: ThermalSelection };
+const selectionRef = globalThis as unknown as { __orbitalSelectionCache?: Map<string, { at: number; version: number; result: SelectionResult }>; __orbitalStoreVersion?: number };
+const selectionCache = (selectionRef.__orbitalSelectionCache ??= new Map());
+
+/** Signale une écriture dans la base : les sélections en cache sont périmées. */
+function bumpStoreVersion() {
+  selectionRef.__orbitalStoreVersion = (selectionRef.__orbitalStoreVersion ?? 0) + 1;
+  selectionCache.clear();
+}
+
+async function selectEventsDetailed(filters: EventFilters, from: Date, to: Date): Promise<SelectionResult> {
+  const version = selectionRef.__orbitalStoreVersion ?? 0;
+  const key = JSON.stringify([filters.range, filters.at ?? null, filters.types, requestedDatasets(filters) ?? null, filters.confidences, filters.countries, filters.minFatalities, thermalMode(filters), filters.at ? to.getTime() : null]);
+  const cached = selectionCache.get(key);
+  if (cached && cached.version === version && Date.now() - cached.at < SELECTION_CACHE_TTL_MS) {
+    return { events: [...cached.result.events], thermal: cached.result.thermal };
+  }
+  const result = await loadSelection(filters, from, to);
+  if ((selectionRef.__orbitalStoreVersion ?? 0) === version) {
+    selectionCache.set(key, { at: Date.now(), version, result });
+    // Évince les plus anciennes entrées au-delà des bornes (une sélection peut peser plusieurs Mo).
+    while (
+      selectionCache.size > SELECTION_CACHE_MAX ||
+      [...selectionCache.values()].reduce((total, entry) => total + entry.result.events.length, 0) > SELECTION_CACHE_MAX_EVENTS
+    ) {
+      selectionCache.delete(selectionCache.keys().next().value!);
+    }
+  }
+  return { events: [...result.events], thermal: result.thermal };
+}
+
+async function loadSelection(filters: EventFilters, from: Date, to: Date): Promise<SelectionResult> {
   const storedEvents = await state.repository.query({
     from,
     to,
@@ -636,6 +696,7 @@ export async function queryLatestEvents(filters: EventFilters, limit = 60) {
 export function healthInfo() {
   return {
     repository: state.repository.kind,
+    schema: state.repository.diagnostics?.() ?? null,
     connectors: state.statuses,
     lastIngestAt: state.lastIngestAt,
     report: state.ingestReport,
