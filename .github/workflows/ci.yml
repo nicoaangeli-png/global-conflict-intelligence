@@ -7,10 +7,21 @@ on:
 permissions:
   contents: read
 
+# Un seul pipeline actif par branche : un nouveau push annule le précédent.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    name: Valider (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      # Node 24 (LTS de référence, .nvmrc) et Node 22 (LTS du serveur de production).
+      fail-fast: true
+      matrix:
+        node: [24, 22]
 
     steps:
       - name: Récupérer le dépôt
@@ -21,10 +32,10 @@ jobs:
         with:
           version: 11
 
-      - name: Installer Node.js 25 et activer le cache pnpm
+      - name: Installer Node.js ${{ matrix.node }} et activer le cache pnpm
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Installer les dépendances verrouillées
@@ -35,3 +46,32 @@ jobs:
 
       - name: Exécuter les tests
         run: pnpm test
+
+      - name: Compiler la version de production
+        run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  dependencies:
+    name: Contrôler les dépendances
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Installer Node.js (.nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      # Toute vulnérabilité connue, y compris dans l'outillage de développement, fait échouer
+      # le pipeline. Exceptions nommées et justifiées dans pnpm-workspace.yaml (auditConfig).
+      - name: Auditer les dépendances
+        run: pnpm audit
