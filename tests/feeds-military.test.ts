@@ -13,6 +13,11 @@ import { ctx, fixtureJson } from "./feeds-helpers";
 describe("adsb.lol — aéronefs militaires", () => {
   beforeEach(() => clearAdsbTracks());
 
+  it("crédite le relais adsb.fi quand il fournit les positions", () => {
+    const [item] = parseAdsbMilitary(fixtureJson("adsb-lol-mil.json"), ctx(), { name: "adsb.fi", homepage: "https://adsb.fi/" });
+    expect(item).toMatchObject({ id: "adsb-lol-military:ae2125", sourceName: "adsb.fi", url: "https://adsb.fi/" });
+  });
+
   it("produit une mesure par position fraîche avec titre, altitude, vitesse et pays survolé", () => {
     const items = parseAdsbMilitary(fixtureJson("adsb-lol-mil.json"), ctx());
     expect(items).toHaveLength(1);
@@ -94,9 +99,9 @@ describe("adsb.lol — aéronefs militaires", () => {
     expect(parseAdsbMilitary(raw, ctx())[0].occurredAt).toBe("2026-10-19T16:46:11.794Z");
   });
 
-  it("déclare la licence ODbL et limite les collectes à une toutes les 15 s", () => {
+  it("déclare la licence ODbL et limite les collectes à une toutes les 30 s", () => {
     expect(militarySources).toHaveLength(1);
-    expect(militarySources[0].ttlMs).toBe(15_000);
+    expect(militarySources[0].ttlMs).toBe(30_000);
     expect(militarySources[0].license).toContain("ODbL");
     expect(militarySources[0].license).toContain("adsb.lol");
   });
