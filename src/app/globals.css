@@ -631,6 +631,22 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .feed-meta { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; min-width: 0; font-size: 11px; color: #8fb4cc; }
 .feed-caveat { display: block; font-size: 11px; line-height: 1.4; color: #ffc58a; }
+/* Couverture des capteurs (ADS-B / AIS) : qualité de l'observation, jamais un niveau d'activité. */
+.coverage { --coverage-tone: #6f8798; margin-top: 6px; font-size: 11px; line-height: 1.45; color: #8fb4cc; min-width: 0; }
+.coverage[data-level="excellent"], .coverage[data-level="high"] { --coverage-tone: #6fe3b4; }
+.coverage[data-level="medium"] { --coverage-tone: #d9c46a; }
+.coverage[data-level="low"], .coverage[data-level="very_low"] { --coverage-tone: #ff9f5a; }
+.coverage-summary { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; row-gap: 1px; cursor: pointer; list-style: none; min-width: 0; }
+.coverage-summary::-webkit-details-marker { display: none; }
+.coverage-summary:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.coverage-dot { width: 6px; height: 6px; flex-shrink: 0; align-self: center; border-radius: 50%; background: var(--coverage-tone); }
+.coverage-label { color: #b6d3e6; }
+.coverage-level { font-weight: 500; letter-spacing: .06em; color: var(--coverage-tone); }
+.coverage-reasons { flex-basis: 100%; padding-left: 12px; color: #8fb4cc; overflow-wrap: anywhere; }
+.coverage-body { margin: 4px 0 0 12px; padding-left: 8px; border-left: 1px solid rgba(127,212,255,.18); }
+.coverage-body p + p { margin-top: 3px; }
+.coverage-caveat { margin: 1px 0 0 12px; color: #ffc58a; }
+@media (max-width: 1023px) { .coverage-summary { min-height: 32px; } }
 .feed-link {
   position: absolute;
   top: 9px;

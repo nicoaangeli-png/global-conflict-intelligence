@@ -53,6 +53,20 @@ export const SANCTIONS_LAYER = {
 
 export type Override = (route: Route, url: URL) => Promise<boolean | void> | boolean | void;
 
+const coverageSensor = (sourceType: "adsb" | "ais", level: string, reasonCodes: string[]) => ({
+  sourceType, level, state: "measured", score: level === "high" ? 82 : 30, sampleSize: 900, lastObservationAt: NOW, freshnessMs: 20_000,
+  factors: { freshness: 1, volume: 0.9, continuity: 1, dispersion: null }, reasonCodes, reason: [], caveat: "FIXTURE", windowMs: 900_000,
+});
+
+/** Couverture simulée : ADS-B élevée, AIS faible (FIXTURE, pas une mesure). */
+export const COVERAGE = {
+  generatedAt: NOW,
+  scope: { kind: "global", id: null, cells: null },
+  adsb: coverageSensor("adsb", "high", ["fresh_positions", "continuity_ok"]),
+  ais: coverageSensor("ais", "low", ["volume_low", "regional_intermittent"]),
+  note: "FIXTURE",
+};
+
 export interface MockOptions {
   /** Remplace le traitement d'une route ; retourner `false` laisse le traitement par défaut. */
   override?: Override;
@@ -61,6 +75,7 @@ export interface MockOptions {
   feedItems?: typeof FEED_ITEMS;
   sourceStates?: unknown[];
   auraConfigured?: boolean;
+  coverage?: unknown;
 }
 
 export async function mockApis(page: Page, options: MockOptions = {}) {
@@ -95,6 +110,8 @@ export async function mockApis(page: Page, options: MockOptions = {}) {
         return route.fulfill({ json: { layers: [] } });
       case "/api/country":
         return route.fulfill({ status: 503, json: { error: "Indicateurs indisponibles dans ce test" } });
+      case "/api/coverage":
+        return route.fulfill({ json: options.coverage ?? COVERAGE });
       case "/api/briefing":
         return route.fulfill({ status: 503, json: { error: "Bilan indisponible dans ce test" } });
       default:

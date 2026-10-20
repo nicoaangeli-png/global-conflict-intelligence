@@ -2,6 +2,8 @@ import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Rendu des composants React dans les tests (renderToStaticMarkup), sans import explicite de React.
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

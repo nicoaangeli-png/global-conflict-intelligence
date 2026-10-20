@@ -1,11 +1,13 @@
 import "server-only";
 import type { LiveItem } from "@/types/feeds";
 import { countryFromCoords, num, plainText, str, type FeedContext, type FeedSourceDef } from "./util";
+import { recordObservation } from "@/server/coverage/observations";
+import { AIS_PARAMS } from "@/server/coverage/score";
 
 interface AisEnvelope {
   MessageType?: string;
   /** AISStream publie `latitude`/`longitude` en minuscules dans MetaData. */
-  MetaData?: { MMSI?: number | string; ShipName?: string; latitude?: number; longitude?: number; Latitude?: number; Longitude?: number };
+  MetaData?: { MMSI?: number | string; ShipName?: string; latitude?: number; longitude?: number; Latitude?: number; Longitude?: number; time_utc?: string };
   Message?: {
     PositionReport?: {
       UserID?: number | string; Sog?: number; Cog?: number; TrueHeading?: number;
@@ -333,6 +335,16 @@ function purgeVessels(state: MaritimeState, nowMs: number): void {
   for (let i = 0; i < oldest.length - AIS_MAX_TRACKED_VESSELS; i++) state.vessels.delete(oldest[i][0]);
 }
 
+/** `time_utc` d'AISStream (« 2026-10-20 08:21:43.123456 +0000 UTC ») ; null si absent ou illisible. */
+export function aisTimeUtc(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?\s*(?:\+0000|Z)?\s*(?:UTC)?$/.exec(value.trim());
+  if (!match) return null;
+  const millis = match[3] ? match[3].slice(0, 4) : "";
+  const time = Date.parse(`${match[1]}T${match[2]}${millis}Z`);
+  return Number.isFinite(time) ? time : null;
+}
+
 /** Ingère un message officiel AISStream déjà décodé, sans aucun appel réseau. */
 export function ingestAisMessage(raw: unknown, receivedAt = Date.now()): void {
   if (!raw || typeof raw !== "object" || !Number.isFinite(receivedAt)) return;
@@ -374,6 +386,10 @@ export function ingestAisMessage(raw: unknown, receivedAt = Date.now()): void {
   const lat = num(meta?.latitude ?? meta?.Latitude ?? message.Latitude);
   const lon = num(meta?.longitude ?? meta?.Longitude ?? message.Longitude);
   if (!mmsi || lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+  // Couverture : tous les navires reçus comptent (indicateur de présence de récepteurs).
+  const sentAt = aisTimeUtc(meta?.time_utc);
+  const lag = sentAt !== null && sentAt <= receivedAt + 60_000 ? Math.max(0, receivedAt - sentAt) : null;
+  recordObservation("ais", { id: mmsi, lat, lon, observedAtMs: lag === null ? receivedAt : receivedAt - lag, receivedAtMs: receivedAt, lagMs: lag }, AIS_PARAMS.freshLagMs);
   const previous = state.vessels.get(mmsi);
   const name = cleanAisText(envelope.MetaData?.ShipName) ?? previous?.name ?? null;
   if (state.civilPrefixed.has(mmsi) || !isExplicitCandidate(mmsi, previous?.shipType ?? null, name, previous?.callSign ?? null)) {

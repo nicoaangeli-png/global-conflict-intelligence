@@ -17,6 +17,7 @@ import { isoOfStoreCountry, resolveIso3Only, resolveRequestedCountry } from "./c
 import { boundedLiveFeedData, LIVE_FEEDS_DEFAULT_HOURS, LIVE_FEEDS_DEFAULT_LIMIT, LIVE_FEEDS_MAX_HOURS, LIVE_FEEDS_MAX_LIMIT, optionalBoundedInteger } from "./liveFeeds";
 import type { ToolArgs, ToolResult } from "./types";
 import { getOrbitalEvents } from "./detection";
+import { countryCoverageCells, coverageFor, type CoverageQuery } from "@/server/coverage";
 
 /**
  * Exécution des outils internes d'AURA. Chaque outil consomme les services métier
@@ -191,6 +192,17 @@ export async function runTool(name: string, args: ToolArgs, context: AgentContex
         .filter((source) => !category || source.category === category)
         .some((source) => source.status === "ok" || source.status === "stale");
       const data = boundedLiveFeedData(response, category, rawCountry, hours, response.items);
+      // Avions et navires militaires : la qualité de l'observation accompagne toujours la réponse,
+      // pour qu'une absence de points ne soit jamais lue comme une absence d'activité.
+      if (category === "military") {
+        const cells = rawCountry ? countryCoverageCells(await loadWorldIndex(), rawCountry) : null;
+        const query: CoverageQuery = cells ? { kind: "country", iso: rawCountry, cells } : { kind: "global" };
+        const coverage = coverageFor(query);
+        const brief = (sensor: typeof coverage.adsb) => ({ level: sensor.level, state: sensor.state, reasons: sensor.reason, caveat: sensor.caveat });
+        Object.assign(data, {
+          sensorCoverage: { scope: coverage.scope.kind, adsb: brief(coverage.adsb), ais: brief(coverage.ais), note: coverage.note },
+        });
+      }
       return {
         status: data.items.length ? "ok" : usableSource ? "empty" : "unavailable",
         source: "Flux mondiaux ORBITAL",

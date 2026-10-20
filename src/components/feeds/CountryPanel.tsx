@@ -13,6 +13,8 @@ import { MILITARY_NOW_MS, THEME_COLORS, THEME_LABELS, countryMarkets, countrySec
 import type { LayerFeature, LayerId } from "@/types/layers";
 import { LAYER_STYLE, featuresInCountry, sanctionsByCountry } from "@/components/layers/layerModel";
 import { vehicleOf } from "./vehicleModel";
+import { CoverageLine } from "@/components/coverage/CoverageLine";
+import { useSensorCoverage } from "@/components/coverage/useSensorCoverage";
 import { ItemTime, LivePill, NatureBadge } from "./FeedItem";
 import { useNow } from "./useNow";
 import { useCountryData, type Load } from "./useCountryData";
@@ -220,6 +222,7 @@ export function CountryPanel() {
     .sort((first, second) => Date.parse(itemTime(second)!) - Date.parse(itemTime(first)!)).slice(0, 5), [sections]);
   const markets = useMemo(() => countryMarkets(items, iso), [items, iso]);
   const aircraft = useMemo(() => militaryNow(items, iso, now), [items, iso, now]);
+  const coverage = useSensorCoverage(validIso ? { country: iso, lat: country?.lat, lon: country?.lon } : null, validIso);
   const layerStatus = (id: keyof typeof layers) => {
     const l = layers[id];
     if (!l || l.status === "loading") return "loading" as const;
@@ -428,6 +431,11 @@ export function CountryPanel() {
               )}
             </p>
           )}
+          {validIso
+            ? (["adsb", "ais"] as const).map((sensor) => (
+                <CoverageLine key={sensor} sensor={sensor} zone coverage={coverage.data?.[sensor] ?? null} loading={coverage.status === "loading"} locale={locale} />
+              ))
+            : null}
         </Section>
 
         <FeedSection sectionKey="social" data={sections.social} locale={locale} now={now} status={feedStatus} />

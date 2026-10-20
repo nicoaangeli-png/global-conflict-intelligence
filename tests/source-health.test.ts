@@ -50,7 +50,7 @@ describe("santé des sources — flux", () => {
     });
     const { state } = await runSource(def, noIndex, () => clock);
     expect(state).toMatchObject({ status: "ok", health: "healthy", newestDataAt: "2026-10-20T06:30:00.000Z", latencyMs: 120 });
-    expect(getSourceHealth("feed:ok")).toMatchObject({ kind: "feed", status: "healthy", itemCount: 2, lastError: null });
+    expect(getSourceHealth("feed:ok", clock)).toMatchObject({ kind: "feed", status: "healthy", itemCount: 2, lastError: null });
   });
 
   it("succès partiel signalé par la source : dégradée", async () => {
