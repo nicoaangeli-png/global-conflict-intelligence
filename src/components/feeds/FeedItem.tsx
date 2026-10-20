@@ -8,7 +8,7 @@ import { NATURE_LABELS, NATURE_TONE, THEME_COLORS, THEME_LABELS, isLive, itemTim
 import { countryLabel, useCountryReference } from "./countryReference";
 import { formatDuration, trackPoints, vehicleFacts, vehicleHeading, vehicleOf } from "./vehicleModel";
 
-export const VEHICLE_LABELS = { aircraft: { fr: "Avion", en: "Aircraft" }, vessel: { fr: "Navire", en: "Vessel" } } as const;
+export const VEHICLE_LABELS = { aircraft: { fr: "Avion", en: "Aircraft" }, vessel: { fr: "Navire", en: "Vessel" }, merchant: { fr: "Navire civil", en: "Civilian vessel" } } as const;
 
 /** Bloc « mobile » du détail : identité publiée, altitude/vitesse, dernière position, trajet observé. */
 function VehicleFacts({ item, locale, now }: { item: LiveItem; locale: Locale; now: number }) {

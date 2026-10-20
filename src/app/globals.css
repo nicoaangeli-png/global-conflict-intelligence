@@ -826,6 +826,7 @@ input[type="range"]::-webkit-slider-thumb {
 .mobile-glyph { display: inline-block; flex-shrink: 0; width: 11px; height: 11px; }
 .mobile-glyph[data-kind="aircraft"] { clip-path: polygon(100% 50%, 0% 8%, 28% 50%, 0% 92%); transform: rotate(-90deg); }
 .mobile-glyph[data-kind="vessel"] { width: 12px; height: 6px; clip-path: polygon(100% 50%, 62% 0%, 0% 0%, 0% 100%, 62% 100%); transform: rotate(-90deg); }
+.mobile-glyph[data-kind="merchant"] { width: 10px; height: 5px; clip-path: polygon(100% 50%, 70% 0%, 0% 0%, 0% 100%, 70% 100%); transform: rotate(-90deg); }
 .facility-list summary { cursor: pointer; font-size: 12px; color: #8fb4cc; }
 .facility-list summary:hover { color: #dcefff; }
 .facility-list ul { padding-left: 12px; }

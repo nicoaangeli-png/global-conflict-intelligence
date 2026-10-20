@@ -9,13 +9,15 @@
 import type { LiveItem } from "@/types/feeds";
 import { itemHeading, itemTime } from "./feedModel";
 
-export type VehicleKind = "aircraft" | "vessel";
+/** `merchant` : navire civil observé dans un détroit stratégique (catégorie « shipping »). */
+export type VehicleKind = "aircraft" | "vessel" | "merchant";
 
 /** Nature des mobiles d'une source militaire, d'après son identifiant (AIS = navires, sinon ADS-B). */
 export const sourceVehicleKind = (sourceId: string): VehicleKind => (/ais|vessel|ship|marine|maritime|navire/i.test(sourceId) ? "vessel" : "aircraft");
 
 /** Nature du mobile : champ `vehicle` de la source ; à défaut, déduite de la source. */
 export function vehicleOf(item: LiveItem): VehicleKind | null {
+  if (item.category === "shipping") return item.vehicle === "vessel" ? "merchant" : null;
   if (item.category !== "military") return null;
   if (item.vehicle === "aircraft" || item.vehicle === "vessel") return item.vehicle;
   return sourceVehicleKind(item.sourceId);

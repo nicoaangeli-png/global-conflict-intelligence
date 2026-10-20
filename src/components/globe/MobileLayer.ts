@@ -19,7 +19,7 @@ import { trackPoints, vehicleHeading, vehicleOf, type VehicleKind } from '../fee
  */
 
 /** Couleurs de la palette militaire : olive (aéronefs), sable (navires). */
-export const VEHICLE_COLORS: Record<VehicleKind, string> = { aircraft: '#c3d494', vessel: '#e6c88f' };
+export const VEHICLE_COLORS: Record<VehicleKind, string> = { aircraft: '#c3d494', vessel: '#e6c88f', merchant: '#8ab8d8' };
 
 const AIRCRAFT_ALT = 1.011;
 const VESSEL_ALT = 1.006;
@@ -67,8 +67,8 @@ const pointVertex = /* glsl */ `
       vec2 d = (ahead.xy / ahead.w - gl_Position.xy / gl_Position.w) * uViewport;
       vAngle = atan(d.y, d.x);
     }
-    // Taille fixe à l'écran : navires ≈ 26 px (repérage en mer), avions ≈ 14 px.
-    float size = aKind > 0.5 ? 29.0 : 17.5;
+    // Taille fixe à l'écran : navires militaires ≈ 26 px, avions ≈ 14 px, navires civils ≈ 13 px.
+    float size = aKind > 1.5 ? 15.0 : aKind > 0.5 ? 29.0 : 17.5;
     gl_PointSize = (size + aSel * 6.0) * uPixelRatio;
   }
 `;
@@ -125,10 +125,10 @@ const pointFragment = /* glsl */ `
     else d = vOriented > 0.5 ? hull(q) : 0.34 - length(q);
     float body = smoothstep(0.0, 0.06, d);
     // Détails de pont du navire, plus sombres que la coque.
-    float bridge = (vKind > 0.5 && vOriented > 0.5) ? smoothstep(0.0, 0.03, deck(q)) : 0.0;
+    float bridge = (vKind > 0.5 && vKind < 1.5 && vOriented > 0.5) ? smoothstep(0.0, 0.03, deck(q)) : 0.0;
     // Liseré sombre (lisibilité sur les terres) puis halo coloré léger (repérage).
     float outline = smoothstep(-0.12, 0.0, d) * (1.0 - body);
-    float glow = smoothstep(-0.32, 0.0, d) * (1.0 - body) * (vKind > 0.5 ? 0.45 : 0.28);
+    float glow = smoothstep(-0.32, 0.0, d) * (1.0 - body) * (vKind > 1.5 ? 0.18 : vKind > 0.5 ? 0.45 : 0.28);
     float ring = vSel > 0.0 ? smoothstep(0.08, 0.0, abs(length(uv) - 0.94)) * vSel : 0.0;
     float edge = smoothstep(0.04, 0.22, vFacing);
     float bright = 0.7 + 0.3 * vBright;
@@ -162,6 +162,7 @@ const lineVertex = /* glsl */ `
 
 const lineFragment = /* glsl */ `
   uniform float uDim;
+  uniform float uTime;
   varying vec3 vColor;
   varying float vAge;
   varying float vSel;
@@ -170,9 +171,11 @@ const lineFragment = /* glsl */ `
     if (vFacing < 0.0) discard;
     float edge = smoothstep(0.0, 0.2, vFacing);
     // vAge : 0 = plus ancienne position, 1 = position actuelle → dégradé vers le passé.
-    float base = (0.04 + 0.5 * vAge * vAge) * uDim;
-    float alpha = mix(base, 0.2 + 0.8 * vAge, vSel) * edge;
-    gl_FragColor = vec4(mix(vColor, vec3(1.0), vSel * 0.35), alpha);
+    float base = (0.1 + 0.6 * vAge * vAge) * uDim;
+    // Impulsions qui remontent le trajet vers la position actuelle : sens du déplacement.
+    float pulse = smoothstep(0.75, 1.0, fract(vAge * 3.0 - uTime * 0.35)) * (0.25 + 0.75 * vAge) * uDim;
+    float alpha = mix(base + pulse * 0.7, 0.2 + 0.8 * vAge, vSel) * edge;
+    gl_FragColor = vec4(mix(vColor, vec3(1.0), max(vSel * 0.35, pulse * 0.5)), alpha);
   }
 `;
 
@@ -207,7 +210,7 @@ export class MobileLayer {
     this.lineMaterial = new THREE.ShaderMaterial({
       vertexShader: lineVertex,
       fragmentShader: lineFragment,
-      uniforms: { uDim: { value: 1 } },
+      uniforms: { uDim: { value: 1 }, uTime: { value: 0 } },
       transparent: true,
       depthWrite: false,
       depthTest: false,
@@ -223,7 +226,7 @@ export class MobileLayer {
   }
 
   private altitude(kind: VehicleKind | null): number {
-    return this.radius * (kind === 'vessel' ? VESSEL_ALT : AIRCRAFT_ALT);
+    return this.radius * (kind === 'vessel' || kind === 'merchant' ? VESSEL_ALT : AIRCRAFT_ALT);
   }
 
   /** Remplace les mobiles affichés (positions + trajets), au rafraîchissement des flux. */
@@ -265,7 +268,7 @@ export class MobileLayer {
       colors.set([c.r, c.g, c.b], i * 3);
       bright[i] = ageBrightness(item, now);
       sel[i] = this.selectionOf(item.id);
-      kinds[i] = kind === 'vessel' ? 1 : 0;
+      kinds[i] = kind === 'merchant' ? 2 : kind === 'vessel' ? 1 : 0;
       const heading = vehicleHeading(item);
       headings[i] = heading ? (heading.deg * Math.PI) / 180 : -100;
 
@@ -358,6 +361,7 @@ export class MobileLayer {
   public update(dpr: number, width: number, height: number, now = performance.now()): void {
     this.pointMaterial.uniforms.uPixelRatio.value = dpr;
     (this.pointMaterial.uniforms.uViewport.value as THREE.Vector2).set(width, height);
+    this.lineMaterial.uniforms.uTime.value = now / 1000;
     if (this.gliding) this.glide(now);
   }
 

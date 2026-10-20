@@ -532,7 +532,7 @@ export function GlobeScene() {
   }, [selectedLayer, hoveredLayer, nuclearData, basesData, cablesData]);
 
   // Mobiles militaires : sur tous les thèmes selon le menu « Calques » (allumés par défaut) ;
-  // l'onglet Militaire les montre toujours. Recalcul à chaque rafraîchissement (30 s sur l'onglet).
+  // l'onglet Militaire les montre toujours. Recalcul à chaque rafraîchissement (15 s).
   useEffect(() => {
     const layer = mobileLayerRef.current;
     if (!layer) return;
@@ -541,7 +541,7 @@ export function GlobeScene() {
       layer.setItems(
         feeds.filter((item) => {
           const kind = vehicleOf(item);
-          return kind !== null && (forced || mobilesOn[kind]);
+          return kind !== null && ((forced && kind !== 'merchant') || mobilesOn[kind]);
         }),
       );
     apply();

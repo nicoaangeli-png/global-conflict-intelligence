@@ -66,8 +66,8 @@ interface IntelStore {
    * Mobiles militaires en direct sur le globe, quel que soit le thème : ALLUMÉS par
    * défaut (aéronefs ADS-B, navires AIS), avec leurs trajets observés.
    */
-  mobilesOn: { aircraft: boolean; vessel: boolean };
-  toggleMobile: (kind: "aircraft" | "vessel") => void;
+  mobilesOn: { aircraft: boolean; vessel: boolean; merchant: boolean };
+  toggleMobile: (kind: "aircraft" | "vessel" | "merchant") => void;
 
   /** Calques de référence allumés sur le globe : tous éteints par défaut. */
   layersOn: Record<LayerId, boolean>;
@@ -173,7 +173,7 @@ const FEEDS_PER_CATEGORY = 150;
  * Plafonds propres : toutes les positions d'aéronefs publiées (un instantané, pas un
  * historique) ; davantage d'alertes météo (l'OMM en publie plus d'un millier).
  */
-const FEEDS_LIMITS: Partial<Record<FeedCategory, number>> = { military: 1000, weather: 300 };
+const FEEDS_LIMITS: Partial<Record<FeedCategory, number>> = { military: 1000, weather: 300, shipping: 1000 };
 
 /** Nouvel essai d'un calque en échec au plus tôt après ce délai. */
 const LAYER_RETRY_MS = 60_000;
@@ -298,7 +298,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
     }
   },
 
-  mobilesOn: { aircraft: true, vessel: true },
+  mobilesOn: { aircraft: true, vessel: true, merchant: true },
   toggleMobile: (kind) => set((s) => ({ mobilesOn: { ...s.mobilesOn, [kind]: !s.mobilesOn[kind] } })),
 
   layersOn: { nuclear_plants: false, military_bases: false, submarine_cables: false, sanctions: false },

@@ -5,6 +5,9 @@ import {
   AIS_TRACK_WINDOW_MS,
   clearMaritimeState,
   createMaritimeSource,
+  createStraitsSource,
+  currentStraitItems,
+  straitAt,
   currentAisItems,
   ensureAisConnection,
   flagFromMmsi,
@@ -78,6 +81,39 @@ describe("AISStream — sélection et rendu", () => {
     ingestAisMessage(staticData(227654321, "GENDARMERIE 1", 55), BASE + 11_000);
     ingestAisMessage(position(227654321, "GENDARMERIE 1", 43.2, 5.3), BASE + 12_000);
     expect(currentAisItems(ctx(false), BASE + 13_000)[2].title).toContain("forces de l’ordre (AIS 55)");
+  });
+
+  it("n'accepte un préfixe naval que sous le pavillon de la marine correspondante et hors type civil", () => {
+    // Observé en production : « JS MOUCHE » (bateau-mouche, pavillon français) sur la Seine.
+    expect(matchesNavalPrefix("JS MOUCHE", "226000001")).toBe(false);
+    expect(matchesNavalPrefix("JS IZUMO", "431000001")).toBe(true);
+    expect(matchesNavalPrefix("FS BALMORAL", "232000001")).toBe(false);
+    expect(matchesNavalPrefix("HMS FALKEN", "265000001")).toBe(true);
+    ingestAisMessage(position(226000001, "JS MOUCHE", 48.864, 2.307), BASE);
+    ingestAisMessage(staticData(431000002, "JS KAGA", 60), BASE + 1_000);
+    ingestAisMessage(position(431000002, "JS KAGA", 35.3, 139.6), BASE + 2_000);
+    ingestAisMessage(position(431000003, "JS IZUMO", 35.29, 139.65), BASE + 3_000);
+    expect(currentAisItems(ctx(), BASE + 4_000).map((item) => item.title)).toEqual(["JS IZUMO — navire militaire (préfixe explicite)"]);
+  });
+
+  it("suit le trafic civil des détroits stratégiques, séparé du militaire", async () => {
+    expect(straitAt(26.5, 56.3)?.id).toBe("hormuz");
+    expect(straitAt(48.86, 2.3)).toBeNull();
+    ingestAisMessage(staticData(538000001, "FRONT ALTA", 80), BASE);
+    ingestAisMessage(position(538000001, "FRONT ALTA", 26.5, 56.3, 11.2, 120), BASE + 1_000);
+    ingestAisMessage(staticData(538000001, "FRONT ALTA", 80), BASE + 2_000);
+    ingestAisMessage(position(538000001, "FRONT ALTA", 26.45, 56.4, 11.2, 120), BASE + 60_000);
+    ingestAisMessage(position(226000002, "PENICHE", 48.86, 2.3), BASE + 61_000);
+    const items = currentStraitItems(ctx(), BASE + 62_000);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: "aisstream-straits:538000001", category: "shipping", vehicle: "vessel", title: "FRONT ALTA — pétrolier / citerne" });
+    expect(items[0].summary).toContain("Détroit d’Ormuz");
+    expect(items[0].track).toHaveLength(2);
+    expect(currentAisItems(ctx(), BASE + 62_000)).toHaveLength(0);
+    // Sortie du détroit : le navire n'est plus suivi.
+    ingestAisMessage(position(538000001, "FRONT ALTA", 20, 62), BASE + 120_000);
+    expect(currentStraitItems(ctx(), BASE + 121_000)).toHaveLength(0);
+    expect(createStraitsSource("").unavailable?.status).toBe("not_configured");
   });
 
   it("utilise uniquement les trois premiers chiffres du MMSI pour le pavillon", () => {

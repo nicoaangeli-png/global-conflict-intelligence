@@ -32,6 +32,7 @@ export function MobileGlyph({ kind }: { kind: VehicleKind }) {
 const MOBILE_LABELS: Record<VehicleKind, { fr: string; en: string }> = {
   aircraft: { fr: "Avions militaires", en: "Military aircraft" },
   vessel: { fr: "Navires militaires", en: "Military vessels" },
+  merchant: { fr: "Trafic des détroits (navires civils)", en: "Strait traffic (civilian vessels)" },
 };
 
 /** Mobiles en direct (allumés par défaut) : nombre réel, source, avertissement. */
@@ -45,7 +46,9 @@ function MobileRow({ kind, locale }: { kind: VehicleKind; locale: Locale }) {
   const tracked = mine.filter((item) => (item.track?.length ?? 0) > 0).length;
   const sourceNames = [...new Set(mine.map((item) => item.sourceName))];
   // Sources de ce type de mobile déclarées par le serveur (opérationnelles ou non).
-  const kindSources = sources.filter((src) => src.category === "military" && sourceVehicleKind(src.sourceId) === kind);
+  const kindSources = sources.filter((src) =>
+    kind === "merchant" ? src.category === "shipping" : src.category === "military" && sourceVehicleKind(src.sourceId) === kind,
+  );
   const failing = kindSources.filter((src) => src.status !== "ok");
   const caveat = mine.find((item) => item.caveat)?.caveat ?? null;
   const state = mine.length
@@ -65,7 +68,7 @@ function MobileRow({ kind, locale }: { kind: VehicleKind; locale: Locale }) {
       </label>
       <p className="meta layer-meta">
         {mine.length
-          ? `${sourceNames.join(", ")} · ${tr(locale, "positions rafraîchies toutes les 30 s", "positions refreshed every 30 s")} · ${
+          ? `${sourceNames.join(", ")} · ${tr(locale, "positions rafraîchies toutes les 15 s", "positions refreshed every 15 s")} · ${
               tracked ? tr(locale, `${tracked} trajet(s) observé(s)`, `${tracked} observed track(s)`) : tr(locale, "trajets pas encore publiés par la source", "tracks not yet published by the source")
             }`
           : kindSources.length
@@ -168,7 +171,7 @@ export function LayersMenu() {
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const mobilesOn = useIntelStore((s) => s.mobilesOn);
-  const active = LAYER_ORDER.filter((id) => layersOn[id]).length + Number(mobilesOn.aircraft) + Number(mobilesOn.vessel);
+  const active = LAYER_ORDER.filter((id) => layersOn[id]).length + Number(mobilesOn.aircraft) + Number(mobilesOn.vessel) + Number(mobilesOn.merchant);
 
   // Catalogue (source, date, nombre d'éléments) demandé à chaque ouverture s'il manque :
   // dépendance volontaire à `open` seul, pour ne pas boucler sur un échec.
@@ -219,6 +222,7 @@ export function LayersMenu() {
           <ul className="mt-2 space-y-2.5">
             <MobileRow kind="aircraft" locale={locale} />
             <MobileRow kind="vessel" locale={locale} />
+            <MobileRow kind="merchant" locale={locale} />
           </ul>
           <h3 className="section-title mt-3 border-t border-[rgba(127,212,255,0.12)] pt-3">{tr(locale, "Calques de référence", "Reference layers")}</h3>
           <p className="meta mt-0.5">{tr(locale, "Ce qui existe (installations, câbles, listes officielles) — pas des événements.", "What exists (facilities, cables, official lists) — not events.")}</p>

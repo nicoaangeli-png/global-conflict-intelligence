@@ -80,6 +80,14 @@ export function IntelApp() {
     return () => clearInterval(id);
   }, [theme, mobilesLive, refreshFeedCategory]);
 
+  // Trafic des détroits (navires civils) : même rythme, seulement s'il est affiché.
+  const merchantsLive = useIntelStore((s) => s.mobilesOn.merchant);
+  useEffect(() => {
+    if (!merchantsLive) return;
+    const id = setInterval(() => void refreshFeedCategory("shipping"), MILITARY_POLL_MS);
+    return () => clearInterval(id);
+  }, [merchantsLive, refreshFeedCategory]);
+
   // Sur mobile : une inspection ouvre le volet correspondant.
   useEffect(() => {
     if (inspecting) setMobilePane("inspector");

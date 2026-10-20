@@ -6,6 +6,7 @@ import { healthSources } from "./health";
 import { infrastructureSources } from "./infrastructure";
 import { maritimeSources } from "./maritime";
 import { militarySources } from "./military";
+import { ensureMobileSnapshots } from "./mobileSnapshot";
 import { nuclearSources } from "./nuclear";
 import { socialSources } from "./social";
 import { spaceSources } from "./space";
@@ -77,6 +78,8 @@ export async function getFeeds(
   query: GetFeedsQuery = {},
   options: { sources?: FeedSourceDef[]; getIndex?: () => Promise<WorldIndex | null> } = {},
 ): Promise<FeedsResponse> {
+  // Trajets d'avions et de navires sauvegardés : un redémarrage ne les efface plus.
+  ensureMobileSnapshots();
   const category = parseCategory(query.category);
   const country = query.country?.trim().toUpperCase() || null;
   const sinceMs = typeof query.sinceMs === "number" && Number.isFinite(query.sinceMs) ? query.sinceMs : null;

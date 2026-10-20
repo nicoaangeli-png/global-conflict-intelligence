@@ -10,9 +10,9 @@ const fixture = JSON.parse(readFileSync(join(__dirname, "fixtures/ui-trajets-sam
 const [falcon, casa, tower] = fixture.items;
 
 describe("mobiles militaires : nature et visibilité par défaut", () => {
-  it("avions et navires allumés par défaut, calques de référence éteints", () => {
+  it("avions, navires et trafic des détroits allumés par défaut, calques de référence éteints", () => {
     const s = useIntelStore.getState();
-    expect(s.mobilesOn).toEqual({ aircraft: true, vessel: true });
+    expect(s.mobilesOn).toEqual({ aircraft: true, vessel: true, merchant: true });
     expect(Object.values(s.layersOn).every((on) => on === false)).toBe(true);
   });
 

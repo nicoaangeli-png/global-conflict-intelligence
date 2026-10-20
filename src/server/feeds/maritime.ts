@@ -34,8 +34,22 @@ interface AisSocket {
 type AisSocketConstructor = new (url: string) => AisSocket;
 type TimerHandle = ReturnType<typeof setTimeout>;
 
+interface StraitRecord {
+  mmsi: string;
+  name: string | null;
+  shipType: number | null;
+  strait: Strait;
+  lastSeenAt: number;
+  position: { lat: number; lon: number; at: string; speed: number | null; course: number | null };
+  track: NonNullable<LiveItem["track"]>;
+}
+
 interface MaritimeState {
   vessels: Map<string, VesselRecord>;
+  /** Trafic civil observé dans les détroits stratégiques (tous types de navires). */
+  straits: Map<string, StraitRecord>;
+  /** MMSI à préfixe naval mais type civil déclaré : écartés même avant leur prochaine fiche. */
+  civilPrefixed: Set<string>;
   socket: AisSocket | null;
   reconnectTimer: TimerHandle | null;
   reconnectAttempt: number;
@@ -69,8 +83,29 @@ const AIS_CAVEAT =
  */
 export const NAVAL_PREFIXES = [
   "USS", "USNS", "HMS", "RFA", "FS", "HNLMS", "ITS", "FGS", "HMAS", "HMCS",
-  "JS", "ROKS", "INS", "TCG", "HS", "HDMS", "HSWMS", "NRP",
+  "JS", "ROKS", "INS", "TCG", "HS", "HDMS", "HSWMS", "NRP", "ORP", "ESPS", "HNOMS", "KNM",
 ] as const;
+
+/**
+ * Pavillons (ISO3, d'après le MID) compatibles avec chaque préfixe : un préfixe
+ * naval n'est retenu que porté par un navire de la marine correspondante
+ * (« JS MOUCHE » sous pavillon français est un bateau-mouche, pas un navire japonais).
+ */
+export const PREFIX_FLAGS: Readonly<Record<(typeof NAVAL_PREFIXES)[number], readonly string[]>> = {
+  USS: ["USA"], USNS: ["USA"], HMS: ["GBR", "SWE"], RFA: ["GBR"], FS: ["FRA"], HNLMS: ["NLD"],
+  ITS: ["ITA"], FGS: ["DEU"], HMAS: ["AUS"], HMCS: ["CAN"], JS: ["JPN"], ROKS: ["KOR"],
+  INS: ["IND", "ISR"], TCG: ["TUR"], HS: ["GRC"], HDMS: ["DNK"], HSWMS: ["SWE"], NRP: ["PRT"],
+  ORP: ["POL"], ESPS: ["ESP"], HNOMS: ["NOR"], KNM: ["NOR"],
+};
+
+/**
+ * Types AIS déclarés incompatibles avec un bâtiment militaire (pêche, remorquage,
+ * pilote, plaisance, passagers, cargo, citerne…) : un préfixe seul ne suffit pas.
+ */
+function civilianShipType(shipType: number | null): boolean {
+  if (shipType === null || shipType === 0) return false;
+  return (shipType >= 30 && shipType <= 34) || (shipType >= 36 && shipType <= 54) || (shipType >= 56 && shipType <= 89);
+}
 
 /**
  * Sous-ensemble explicite des allocations MID officielles de l'UIT, couvrant
@@ -94,9 +129,141 @@ export const MID_TO_ISO3: Readonly<Record<string, string>> = {
   "710": "BRA", "725": "CHL", "730": "COL",
 };
 
+export interface Strait {
+  id: string;
+  name: string;
+  /** [latMin, lonMin, latMax, lonMax] */
+  box: [number, number, number, number];
+}
+
+/** Détroits et canaux stratégiques suivis (emprises larges, en degrés). */
+export const STRAITS: readonly Strait[] = [
+  { id: "hormuz", name: "Détroit d’Ormuz", box: [24.5, 54.5, 27.6, 58.2] },
+  { id: "bab-el-mandeb", name: "Bab-el-Mandeb", box: [11.3, 42.4, 14.2, 44.8] },
+  { id: "suez", name: "Canal de Suez", box: [29.7, 32.1, 31.6, 32.8] },
+  { id: "malacca", name: "Détroit de Malacca et Singapour", box: [0.8, 98.0, 6.5, 104.6] },
+  { id: "bosporus", name: "Bosphore et Dardanelles", box: [39.9, 26.0, 41.4, 29.4] },
+  { id: "taiwan", name: "Détroit de Taïwan", box: [22.0, 117.8, 26.2, 121.2] },
+  { id: "gibraltar", name: "Détroit de Gibraltar", box: [35.6, -6.3, 36.4, -5.0] },
+  { id: "dover", name: "Pas-de-Calais", box: [50.5, 0.9, 51.4, 2.2] },
+  { id: "panama", name: "Canal de Panama", box: [8.7, -80.1, 9.5, -79.4] },
+  { id: "kerch", name: "Détroit de Kertch", box: [44.9, 36.2, 45.6, 36.9] },
+];
+
+export function straitAt(lat: number, lon: number): Strait | null {
+  return STRAITS.find(({ box: [a, b, c, d] }) => lat >= a && lat <= c && lon >= b && lon <= d) ?? null;
+}
+
+export const STRAIT_TRACK_WINDOW_MS = 2 * 60 * 60_000;
+export const STRAIT_CURRENT_MAX_AGE_MS = 20 * 60_000;
+export const STRAIT_MAX_VESSELS = 3_000;
+const STRAIT_MAX_TRACK_POINTS = 40;
+
+function straitTypeLabel(shipType: number | null): string {
+  if (shipType === null || shipType === 0) return "type non déclaré";
+  if (shipType >= 80 && shipType <= 89) return "pétrolier / citerne";
+  if (shipType >= 70 && shipType <= 79) return "cargo";
+  if (shipType >= 60 && shipType <= 69) return "passagers";
+  if (shipType === 30) return "pêche";
+  if (shipType === 31 || shipType === 32 || shipType === 52) return "remorqueur";
+  if (shipType === 36 || shipType === 37) return "plaisance";
+  if (shipType >= 40 && shipType <= 49) return "grande vitesse";
+  return `type AIS ${shipType}`;
+}
+
+function purgeStraits(state: MaritimeState, nowMs: number): void {
+  const cutoff = nowMs - STRAIT_TRACK_WINDOW_MS;
+  for (const [mmsi, ship] of state.straits) {
+    if (ship.lastSeenAt < cutoff) state.straits.delete(mmsi);
+  }
+  if (state.straits.size <= STRAIT_MAX_VESSELS) return;
+  const oldest = [...state.straits.entries()].sort((a, b) => a[1].lastSeenAt - b[1].lastSeenAt);
+  for (let i = 0; i < oldest.length - STRAIT_MAX_VESSELS; i++) state.straits.delete(oldest[i][0]);
+}
+
+/** Données statiques d'un navire déjà vu dans un détroit (nom, type déclaré). */
+function noteStraitStatic(state: MaritimeState, mmsi: string, name: string | null, shipType: number | null): void {
+  const ship = state.straits.get(mmsi);
+  if (!ship) return;
+  ship.name = name ?? ship.name;
+  ship.shipType = shipType ?? ship.shipType;
+}
+
+function ingestStraitPosition(
+  state: MaritimeState, mmsi: string, name: string | null, lat: number, lon: number,
+  sog: number | null, cog: number | null, receivedAt: number,
+): void {
+  const strait = straitAt(lat, lon);
+  const previous = state.straits.get(mmsi);
+  if (!strait) {
+    if (previous) state.straits.delete(mmsi);
+    return;
+  }
+  const speed = sog !== null && sog >= 0 && sog < 102.3 ? sog : null;
+  const course = cog !== null && cog >= 0 && cog < 360 ? cog : null;
+  const at = new Date(receivedAt).toISOString();
+  const cutoff = receivedAt - STRAIT_TRACK_WINDOW_MS;
+  const track = (previous?.track ?? []).filter((point) => Date.parse(point.at) >= cutoff);
+  const last = track.at(-1);
+  if (!last || last.lat !== lat || last.lon !== lon) track.push({ lat, lon, at });
+  while (track.length > STRAIT_MAX_TRACK_POINTS) track.splice(1, 1);
+  state.straits.set(mmsi, {
+    mmsi, name: name ?? previous?.name ?? null, shipType: previous?.shipType ?? null, strait,
+    lastSeenAt: receivedAt, position: { lat, lon, at, speed, course }, track,
+  });
+  if (state.straits.size > STRAIT_MAX_VESSELS) purgeStraits(state, receivedAt);
+}
+
+const STRAIT_CAVEAT =
+  "Position AIS émise volontairement par le navire et captée par des récepteurs terrestres bénévoles : couverture incomplète, certains navires coupent leur AIS.";
+
+/** Trafic courant des détroits (positions de moins de 20 min). */
+export function currentStraitItems(ctx: FeedContext, nowMs = Date.now()): LiveItem[] {
+  const state = maritimeState();
+  purgeStraits(state, nowMs);
+  const items: LiveItem[] = [];
+  for (const ship of state.straits.values()) {
+    const position = ship.position;
+    if (nowMs - Date.parse(position.at) > STRAIT_CURRENT_MAX_AGE_MS) continue;
+    const flag = flagFromMmsi(ship.mmsi);
+    const summary = [
+      `${ship.strait.name}`,
+      straitTypeLabel(ship.shipType),
+      `MMSI ${ship.mmsi}`,
+      flag ? `pavillon ${flag} (MID ${ship.mmsi.slice(0, 3)})` : `MID ${ship.mmsi.slice(0, 3)}`,
+      position.speed !== null ? `vitesse ${position.speed.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} kt` : null,
+      position.course !== null ? `cap ${Math.round(position.course)}°` : null,
+    ].filter(Boolean).join(" ; ");
+    items.push({
+      id: `aisstream-straits:${ship.mmsi}`,
+      category: "shipping",
+      nature: "sensor_measurement",
+      title: `${ship.name ?? `MMSI ${ship.mmsi}`} — ${straitTypeLabel(ship.shipType)}`,
+      summary,
+      url: "https://aisstream.io/",
+      sourceId: "aisstream-straits",
+      sourceName: "AISStream.io",
+      publishedAt: null,
+      occurredAt: position.at,
+      fetchedAt: ctx.fetchedAt,
+      countries: countryFromCoords(ctx.index, position.lat, position.lon),
+      lat: position.lat,
+      lon: position.lon,
+      severity: null,
+      metric: position.speed !== null
+        ? { label: "Vitesse", value: position.speed, unit: "kt" }
+        : position.course !== null ? { label: "Cap", value: position.course, unit: "°" } : null,
+      caveat: STRAIT_CAVEAT,
+      vehicle: "vessel",
+      track: [...ship.track],
+    });
+  }
+  return items;
+}
+
 function newState(): MaritimeState {
   return {
-    vessels: new Map(), socket: null, reconnectTimer: null, reconnectAttempt: 0,
+    vessels: new Map(), straits: new Map(), civilPrefixed: new Set(), socket: null, reconnectTimer: null, reconnectAttempt: 0,
     stopped: false, apiKey: null, socketConstructor: null, random: Math.random,
     setTimer: setTimeout, lastError: null,
   };
@@ -124,14 +291,24 @@ export function flagFromMmsi(mmsi: string): string | null {
   return /^\d{9}$/.test(mmsi) ? MID_TO_ISO3[mmsi.slice(0, 3)] ?? null : null;
 }
 
-export function matchesNavalPrefix(value: string | null | undefined): boolean {
-  if (!value) return false;
+function navalPrefixOf(value: string | null | undefined): (typeof NAVAL_PREFIXES)[number] | null {
+  if (!value) return null;
   const normalized = value.toUpperCase().replace(/[.]/g, "").replace(/\s+/g, " ").trim();
-  return NAVAL_PREFIXES.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix} `) || normalized.startsWith(`${prefix}-`));
+  return NAVAL_PREFIXES.find((prefix) => normalized === prefix || normalized.startsWith(`${prefix} `) || normalized.startsWith(`${prefix}-`)) ?? null;
 }
 
-function isExplicitCandidate(shipType: number | null, name: string | null, callSign: string | null): boolean {
-  return shipType === 35 || shipType === 55 || matchesNavalPrefix(name) || matchesNavalPrefix(callSign);
+export function matchesNavalPrefix(value: string | null | undefined, mmsi?: string): boolean {
+  const prefix = navalPrefixOf(value);
+  if (!prefix) return false;
+  if (mmsi === undefined) return true;
+  const flag = flagFromMmsi(mmsi);
+  return flag !== null && PREFIX_FLAGS[prefix].includes(flag);
+}
+
+function isExplicitCandidate(mmsi: string, shipType: number | null, name: string | null, callSign: string | null): boolean {
+  if (shipType === 35 || shipType === 55) return true;
+  if (civilianShipType(shipType)) return false;
+  return matchesNavalPrefix(name, mmsi) || matchesNavalPrefix(callSign, mmsi);
 }
 
 function compactTrack(points: NonNullable<LiveItem["track"]>): NonNullable<LiveItem["track"]> {
@@ -171,8 +348,13 @@ export function ingestAisMessage(raw: unknown, receivedAt = Date.now()): void {
     const callSign = cleanAisText(message.CallSign) ?? previous?.callSign ?? null;
     const parsedType = num(message.Type);
     const shipType = parsedType !== null && Number.isInteger(parsedType) && parsedType >= 0 && parsedType <= 99 ? parsedType : null;
-    if (!isExplicitCandidate(shipType, name, callSign)) {
+    if (!isExplicitCandidate(mmsi, shipType, name, callSign)) {
       if (previous) state.vessels.delete(mmsi);
+      if (civilianShipType(shipType) && (navalPrefixOf(name) || navalPrefixOf(callSign))) {
+        if (state.civilPrefixed.size >= 20_000) state.civilPrefixed.clear();
+        state.civilPrefixed.add(mmsi);
+      }
+      noteStraitStatic(state, mmsi, name, shipType);
       return;
     }
     state.vessels.set(mmsi, {
@@ -193,7 +375,10 @@ export function ingestAisMessage(raw: unknown, receivedAt = Date.now()): void {
   if (!mmsi || lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
   const previous = state.vessels.get(mmsi);
   const name = cleanAisText(envelope.MetaData?.ShipName) ?? previous?.name ?? null;
-  if (!isExplicitCandidate(previous?.shipType ?? null, name, previous?.callSign ?? null)) return;
+  if (state.civilPrefixed.has(mmsi) || !isExplicitCandidate(mmsi, previous?.shipType ?? null, name, previous?.callSign ?? null)) {
+    ingestStraitPosition(state, mmsi, name, lat, lon, num(message.Sog), num(message.Cog), receivedAt);
+    return;
+  }
   const speedValue = num(message.Sog);
   const courseValue = num(message.Cog);
   // 102,3 kt et 360° sont les sentinelles AIS « non disponibles ».
@@ -340,7 +525,37 @@ export function clearMaritimeState(): void {
   state.socket?.close();
   state.socket = null;
   state.vessels.clear();
+  state.straits.clear();
+  state.civilPrefixed.clear();
   state.apiKey = null;
+}
+
+export interface MaritimeSnapshot {
+  vessels: [string, VesselRecord][];
+  straits: [string, Omit<StraitRecord, "strait"> & { straitId: string }][];
+}
+
+/** Instantané sérialisable de la mémoire AIS (sauvegarde entre redémarrages). */
+export function exportMaritime(): MaritimeSnapshot {
+  const state = maritimeState();
+  return {
+    vessels: [...state.vessels.entries()],
+    straits: [...state.straits.entries()].map(([mmsi, { strait, ...rest }]) => [mmsi, { ...rest, straitId: strait.id }]),
+  };
+}
+
+/** Restaure une mémoire sauvegardée sans écraser ce qui a été reçu depuis le démarrage. */
+export function importMaritime(snapshot: Partial<MaritimeSnapshot>, nowMs = Date.now()): void {
+  const state = maritimeState();
+  for (const [mmsi, vessel] of snapshot.vessels ?? []) {
+    if (!state.vessels.has(mmsi) && Array.isArray(vessel?.track)) state.vessels.set(mmsi, vessel);
+  }
+  for (const [mmsi, { straitId, ...rest }] of snapshot.straits ?? []) {
+    const strait = STRAITS.find((candidate) => candidate.id === straitId);
+    if (strait && !state.straits.has(mmsi) && Array.isArray(rest?.track)) state.straits.set(mmsi, { ...rest, strait });
+  }
+  purgeVessels(state, nowMs);
+  purgeStraits(state, nowMs);
 }
 
 export function maritimeMemoryStats(): { vessels: number; points: number } {
@@ -374,4 +589,29 @@ export function createMaritimeSource(apiKey = process.env.AISSTREAM_API_KEY ?? "
   };
 }
 
-export const maritimeSources: FeedSourceDef[] = [createMaritimeSource()];
+/** Trafic des détroits : même connexion WebSocket, lecture locale de la mémoire. */
+export function createStraitsSource(apiKey = process.env.AISSTREAM_API_KEY ?? "", options: AisConnectionOptions = {}): FeedSourceDef {
+  const configured = Boolean(apiKey.trim());
+  return {
+    sourceId: "aisstream-straits",
+    sourceName: "AISStream.io",
+    category: "shipping",
+    homepage: "https://aisstream.io/",
+    license: "Conditions AISStream.io ; aucune licence ouverte n’est affirmée",
+    ttlMs: 5_000,
+    unavailable: configured ? undefined : {
+      status: "not_configured",
+      message: "Clé AISStream absente (gratuite sur aisstream.io)",
+    },
+    async load(ctx) {
+      ensureAisConnection(apiKey, options);
+      const state = maritimeState();
+      return {
+        items: currentStraitItems(ctx, Date.parse(ctx.fetchedAt)),
+        message: state.lastError ?? (state.socket?.readyState === 1 ? null : "Connexion AISStream en cours ; état mémoire retourné sans attente."),
+      };
+    },
+  };
+}
+
+export const maritimeSources: FeedSourceDef[] = [createMaritimeSource(), createStraitsSource()];

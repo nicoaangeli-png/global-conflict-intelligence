@@ -124,7 +124,7 @@ export function WorldFeedPanel() {
   const themedAll = useMemo(() => itemsForTheme(feeds, theme, now, { allWeather: weatherAll }), [feeds, theme, now, weatherAll]);
   const vehicleCounts = useMemo(() => {
     if (theme !== "military") return null;
-    const out = { aircraft: 0, vessel: 0 };
+    const out = { aircraft: 0, vessel: 0, merchant: 0 };
     for (const item of themedAll) {
       const kind = vehicleOf(item);
       if (kind) out[kind]++;

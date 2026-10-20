@@ -21,7 +21,7 @@ interface AdsbResponse {
   ac?: AdsbAircraft[];
 }
 
-interface AircraftTrackRecord {
+export interface AircraftTrackRecord {
   lastSeenAt: number;
   points: NonNullable<LiveItem["track"]>;
 }
@@ -45,6 +45,20 @@ function aircraftTracks(): AircraftTrackStore {
 /** Réservé aux tests : la mémoire applicative est normalement conservée entre les requêtes. */
 export function clearAdsbTracks(): void {
   aircraftTracks().clear();
+}
+
+/** Instantané sérialisable des trajets (sauvegarde entre redémarrages). */
+export function exportAdsbTracks(): [string, AircraftTrackRecord][] {
+  return [...aircraftTracks().entries()];
+}
+
+/** Restaure des trajets sauvegardés sans écraser ceux déjà observés depuis le démarrage. */
+export function importAdsbTracks(entries: [string, AircraftTrackRecord][], nowMs = Date.now()): void {
+  const tracks = aircraftTracks();
+  for (const [hex, record] of entries) {
+    if (!tracks.has(hex) && Array.isArray(record?.points) && Number.isFinite(record.lastSeenAt)) tracks.set(hex, record);
+  }
+  purgeAircraftTracks(nowMs);
 }
 
 export function adsbTrackStats(): { aircraft: number; points: number } {

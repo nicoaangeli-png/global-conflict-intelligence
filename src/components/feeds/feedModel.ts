@@ -34,6 +34,8 @@ export const THEME_CATEGORIES: Record<ThemeKey, readonly FeedCategory[]> = {
   uap: ["uap"],
   military: ["military"],
   infrastructure: ["infrastructure"],
+  // Trafic des détroits : calque du globe (menu « Calques »), sans onglet propre.
+  shipping: ["shipping"],
 };
 
 /** Libellé d'une catégorie (étiquette d'un élément, section de fiche pays). */
@@ -51,6 +53,7 @@ export const THEME_LABELS: Record<ThemeKey, { fr: string; en: string }> = {
   military: { fr: "Militaire", en: "Military" },
   weather: { fr: "Météo", en: "Weather" },
   infrastructure: { fr: "Réseaux", en: "Networks" },
+  shipping: { fr: "Trafic maritime", en: "Shipping" },
 };
 
 /** Libellé d'onglet : un onglet qui regroupe plusieurs catégories le dit. */
@@ -78,6 +81,7 @@ export const THEME_COLORS: Record<ThemeKey, string> = {
   military: "#b4c48e",
   weather: "#8fc8ff",
   infrastructure: "#cfd9e6",
+  shipping: "#8ab8d8",
 };
 
 export const NATURE_LABELS: Record<FeedNature, { fr: string; en: string }> = {
@@ -210,7 +214,7 @@ const ALL_FEED_WEATHER = new Set(["severe", "extreme"]);
  */
 export function inAllFeed(item: LiveItem, now = Date.now()): boolean {
   if (item.category === "economy" || item.nature === "market_quote" || isFuture(item, now)) return false;
-  if (item.category === "military") return false;
+  if (item.category === "military" || item.category === "shipping") return false;
   if (item.category === "infrastructure" && item.nature === "sensor_measurement") return false;
   if (!isMajorWeather(item)) return false;
   return true;
