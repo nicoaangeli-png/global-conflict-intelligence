@@ -76,25 +76,25 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       aria-modal="true"
       aria-labelledby="settings-dialog-title"
       onKeyDown={handleKeyDown}
-      className="panel corners boot flex max-h-[calc(100vh-130px)] w-[min(420px,calc(100vw-40px))] flex-col"
+      className="settings-panel panel corners boot flex max-h-[calc(100vh-130px)] w-[min(420px,calc(100vw-40px))] flex-col"
     >
       <span className="corner" />
-      <div className="flex items-center justify-between px-3 pt-[10px]">
+      <div className="flex shrink-0 items-center justify-between gap-3 px-3 pt-[10px]">
         <h2 id="settings-dialog-title" className="label-strong">
           {locale === "fr" ? "Paramètres · Sources & déploiement" : "Settings · Sources & Deployment"}
         </h2>
         <button
           ref={closeButtonRef}
           type="button"
-          className="chip"
-                    onClick={onClose}
+          className="chip shrink-0"
+          onClick={onClose}
           aria-label={locale === "fr" ? "Fermer les paramètres" : "Close settings"}
         >
           {locale === "fr" ? "fermer" : "close"}
         </button>
       </div>
       <div className="hairline mx-3 mt-2" />
-      <div className="scroll-thin space-y-3 overflow-y-auto px-3 py-3">
+      <div className="settings-content scroll-thin min-h-0 space-y-3 overflow-y-auto px-3 py-3">
         <div>
           <span className="label">{locale === "fr" ? "Variables d'environnement" : "Environment variables"}</span>
           <pre

@@ -7,11 +7,17 @@ import { SettingsPanel } from "@/components/ui/SettingsPanel";
 import { BriefingModal } from "@/components/briefing/BriefingModal";
 import { BootOverlay, FrameCorners, HoverCountryBadge, HoverFeedReadout, HoverLayerReadout, HoverReadout } from "@/components/ui/Overlays";
 import { ThemeBar } from "@/components/feeds/ThemeBar";
-import { WorldFeedPanel } from "@/components/feeds/WorldFeedPanel";
 import { Inspector, hasInspection } from "@/components/feeds/Inspector";
 import { useIntelStore } from "@/store/useIntelStore";
-import { AgentPanel } from "@/components/agent/AgentPanel";
 import { tr } from "@/lib/i18n";
+import { CountrySearch } from "@/components/feeds/CountrySearch";
+import { MobileSheet } from "@/components/mobile/MobileSheet";
+import { useMobileViewport } from "@/components/mobile/useMobileViewport";
+import { Globe2, List, Search, Layers, Sparkles } from "lucide-react";
+
+const WorldFeedPanel = dynamic(() => import("@/components/feeds/WorldFeedPanel").then((module) => module.WorldFeedPanel));
+const AgentPanel = dynamic(() => import("@/components/agent/AgentPanel").then((module) => module.AgentPanel));
+const LayersMenu = dynamic(() => import("@/components/layers/LayersMenu").then((module) => module.LayersMenu));
 
 /** La scène 3D est chargée uniquement côté navigateur (WebGL). */
 const GlobeScene = dynamic(() => import("@/components/globe/GlobeScene").then((m) => m.GlobeScene), {
@@ -42,12 +48,15 @@ function isTypingContext(e: KeyboardEvent): boolean {
   );
 }
 
-type MobilePane = "globe" | "feed" | "inspector";
+type MobilePane = "globe" | "feed" | "search" | "layers" | "aura" | "inspector";
 
 export function IntelApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [briefingOpen, setBriefingOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>("globe");
+  const [expanded, setExpanded] = useState(false);
+  const [auraLoaded, setAuraLoaded] = useState(false);
+  const mobile = useMobileViewport();
   const refresh = useIntelStore((s) => s.refresh);
   const refreshFeeds = useIntelStore((s) => s.refreshFeeds);
   const setStreamStatus = useIntelStore((s) => s.setStreamStatus);
@@ -67,7 +76,7 @@ export function IntelApp() {
   useEffect(() => {
     void refresh();
     void refreshFeeds();
-    const id = setInterval(() => void refreshFeeds(), FEEDS_POLL_MS);
+    const id = setInterval(() => { if (!document.hidden) void refreshFeeds(); }, FEEDS_POLL_MS);
     return () => clearInterval(id);
   }, [refresh, refreshFeeds]);
 
@@ -76,7 +85,7 @@ export function IntelApp() {
   const mobilesLive = useIntelStore((s) => s.mobilesOn.aircraft || s.mobilesOn.vessel);
   useEffect(() => {
     if (theme !== "military" && !mobilesLive) return;
-    const id = setInterval(() => void refreshFeedCategory("military"), MILITARY_POLL_MS);
+    const id = setInterval(() => { if (!document.hidden) void refreshFeedCategory("military"); }, MILITARY_POLL_MS);
     return () => clearInterval(id);
   }, [theme, mobilesLive, refreshFeedCategory]);
 
@@ -84,14 +93,38 @@ export function IntelApp() {
   const merchantsLive = useIntelStore((s) => s.mobilesOn.merchant);
   useEffect(() => {
     if (!merchantsLive) return;
-    const id = setInterval(() => void refreshFeedCategory("shipping"), MILITARY_POLL_MS);
+    const id = setInterval(() => { if (!document.hidden) void refreshFeedCategory("shipping"); }, MILITARY_POLL_MS);
     return () => clearInterval(id);
   }, [merchantsLive, refreshFeedCategory]);
 
   // Sur mobile : une inspection ouvre le volet correspondant.
   useEffect(() => {
-    if (inspecting) setMobilePane("inspector");
+    if (inspecting) { setMobilePane("inspector"); setExpanded(false); }
+    else setMobilePane((pane) => pane === "inspector" ? "globe" : pane);
   }, [inspecting]);
+
+  useEffect(() => {
+    if (agentOpen) setAuraLoaded(true);
+    if (mobile && agentOpen) { setMobilePane("aura"); setSettingsOpen(false); setBriefingOpen(false); }
+    else if (!agentOpen) setMobilePane((pane) => pane === "aura" ? "globe" : pane);
+  }, [mobile, agentOpen]);
+
+  const closePane = () => {
+    setMobilePane("globe");
+    const state = useIntelStore.getState();
+    state.setAgentOpen(false);
+    state.setCountry(null);
+    void state.select(null);
+    state.selectFeedItem(null);
+    state.selectLayerFeature(null);
+  };
+
+  const openPane = (pane: MobilePane) => {
+    if (pane !== "aura") closePane();
+    setSettingsOpen(false); setBriefingOpen(false);
+    setMobilePane(pane);
+    if (pane === "aura") useIntelStore.getState().setAgentOpen(true);
+  };
 
   // Flux temps réel : le serveur pousse les ingestions, le client réinterroge l'agrégat filtré.
   useEffect(() => {
@@ -151,27 +184,37 @@ export function IntelApp() {
   }, [briefingOpen, settingsOpen]);
 
   return (
-    <main className="stage" translate="no">
+    <main className="stage" translate="no" data-mobile-pane={mobilePane} data-overlay-open={settingsOpen || briefingOpen ? "true" : undefined}>
       <GlobeScene />
       <FrameCorners />
 
       <div className="hud">
         <Header
+          compact={mobile === true}
           settingsOpen={settingsOpen}
-          onSettings={() => setSettingsOpen((v) => !v)}
-          onBriefing={() => setBriefingOpen(true)}
+          onSettings={() => { if (mobile) { closePane(); setBriefingOpen(false); } setSettingsOpen((value) => !value); }}
+          onBriefing={() => { if (mobile) { closePane(); setSettingsOpen(false); } setBriefingOpen(true); }}
         />
-        <ThemeBar />
+        {mobile === false && <ThemeBar />}
 
-        <div className="left-column" data-mobile-open={mobilePane === "feed"}>
+        {mobile === false && <div className="left-column">
           <WorldFeedPanel />
-        </div>
+        </div>}
 
-        {agentOpen ? null : (
-          <div className="right-column" data-mobile-open={mobilePane === "inspector"}>
+        {mobile === false && !agentOpen ? (
+          <div className="right-column">
             <Inspector />
           </div>
-        )}
+        ) : null}
+
+        {mobile && mobilePane !== "globe" && mobilePane !== "aura" && <MobileSheet
+          key={mobilePane} title={mobilePane === "feed" ? tr(locale, "Flux", "Feed") : mobilePane === "search" ? tr(locale, "Recherche pays", "Country search") : mobilePane === "layers" ? tr(locale, "Calques", "Layers") : tr(locale, "Sélection", "Selection")}
+          expanded={mobilePane !== "inspector" || expanded} onExpand={mobilePane === "inspector" ? () => setExpanded((value) => !value) : undefined} onClose={closePane}>
+          {mobilePane === "feed" && <><ThemeBar /><WorldFeedPanel /></>}
+          {mobilePane === "search" && <CountrySearch embedded onSelect={() => { setMobilePane("inspector"); setExpanded(false); }} />}
+          {mobilePane === "layers" && <LayersMenu embedded />}
+          {mobilePane === "inspector" && <Inspector />}
+        </MobileSheet>}
 
         {settingsOpen ? (
           <div className="settings-anchor">
@@ -181,26 +224,28 @@ export function IntelApp() {
 
         {briefingOpen ? <BriefingModal onClose={() => setBriefingOpen(false)} /> : null}
 
-        <AgentPanel />
-        <HoverCountryBadge />
+        {(mobile === false || (mobile && (agentOpen || auraLoaded))) && <AgentPanel />}
+        {mobile === false && <><HoverCountryBadge />
         <HoverReadout />
         <HoverFeedReadout />
-        <HoverLayerReadout />
+        <HoverLayerReadout /></>}
 
         {/* Sélecteur de volet (écran étroit uniquement) */}
-        <div role="group" aria-label={tr(locale, "Volet affiché", "Visible pane")} className="mobile-switch">
+        <nav aria-label={tr(locale, "Navigation principale", "Main navigation")} className="mobile-nav">
           {(
             [
-              ["globe", tr(locale, "Globe", "Globe")],
-              ["feed", tr(locale, "Fil", "Feed")],
-              ["inspector", tr(locale, "Détail", "Details")],
+              ["globe", tr(locale, "Monde", "World"), Globe2],
+              ["feed", tr(locale, "Flux", "Feed"), List],
+              ["search", tr(locale, "Recherche", "Search"), Search],
+              ["layers", tr(locale, "Calques", "Layers"), Layers],
+              ["aura", "AURA", Sparkles],
             ] as const
-          ).map(([key, text]) => (
-            <button key={key} type="button" className="chip" data-active={mobilePane === key} aria-pressed={mobilePane === key} onClick={() => setMobilePane(key)}>
-              {text}
+          ).map(([key, text, Icon]) => (
+            <button key={key} type="button" data-active={mobilePane === key} aria-label={text} aria-pressed={mobilePane === key} onClick={() => openPane(key)}>
+              <Icon size={21} aria-hidden="true" /><span>{text}</span>
             </button>
           ))}
-        </div>
+        </nav>
       </div>
 
       {error ? (

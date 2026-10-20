@@ -7,10 +7,13 @@ import { trackPoints, vehicleHeading, vehicleOf, type VehicleKind } from '../fee
 /**
  * Mobiles militaires suivis sur le globe : aéronefs (ADS-B) et navires (AIS).
  *
- * - un seul `THREE.Points` pour tous les mobiles : chevron (aéronef) ou coque
- *   effilée (navire) orientés selon le cap publié, taille fixe à l'écran, liseré
- *   sombre pour rester lisibles sur les terres claires ; symbole non orienté
- *   (losange / rond) si aucun cap n'est connu ;
+ * - un seul `THREE.Points` pour tous les mobiles : silhouette d'avion (aéronef) ou
+ *   orientée selon le cap publié (aéronef) ; navire vu de profil, tourné vers la
+ *   gauche ou la droite selon son cap à l'écran (bâtiment de guerre ou cargo),
+ *   plus lisible qu'une coque vue de dessus à cette taille. Taille fixe à l'écran,
+ *   liseré sombre pour rester lisibles sur les terres claires ; losange pour un
+ *   aéronef sans cap connu.
+ *   Avions dessinés en dernier : jamais masqués par un navire ;
  * - un seul `THREE.LineSegments` pour tous les trajets observés : ligne fine
  *   qui s'estompe vers le passé, surlignée pour le mobile survolé ou choisi.
  *
@@ -18,8 +21,11 @@ import { trackPoints, vehicleHeading, vehicleOf, type VehicleKind } from '../fee
  * les shaders (comme `FeedLayer`), aucun test de profondeur.
  */
 
-/** Couleurs de la palette militaire : olive (aéronefs), sable (navires). */
-export const VEHICLE_COLORS: Record<VehicleKind, string> = { aircraft: '#c3d494', vessel: '#e6c88f', merchant: '#8ab8d8' };
+/**
+ * Couleurs franches, absentes de la palette des événements (rouges/oranges/blancs) :
+ * vert fluo (aéronefs), bleu vif (navires militaires), gris-bleu discret (navires civils).
+ */
+export const VEHICLE_COLORS: Record<VehicleKind, string> = { aircraft: '#b6ff3b', vessel: '#2fb8ff', merchant: '#7f93a8' };
 
 const AIRCRAFT_ALT = 1.011;
 const VESSEL_ALT = 1.006;
@@ -67,8 +73,8 @@ const pointVertex = /* glsl */ `
       vec2 d = (ahead.xy / ahead.w - gl_Position.xy / gl_Position.w) * uViewport;
       vAngle = atan(d.y, d.x);
     }
-    // Taille fixe à l'écran : navires militaires ≈ 26 px, avions ≈ 14 px, navires civils ≈ 13 px.
-    float size = aKind > 1.5 ? 15.0 : aKind > 0.5 ? 29.0 : 17.5;
+    // Taille fixe à l'écran (px CSS) : avions 22, navires militaires 18, navires civils 13.
+    float size = aKind > 1.5 ? 13.0 : aKind > 0.5 ? 18.0 : 22.0;
     gl_PointSize = (size + aSel * 6.0) * uPixelRatio;
   }
 `;
@@ -96,20 +102,31 @@ const pointFragment = /* glsl */ `
     return max(max(fuselage, wing), tail);
   }
 
-  // Mini bâtiment de guerre vu de dessus : étrave effilée (x = 0,95), poupe à tableau (x = -0,88),
-  // plus grande largeur au tiers arrière.
-  float hull(vec2 q) {
-    float t = clamp((0.95 - q.x) / 1.0, 0.0, 1.0);
-    float hw = q.x > -0.05 ? 0.25 * pow(t, 0.55) : 0.25 - (-0.05 - q.x) * 0.07;
-    return min(min(hw - abs(q.y), q.x + 0.88), 0.95 - q.x);
+  float rect(vec2 q, float x0, float x1, float y0, float y1) {
+    return min(min(q.x - x0, x1 - q.x), min(q.y - y0, y1 - q.y));
   }
 
-  // Détails de pont : superstructure centrale et deux tourelles (avant et arrière).
-  float deck(vec2 q) {
-    float sup = box(q, -0.38, 0.08, 0.115);
-    float t1 = 0.075 - length(q - vec2(0.38, 0.0));
-    float t2 = 0.065 - length(q - vec2(-0.6, 0.0));
-    return max(sup, max(t1, t2));
+  // Coque vue de profil, proue à droite : pont en y1, quille en y0, étrave inclinée.
+  float hullSide(vec2 q, float y0, float y1, float stern, float bow) {
+    float depth = y1 - q.y;
+    return min(min(q.y - y0, depth), min(q.x - stern - depth * 0.35, bow - depth * 0.9 - q.x));
+  }
+
+  // Bâtiment de guerre de profil : coque basse, passerelle en gradins, mât, tourelle avant.
+  float warship(vec2 q) {
+    float hull = hullSide(q, -0.42, -0.08, -0.92, 0.98);
+    float bridge = max(rect(q, -0.5, 0.18, -0.1, 0.16), rect(q, -0.32, 0.04, 0.1, 0.34));
+    float mast = rect(q, -0.2, -0.1, 0.3, 0.62);
+    float turret = rect(q, 0.32, 0.56, -0.1, 0.06);
+    return max(max(hull, bridge), max(mast, turret));
+  }
+
+  // Cargo de profil : coque, conteneurs au centre, passerelle haute à l'arrière.
+  float cargo(vec2 q) {
+    float hull = hullSide(q, -0.42, -0.06, -0.9, 0.96);
+    float boxes = rect(q, -0.4, 0.62, -0.08, 0.2);
+    float bridge = rect(q, -0.8, -0.5, -0.08, 0.46);
+    return max(hull, max(boxes, bridge));
   }
 
   void main() {
@@ -119,24 +136,24 @@ const pointFragment = /* glsl */ `
     float c = cos(vAngle);
     float s = sin(vAngle);
     // Silhouette à 80 % du carré : la marge accueille liseré et halo sans coupure.
-    vec2 q = vec2(c * p.x + s * p.y, -s * p.x + c * p.y) * (vKind > 0.5 ? 1.12 : 1.25);
+    vec2 q = vec2(c * p.x + s * p.y, -s * p.x + c * p.y) * 1.2;
+    // Navire : profil non tourné, proue vers la gauche si le cap pointe vers la gauche de l'écran.
+    if (vKind > 0.5) q = vec2(vOriented > 0.5 && c < 0.0 ? -p.x : p.x, p.y) * 1.05;
     float d;
     if (vKind < 0.5) d = vOriented > 0.5 ? plane(q) : 0.42 - (abs(q.x) + abs(q.y));
-    else d = vOriented > 0.5 ? hull(q) : 0.34 - length(q);
+    else d = vKind > 1.5 ? cargo(q) : warship(q);
     float body = smoothstep(0.0, 0.06, d);
-    // Détails de pont du navire, plus sombres que la coque.
-    float bridge = (vKind > 0.5 && vKind < 1.5 && vOriented > 0.5) ? smoothstep(0.0, 0.03, deck(q)) : 0.0;
     // Liseré sombre (lisibilité sur les terres) puis halo coloré léger (repérage).
     float outline = smoothstep(-0.12, 0.0, d) * (1.0 - body);
-    float glow = smoothstep(-0.32, 0.0, d) * (1.0 - body) * (vKind > 1.5 ? 0.18 : vKind > 0.5 ? 0.45 : 0.28);
+    float glow = smoothstep(-0.32, 0.0, d) * (1.0 - body) * (vKind > 1.5 ? 0.0 : vKind > 0.5 ? 0.25 : 0.4);
     float ring = vSel > 0.0 ? smoothstep(0.08, 0.0, abs(length(uv) - 0.94)) * vSel : 0.0;
     float edge = smoothstep(0.04, 0.22, vFacing);
-    float bright = 0.7 + 0.3 * vBright;
-    vec3 fill = mix(mix(vColor, vec3(1.0), 0.15 + vSel * 0.3) * bright, vColor * 0.32, bridge * 0.8);
+    float bright = 0.75 + 0.25 * vBright;
+    vec3 fill = mix(vColor, vec3(1.0), 0.1 + vSel * 0.3) * bright;
     vec3 dark = vec3(0.01, 0.03, 0.06);
     vec3 color = mix(mix(vColor, dark, outline > glow ? 0.85 : 0.0), fill, body);
     color = mix(color, vec3(1.0), ring * 0.7);
-    float alpha = max(max(body, max(outline * 0.7, glow)), ring) * edge;
+    float alpha = max(max(body, max(outline * 0.7, glow)), ring) * edge * (vKind > 1.5 ? 0.8 : 1.0);
     if (alpha < 0.01) discard;
     gl_FragColor = vec4(color, alpha);
   }
@@ -231,7 +248,10 @@ export class MobileLayer {
 
   /** Remplace les mobiles affichés (positions + trajets), au rafraîchissement des flux. */
   public setItems(items: LiveItem[], now = Date.now()): void {
-    this.items = items.filter((item) => vehicleOf(item) !== null && item.lat !== null && item.lon !== null && Number.isFinite(item.lat) && Number.isFinite(item.lon));
+    const drawOrder: Record<VehicleKind, number> = { merchant: 0, vessel: 1, aircraft: 2 };
+    this.items = items
+      .filter((item) => vehicleOf(item) !== null && item.lat !== null && item.lon !== null && Number.isFinite(item.lat) && Number.isFinite(item.lon))
+      .sort((a, b) => drawOrder[vehicleOf(a)!] - drawOrder[vehicleOf(b)!]);
     const n = this.items.length;
     this.positions = new Float32Array(n * 3);
     this.glideFrom = new Float32Array(n * 3);

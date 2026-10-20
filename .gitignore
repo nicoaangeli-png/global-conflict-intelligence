@@ -40,3 +40,7 @@ data/layers/
 
 # Extraits vocaux générés localement (non versionnés)
 public/voice-samples/
+
+playwright-report/
+test-results/
+data/mobiles/

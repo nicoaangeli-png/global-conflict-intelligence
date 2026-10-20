@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { CAMERA, GLOBE } from '@/lib/config/visual';
 import { clusterDegreesForCamera } from '@/lib/clustering/cluster';
@@ -22,6 +22,7 @@ import { tr } from '@/lib/i18n';
 import type { LiveItem } from '@/types/feeds';
 import { itemsForTheme, type ThemeKey } from '../feeds/feedModel';
 import { isPointPrecise } from '../feeds/conflictModel';
+import { GlobeGesture, globeFieldOfView, globeFrameDelta, globeMarkerBudget, globeQuality, pinchDistance } from '@/lib/globeQuality';
 
 /**
  * Points de flux visibles pour un thème (« conflict » : aucun, « all » : l'actualité).
@@ -34,6 +35,8 @@ function feedItemsFor(theme: ThemeKey, feeds: LiveItem[], allWeather: boolean): 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 export function GlobeScene() {
+  const [quality, setQuality] = useState(() => globeQuality({}));
+  const qualityRef = useRef(quality);
   const containerRef = useRef<HTMLDivElement>(null);
   const holographicEarthRef = useRef<HolographicEarth | null>(null);
   const orbitLayerRef = useRef<OrbitLayer | null>(null);
@@ -63,6 +66,10 @@ export function GlobeScene() {
   const layers = useIntelStore((s) => s.layers);
   const selectedLayer = useIntelStore((s) => s.selectedLayerFeature);
   const hoveredLayer = useIntelStore((s) => s.hoveredLayerFeature);
+  const budgetSelectedId = Number.isFinite(quality.markerLimit) ? selected?.id : null;
+  const budgetHoveredId = Number.isFinite(quality.markerLimit) ? hoveredId : null;
+  const budgetSelectedFeedId = Number.isFinite(quality.markerLimit) ? selectedFeedId : null;
+  const budgetHoveredFeedId = Number.isFinite(quality.markerLimit) ? hoveredFeedId : null;
 
   const sphericalRef = useRef<{
     distance: number;
@@ -81,9 +88,6 @@ export function GlobeScene() {
   });
 
   const isDraggingRef = useRef(false);
-  const dragStartPosRef = useRef({ x: 0, y: 0 });
-  const totalDragDistRef = useRef(0);
-  const previousMousePosRef = useRef({ x: 0, y: 0 });
   const velocityRef = useRef({ theta: 0, phi: 0 });
   const lastInteractionTimeRef = useRef(Date.now());
   const lastReportedDegrees = useRef(0);
@@ -92,24 +96,35 @@ export function GlobeScene() {
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
-    let width = container.clientWidth;
-    let height = container.clientHeight;
+    let width = Math.max(1, container.clientWidth);
+    let height = Math.max(1, container.clientHeight);
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const pointerQuery = window.matchMedia('(pointer: coarse)');
+    const readQuality = () => globeQuality({
+      coarsePointer: pointerQuery.matches,
+      shortSide: Math.min(window.innerWidth, window.innerHeight),
+      cores: navigator.hardwareConcurrency,
+      memoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+      reducedMotion: motionQuery.matches,
+    });
+    qualityRef.current = readQuality();
+    setQuality(qualityRef.current);
 
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x010409, 0.002);
 
-    const fov = CAMERA.fov;
+    const fov = globeFieldOfView(CAMERA.fov, width, height);
     const camera = new THREE.PerspectiveCamera(fov, width / height, CAMERA.near, CAMERA.far);
     camera.position.set(0, 0, CAMERA.initial.distance);
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      powerPreference: 'high-performance',
+      antialias: qualityRef.current.effects,
+      powerPreference: qualityRef.current.effects ? 'high-performance' : 'low-power',
       alpha: true,
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, qualityRef.current.maxDpr));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
@@ -149,6 +164,34 @@ export function GlobeScene() {
     globeGroup.add(mobileLayer.group);
     mobileLayerRef.current = mobileLayer;
 
+    const applyQuality = () => {
+      const next = readQuality();
+      qualityRef.current = next;
+      setQuality(next);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, next.maxDpr));
+      orbitLayer.group.visible = next.effects;
+      starfield.group.traverse((object) => {
+        if (!(object instanceof THREE.Points)) return;
+        object.geometry.setDrawRange(0, Math.floor(object.geometry.getAttribute('position').count * next.starFraction));
+        const material = object.material;
+        if (material instanceof THREE.ShaderMaterial && material.uniforms.uPixelRatio) {
+          material.uniforms.uPixelRatio.value = renderer.getPixelRatio();
+        }
+      });
+      holographicEarth.group.traverse((object) => {
+        if (object instanceof THREE.Mesh && object.material instanceof THREE.ShaderMaterial && object.material.uniforms.uPulse) {
+          object.visible = next.effects;
+        }
+      });
+      conflictLayer.group.traverse((object) => {
+        if (object instanceof THREE.Points) object.visible = next.effects;
+      });
+      if (next.reducedMotion) velocityRef.current = { theta: 0, phi: 0 };
+    };
+    applyQuality();
+    motionQuery.addEventListener('change', applyQuality);
+    pointerQuery.addEventListener('change', applyQuality);
+
     /** Foyer de conflit sous le pointeur, seulement si son calque est allumé. */
     const conflictHit = (rect: DOMRect) =>
       conflictLayerRef.current?.group.visible ? conflictLayerRef.current.hitTest(camera, mouse, rect.width, rect.height) : null;
@@ -164,7 +207,29 @@ export function GlobeScene() {
     const earthSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE.radius);
     const hitPoint = new THREE.Vector3();
     const worldIndexPromise = loadWorld();
-    let activePointerId: number | null = null;
+    const gesture = new GlobeGesture();
+    let disposed = false;
+    let interactionVersion = 0;
+    let hoverVersion = 0;
+    const reportZoom = () => {
+      if (debounceZoomTimer.current) clearTimeout(debounceZoomTimer.current);
+      debounceZoomTimer.current = setTimeout(() => {
+        const degrees = clusterDegreesForCamera(sphericalRef.current.targetDistance);
+        if (Math.abs(degrees - lastReportedDegrees.current) > 0.05) {
+          lastReportedDegrees.current = degrees;
+          setDegrees(degrees);
+        }
+      }, 180);
+    };
+
+    const clearHover = () => {
+      hoverVersion++;
+      hover(null);
+      setHoveredCountry(null);
+      useIntelStore.getState().hoverFeed(null);
+      useIntelStore.getState().hoverLayerFeature(null);
+      container.style.cursor = 'default';
+    };
 
     const updatePointer = (e: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -174,26 +239,36 @@ export function GlobeScene() {
     };
 
     const onMouseDown = (e: PointerEvent) => {
-      if (!e.isPrimary || activePointerId !== null || (e.button !== 0 && e.button !== 2)) return;
-      activePointerId = e.pointerId;
+      if ((e.button !== 0 && e.button !== 2) || (e.pointerType === 'mouse' && gesture.active)) return;
+      interactionVersion++;
+      clearHover();
+      gesture.down(e.pointerId, e.clientX, e.clientY);
       renderer.domElement.setPointerCapture(e.pointerId);
       updatePointer(e);
       isDraggingRef.current = true;
-      dragStartPosRef.current = { x: e.clientX, y: e.clientY };
-      totalDragDistRef.current = 0;
-      previousMousePosRef.current = { x: e.clientX, y: e.clientY };
       velocityRef.current = { theta: 0, phi: 0 };
       lastInteractionTimeRef.current = Date.now();
     };
 
     const onMouseMove = (e: PointerEvent) => {
-      if (!e.isPrimary || (activePointerId !== null && activePointerId !== e.pointerId)) return;
+      if (gesture.active && !gesture.has(e.pointerId)) return;
+      if (!gesture.active && (e.pointerType === 'touch' || !e.isPrimary)) return;
+      const currentHover = ++hoverVersion;
       const rect = updatePointer(e);
 
-      if (isDraggingRef.current) {
-        const deltaX = e.clientX - previousMousePosRef.current.x;
-        const deltaY = e.clientY - previousMousePosRef.current.y;
-        totalDragDistRef.current += Math.hypot(deltaX, deltaY);
+      if (gesture.active) {
+        const movement = gesture.move(e.pointerId, e.clientX, e.clientY);
+        if (!movement) return;
+        const { deltaX, deltaY, previousSpan, span } = movement;
+        if (span > 0 || previousSpan > 0) {
+          sphericalRef.current.targetDistance = pinchDistance(
+            sphericalRef.current.targetDistance, previousSpan, span, CAMERA.minDistance, CAMERA.maxDistance,
+          );
+          velocityRef.current = { theta: 0, phi: 0 };
+          lastInteractionTimeRef.current = Date.now();
+          reportZoom();
+          return;
+        }
 
         // Rotation fluide proportionnelle à la distance caméra (plus on est près, plus le contrôle est fin)
         const scale = (sphericalRef.current.targetDistance / CAMERA.initial.distance) * CAMERA.rotateSpeed;
@@ -213,7 +288,6 @@ export function GlobeScene() {
           Math.PI - 0.15
         );
 
-        previousMousePosRef.current = { x: e.clientX, y: e.clientY };
         lastInteractionTimeRef.current = Date.now();
         hover(null);
         setHoveredCountry(null);
@@ -246,6 +320,7 @@ export function GlobeScene() {
           if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
             const geo = vector3ToLatLon(hitPoint);
             worldIndexPromise.then((w) => {
+              if (disposed || currentHover !== hoverVersion || gesture.active) return;
               const c = countryAt(w, geo.lat, geo.lon);
               if (c) {
                 container.style.cursor = 'pointer';
@@ -254,7 +329,7 @@ export function GlobeScene() {
                 container.style.cursor = 'default';
                 setHoveredCountry(null);
               }
-            });
+            }).catch(() => undefined);
           } else {
             container.style.cursor = 'default';
             setHoveredCountry(null);
@@ -264,20 +339,15 @@ export function GlobeScene() {
     };
 
     const onMouseUp = (e: PointerEvent) => {
-      if (activePointerId !== e.pointerId) return;
+      if (!gesture.has(e.pointerId)) return;
       const rect = updatePointer(e);
-      const wasDragging = isDraggingRef.current;
-      const totalDist = totalDragDistRef.current + Math.hypot(
-        e.clientX - previousMousePosRef.current.x,
-        e.clientY - previousMousePosRef.current.y,
-      );
-      isDraggingRef.current = false;
-      activePointerId = null;
+      const tap = gesture.end(e.pointerId, e.clientX, e.clientY);
+      isDraggingRef.current = gesture.active;
       if (renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
 
       // Si l'utilisateur a glissé de plus de 5px au total, c'était une rotation du globe.
       // On ne déclenche JAMAIS de clic accidentel lors du relâchement !
-      if (!wasDragging || totalDist > 5 || e.button !== 0 || Math.abs(mouse.x) > 1 || Math.abs(mouse.y) > 1) {
+      if (!tap || e.button !== 0 || Math.abs(mouse.x) > 1 || Math.abs(mouse.y) > 1) {
         return;
       }
 
@@ -296,14 +366,16 @@ export function GlobeScene() {
         // Clic sur un pays pour ouvrir la fiche détaillée Pentagone
         if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
           const geo = vector3ToLatLon(hitPoint);
+          const selectionVersion = interactionVersion;
           worldIndexPromise.then((w) => {
+            if (disposed || selectionVersion !== interactionVersion) return;
             const c = countryAt(w, geo.lat, geo.lon);
             if (c) {
               setCountry({ name: c.name, iso: c.iso, lat: geo.lat, lon: geo.lon });
             } else {
               setCountry(null);
             }
-          });
+          }).catch(() => undefined);
         } else {
           setCountry(null);
         }
@@ -311,13 +383,13 @@ export function GlobeScene() {
     };
 
     const onPointerCancel = (e: PointerEvent) => {
-      if (activePointerId !== e.pointerId) return;
-      activePointerId = null;
-      isDraggingRef.current = false;
+      if (!gesture.has(e.pointerId)) return;
+      interactionVersion++;
+      gesture.end(e.pointerId, e.clientX, e.clientY, true);
+      isDraggingRef.current = gesture.active;
+      if (renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
       velocityRef.current = { theta: 0, phi: 0 };
-      hover(null);
-      setHoveredCountry(null);
-      container.style.cursor = 'default';
+      clearHover();
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -358,14 +430,7 @@ export function GlobeScene() {
       }
 
       // Débouncage de la mise à jour d'agrégation réseau (évite tout freeze)
-      if (debounceZoomTimer.current) clearTimeout(debounceZoomTimer.current);
-      debounceZoomTimer.current = setTimeout(() => {
-        const deg = clusterDegreesForCamera(sphericalRef.current.targetDistance);
-        if (Math.abs(deg - lastReportedDegrees.current) > 0.05) {
-          lastReportedDegrees.current = deg;
-          setDegrees(deg);
-        }
-      }, 180);
+      reportZoom();
     };
 
     const dom = renderer.domElement;
@@ -383,33 +448,44 @@ export function GlobeScene() {
 
     const handleResize = () => {
       if (!containerRef.current) return;
-      width = containerRef.current.clientWidth;
-      height = containerRef.current.clientHeight;
+      width = Math.max(1, containerRef.current.clientWidth);
+      height = Math.max(1, containerRef.current.clientHeight);
       camera.aspect = width / height;
+      camera.fov = globeFieldOfView(CAMERA.fov, width, height);
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
+      applyQuality();
     };
     window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(container);
 
-    // Animation 60 FPS
-    let animationFrameId: number;
-    const clock = new THREE.Clock();
+    let animationFrameId: number | null = null;
+    let lastFrame: number | null = null;
+    let elapsedTime = 0;
 
-    const animate = () => {
+    const animate = (timestamp: number) => {
+      if (disposed || document.hidden) return;
       animationFrameId = requestAnimationFrame(animate);
-      const elapsedTime = clock.getElapsedTime();
-      const delta = clock.getDelta();
+      const profile = qualityRef.current;
+      const delta = globeFrameDelta(timestamp, lastFrame, profile.fps);
+      if (delta === null) return;
+      lastFrame = timestamp;
+      if (!profile.reducedMotion) elapsedTime += delta;
+      const frameScale = delta * 60;
       const now = Date.now();
 
-      if (!isDraggingRef.current) {
-        sphericalRef.current.targetTheta += velocityRef.current.theta;
+      if (!isDraggingRef.current && !profile.reducedMotion) {
+        const decay = CAMERA.damping ** frameScale;
+        const inertiaScale = (1 - decay) / (1 - CAMERA.damping);
+        sphericalRef.current.targetTheta += velocityRef.current.theta * inertiaScale;
         sphericalRef.current.targetPhi = clamp(
-          sphericalRef.current.targetPhi + velocityRef.current.phi,
+          sphericalRef.current.targetPhi + velocityRef.current.phi * inertiaScale,
           0.15,
           Math.PI - 0.15
         );
-        velocityRef.current.theta *= CAMERA.damping;
-        velocityRef.current.phi *= CAMERA.damping;
+        velocityRef.current.theta *= decay;
+        velocityRef.current.phi *= decay;
 
         // Auto-rotation lente uniquement après 25 secondes d'inactivité totale
         if (now - lastInteractionTimeRef.current > 25000) {
@@ -418,9 +494,10 @@ export function GlobeScene() {
       }
 
       const s = sphericalRef.current;
-      s.theta += (s.targetTheta - s.theta) * 0.12;
-      s.phi += (s.targetPhi - s.phi) * 0.12;
-      s.distance += (s.targetDistance - s.distance) * 0.12;
+      const smoothing = profile.reducedMotion ? 1 : 1 - 0.88 ** frameScale;
+      s.theta += (s.targetTheta - s.theta) * smoothing;
+      s.phi += (s.targetPhi - s.phi) * smoothing;
+      s.distance += (s.targetDistance - s.distance) * smoothing;
 
       const sinPhi = Math.sin(s.phi);
       camera.position.x = s.distance * sinPhi * Math.sin(s.theta);
@@ -430,20 +507,53 @@ export function GlobeScene() {
 
       const dpr = renderer.getPixelRatio();
       if (holographicEarthRef.current) holographicEarthRef.current.update(elapsedTime);
-      if (orbitLayerRef.current) orbitLayerRef.current.update(elapsedTime, delta);
-      if (starfieldRef.current) starfieldRef.current.update(elapsedTime);
-      if (conflictLayerRef.current) conflictLayerRef.current.update(elapsedTime, delta, fov, height, dpr);
+      if (profile.effects) orbitLayer.update(elapsedTime, delta);
+      if (profile.starFraction > 0) starfield.update(elapsedTime);
+      if (conflictLayerRef.current) conflictLayerRef.current.update(elapsedTime, profile.reducedMotion ? 1 : delta, fov, height, dpr);
       if (feedLayerRef.current) feedLayerRef.current.update(elapsedTime, dpr);
-      if (mobileLayerRef.current) mobileLayerRef.current.update(dpr, width, height);
+      if (mobileLayerRef.current) mobileLayerRef.current.update(dpr, width, height, performance.now() + (profile.reducedMotion ? 60_000 : 0));
+      if (profile.reducedMotion) mobileLayer.group.traverse((object) => {
+        if (object instanceof THREE.LineSegments && object.material instanceof THREE.ShaderMaterial && object.material.uniforms.uTime) {
+          object.material.uniforms.uTime.value = elapsedTime;
+        }
+      });
       if (referenceLayersRef.current) referenceLayersRef.current.update(dpr);
 
       renderer.render(scene, camera);
     };
 
-    animate();
+    const pauseInteraction = () => {
+      interactionVersion++;
+      const pointerIds = gesture.reset();
+      for (const pointerId of pointerIds) {
+        if (dom.hasPointerCapture(pointerId)) dom.releasePointerCapture(pointerId);
+      }
+      isDraggingRef.current = false;
+      velocityRef.current = { theta: 0, phi: 0 };
+      clearHover();
+    };
+    const onVisibilityChange = () => {
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+      lastFrame = null;
+      pauseInteraction();
+      lastInteractionTimeRef.current = Date.now();
+      if (!document.hidden) animationFrameId = requestAnimationFrame(animate);
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', pauseInteraction);
+    if (!document.hidden) animationFrameId = requestAnimationFrame(animate);
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      disposed = true;
+      gesture.reset();
+      isDraggingRef.current = false;
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+      resizeObserver.disconnect();
+      motionQuery.removeEventListener('change', applyQuality);
+      pointerQuery.removeEventListener('change', applyQuality);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', pauseInteraction);
       dom.removeEventListener('pointerdown', onMouseDown);
       window.removeEventListener('pointermove', onMouseMove);
       window.removeEventListener('pointerup', onMouseUp);
@@ -457,6 +567,9 @@ export function GlobeScene() {
       holographicEarth.dispose();
       orbitLayer.dispose();
       starfield.dispose();
+      starfield.group.traverse((object) => {
+        if (object instanceof THREE.Points) object.geometry.dispose();
+      });
       conflictLayer.dispose();
       feedLayer.dispose();
       referenceLayers.dispose();
@@ -473,21 +586,21 @@ export function GlobeScene() {
     if (conflictLayerRef.current) {
       // Un foyer localisé au niveau pays/région n'est pas dessiné comme un point précis
       // (il reste dans les compteurs et la liste des zones, avec sa mention).
-      conflictLayerRef.current.setClusters(clusters.filter(isPointPrecise));
+      conflictLayerRef.current.setClusters(globeMarkerBudget(clusters.filter(isPointPrecise), quality.markerLimit, [budgetSelectedId, budgetHoveredId]));
     }
-  }, [clusters]);
+  }, [clusters, quality.markerLimit, budgetSelectedId, budgetHoveredId]);
 
   // Calques par thème : « Conflits » n'allume que les foyers, une catégorie que ses points.
   useEffect(() => {
     if (conflictLayerRef.current) conflictLayerRef.current.group.visible = theme === 'all' || theme === 'conflict';
     const layer = feedLayerRef.current;
     if (!layer) return;
-    const apply = () => layer.setItems(feedItemsFor(theme, feeds, weatherAll));
+    const apply = () => layer.setItems(globeMarkerBudget(feedItemsFor(theme, feeds, weatherAll), quality.markerLimit, [budgetSelectedFeedId, budgetHoveredFeedId]));
     apply();
     // Les halos « < 2 h » et l'éclat suivent l'âge réel : recalcul chaque minute.
     const id = setInterval(apply, 60_000);
     return () => clearInterval(id);
-  }, [theme, feeds, weatherAll]);
+  }, [theme, feeds, weatherAll, quality.markerLimit, budgetSelectedFeedId, budgetHoveredFeedId]);
 
   // Calques de référence : visibilité (éteints par défaut) et données chargées à la demande.
   useEffect(() => {
@@ -539,30 +652,30 @@ export function GlobeScene() {
     const forced = theme === 'military';
     const apply = () =>
       layer.setItems(
-        feeds.filter((item) => {
+        globeMarkerBudget(feeds.filter((item) => {
           const kind = vehicleOf(item);
           return kind !== null && ((forced && kind !== 'merchant') || mobilesOn[kind]);
-        }),
+        }), quality.markerLimit, [budgetSelectedFeedId, budgetHoveredFeedId]),
       );
     apply();
     const id = setInterval(apply, 60_000);
     return () => clearInterval(id);
-  }, [theme, feeds, mobilesOn]);
+  }, [theme, feeds, mobilesOn, quality.markerLimit, budgetSelectedFeedId, budgetHoveredFeedId]);
 
   useEffect(() => {
     mobileLayerRef.current?.setHighlight(selectedFeedId, hoveredFeedId);
-  }, [selectedFeedId, hoveredFeedId, feeds, theme, mobilesOn]);
+  }, [selectedFeedId, hoveredFeedId, feeds, theme, mobilesOn, quality.markerLimit]);
 
   useEffect(() => {
     feedLayerRef.current?.setHighlight(selectedFeedId, hoveredFeedId);
-  }, [selectedFeedId, hoveredFeedId, feeds, theme]);
+  }, [selectedFeedId, hoveredFeedId, feeds, theme, quality.markerLimit]);
 
   // Synchronisation sélection et survol
   useEffect(() => {
     if (conflictLayerRef.current) {
       conflictLayerRef.current.setSelected(selected?.id || null, hoveredId);
     }
-  }, [selected, hoveredId]);
+  }, [selected, hoveredId, quality.markerLimit]);
 
   // Recentrage sur requête externe sans coup de zoom violent
   useEffect(() => {

@@ -211,9 +211,67 @@ export function AgentPanel() {
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<Recognition | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const launcherRef = useRef<HTMLButtonElement>(null);
+  const [mobile, setMobile] = useState(false);
   const turnCounter = useRef(0);
   const voice = useAuraVoice(locale);
   const fr = locale === "fr";
+
+  const closePanel = useCallback(() => {
+    voice.stop();
+    if (recognitionRef.current) {
+      recognitionRef.current.onend = null;
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      setListening(false);
+    }
+    setOpen(false);
+  }, [setOpen, voice]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const update = () => setMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!open || !mobile) return;
+    const previousFocus = document.activeElement;
+    const containFocus = (event: FocusEvent) => {
+      if (event.target instanceof Node && !panelRef.current?.contains(event.target)) composerRef.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener("focusin", containFocus);
+    composerRef.current?.focus({ preventScroll: true });
+    return () => {
+      document.removeEventListener("focusin", containFocus);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
+      else launcherRef.current?.focus({ preventScroll: true });
+    };
+  }, [open, mobile]);
+
+  const onPanelKey = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      event.stopPropagation();
+      closePanel();
+    }
+    if (!mobile || event.key !== "Tab") return;
+    const controls = Array.from(panelRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], textarea, select, summary, [tabindex='0']") ?? [])
+      .filter((element) => element.getClientRects().length > 0);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  };
 
   useEffect(() => {
     fetch("/api/agent")
@@ -226,7 +284,7 @@ export function AgentPanel() {
   }, []);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "auto" });
   }, [turns, status]);
 
   useEffect(() => () => { abortRef.current?.abort(); recognitionRef.current?.stop(); }, []);
@@ -423,14 +481,15 @@ export function AgentPanel() {
     : "AURA online. Here is the strategic picture: fighting is concentrated around the city, and a local ceasefire was reported this morning.";
 
   const onSubmit = (event: FormEvent) => { event.preventDefault(); void ask(draft); };  const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(draft); }
-    event.stopPropagation();
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); void ask(draft); }
+    if (event.key !== "Tab" && event.key !== "Escape") event.stopPropagation();
   };
 
   if (!open) {
     return (
       <div className="aura-launcher">
       <button
+        ref={launcherRef}
         type="button"
         onClick={() => setOpen(true)}
         className="panel pointer-events-auto flex items-center gap-2 py-1 pl-1 pr-3 transition hover:border-cyan/40"
@@ -448,9 +507,9 @@ export function AgentPanel() {
 
   return (
     <div className="aura-column">
-    <section className="panel corners boot pointer-events-auto flex w-full flex-col bg-[#020b14]/90" aria-label="AURA">
+    <section ref={panelRef} className="aura-panel panel corners boot pointer-events-auto flex min-h-0 w-full flex-col overflow-hidden bg-[#020b14]/90" role={mobile ? "dialog" : undefined} aria-modal={mobile || undefined} aria-label="AURA" onKeyDown={onPanelKey}>
       <span className="corner" />
-      <header className="relative border-b border-cyan/15">
+      <header className="aura-header relative shrink-0 border-b border-cyan/15">
         <AuraCore state={holoState} levelRef={voice.levelRef} width={330} height={190} className="mx-auto" />
         <div className="absolute left-3 top-2 max-w-[calc(100%-140px)]">
           <div className="label-strong">AURA</div>
@@ -460,25 +519,25 @@ export function AgentPanel() {
           </div>
         </div>
         <div className="absolute right-2 top-2 flex gap-1">
-          <button type="button" className="chip" data-active={voice.enabled} aria-pressed={voice.enabled} onClick={voice.toggle} title={fr ? "Voix" : "Voice"}>
+          <button type="button" className="chip min-h-[44px] min-w-[44px]" data-active={voice.enabled} aria-pressed={voice.enabled} aria-label={fr ? "Activer la voix AURA" : "Enable AURA voice"} onClick={voice.toggle} title={fr ? "Voix" : "Voice"}>
             {voice.enabled ? "🔊" : "🔇"}
           </button>
-          <button type="button" className="chip" onClick={() => setShowVoices((visible) => !visible)} aria-expanded={showVoices} title={fr ? "Choisir la voix" : "Choose voice"}>
+          <button type="button" className="chip min-h-[44px] min-w-[44px]" onClick={() => setShowVoices((visible) => !visible)} aria-expanded={showVoices} aria-controls="aura-voice-settings" aria-label={fr ? "Choisir la voix" : "Choose voice"} title={fr ? "Choisir la voix" : "Choose voice"}>
             ♀
           </button>
-          <button type="button" className="chip" onClick={() => { voice.stop(); setOpen(false); }}>
-            esc
+          <button type="button" className="chip min-h-[44px] min-w-[44px]" aria-label={fr ? "Fermer AURA" : "Close AURA"} onClick={closePanel}>
+            ✕
           </button>
         </div>
         <div className="absolute bottom-2 right-2">
           {voice.speaking ? (
-            <button type="button" className="chip" onClick={voice.stop}>{fr ? "silence" : "mute"}</button>
+            <button type="button" className="chip min-h-[44px] min-w-[44px]" aria-label={fr ? "Arrêter la lecture vocale" : "Stop speech playback"} onClick={voice.stop}>{fr ? "silence" : "mute"}</button>
           ) : null}
         </div>
       </header>
 
       {showVoices ? (
-        <div className="space-y-2 border-b border-cyan/15 px-3 py-2">
+        <div id="aura-voice-settings" className="scroll-thin max-h-[40dvh] shrink-0 space-y-2 overflow-y-auto border-b border-cyan/15 px-3 py-2">
           <div>
             <label className="label block" htmlFor="aura-engine">{fr ? "Moteur vocal" : "Voice engine"}</label>
             <select
@@ -588,7 +647,7 @@ export function AgentPanel() {
         </div>
       ) : null}
 
-      <div ref={scrollRef} className="scroll-thin flex-1 space-y-3 overflow-y-auto px-3 py-3" aria-live="polite">
+      <div ref={scrollRef} className="aura-history scroll-thin min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3" role="log" aria-label={fr ? "Conversation avec AURA" : "Conversation with AURA"} aria-live="polite" aria-relevant="additions text" aria-busy={busy}>
         {configured === false ? (
           <p className="text-[11px] text-alert-soft">{fr ? "Agente non configurée : ajoute OPENAI_API_KEY dans .env.local puis redémarre le serveur." : "Agent not configured: add OPENAI_API_KEY to .env.local and restart."}</p>
         ) : null}
@@ -631,7 +690,9 @@ export function AgentPanel() {
                 </div>
               ) : null}
               {numbered.length || others.length ? (
-                <div className="mt-2 flex flex-wrap gap-1">
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-[11px] text-text-faint">Sources ({numbered.length + others.length})</summary>
+                  <div className="mt-1 flex flex-wrap gap-1">
                   {numbered.map(([url, number]) => {
                     const href = safeHref(url);
                     return href ? (
@@ -648,7 +709,8 @@ export function AgentPanel() {
                       </a>
                     ) : null;
                   })}
-                </div>
+                  </div>
+                </details>
               ) : null}
               {turn.provenance?.length ? <ProvenanceList items={turn.provenance} fr={fr} /> : null}
             </div>
@@ -656,27 +718,30 @@ export function AgentPanel() {
         })}
       </div>
 
-      <form onSubmit={onSubmit} className="border-t border-cyan/15 p-2">
+      <form onSubmit={onSubmit} className="aura-composer shrink-0 border-t border-cyan/15 p-2">
+        <label htmlFor="aura-question" className="sr-only">{fr ? "Votre question à AURA" : "Your question for AURA"}</label>
         <div className="flex items-end gap-1">
           <textarea
+            id="aura-question"
+            ref={composerRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={onKey}
             rows={2}
             maxLength={limits.maxUserChars}
             placeholder={fr ? "Demande à AURA… (Entrée pour envoyer)" : "Ask AURA… (Enter to send)"}
-            className="scroll-thin min-h-[38px] flex-1 resize-none border border-cyan/20 bg-[#020b14] px-2 py-1.5 text-[11px] text-text placeholder:text-text-faint focus:border-cyan focus:outline-none"
+            className="scroll-thin min-h-[44px] min-w-0 flex-1 resize-none border border-cyan/20 bg-[#020b14] px-2 py-1.5 text-base text-text placeholder:text-text-faint focus:border-cyan focus:outline-none md:text-[11px]"
           />
           <div className="flex flex-col gap-1">
-            <button type="button" className="chip" data-active={listening} aria-pressed={listening} onClick={toggleMic} title={fr ? "Parler" : "Speak"}>
+            <button type="button" className="chip min-h-[44px] min-w-[44px]" data-active={listening} aria-pressed={listening} aria-label={listening ? (fr ? "Arrêter la dictée" : "Stop dictation") : (fr ? "Dicter une question" : "Dictate a question")} onClick={toggleMic} title={fr ? "Parler" : "Speak"}>
               {listening ? "■" : "🎙"}
             </button>
             {busy ? (
-              <button type="button" className="chip" onClick={() => { abortRef.current?.abort(); setBusy(false); setStatus(null); voice.stop(); }}>
+              <button type="button" className="chip min-h-[44px] min-w-[44px]" aria-label={fr ? "Arrêter la réponse" : "Stop response"} onClick={() => { abortRef.current?.abort(); setBusy(false); setStatus(null); voice.stop(); }}>
                 ✕
               </button>
             ) : (
-              <button type="submit" className="chip" disabled={!draft.trim()}>
+              <button type="submit" className="chip min-h-[44px] min-w-[44px]" aria-label={fr ? "Envoyer la question" : "Send question"} disabled={!draft.trim()}>
                 ➤
               </button>
             )}

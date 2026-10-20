@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Children, createContext, isValidElement, useContext, useEffect, useMemo, useState } from "react";
 import type { CountryIndicators } from "@/server/countryIndicators";
 import type { FeedsResponse, LiveItem } from "@/types/feeds";
 import { TIME_RANGES } from "@/types/conflict";
@@ -28,13 +28,54 @@ type Load<T> = { status: "loading" | "ready" | "error"; data: T | null };
 
 const EMPTY_24H = { fr: "Rien dans nos sources sur 24 h.", en: "Nothing in our sources over 24 h." };
 
-function Section({ title, color, children }: { title: string; color?: string; children: React.ReactNode }) {
+const MobileCountryContext = createContext(false);
+
+function CountrySections({ children }: { children: React.ReactNode }) {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const update = () => setMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const content = Children.toArray(children);
+  if (mobile) {
+    const priority = (child: React.ReactNode) => isValidElement<{ mobilePriority?: number; "data-mobile-priority"?: number }>(child)
+      ? child.props.mobilePriority ?? child.props["data-mobile-priority"] ?? (child.type === Section || child.type === FeedSection ? 7 : 90)
+      : 90;
+    content.sort((first, second) => priority(first) - priority(second));
+  }
   return (
-    <section className="fiche-section">
-      <h3 className="section-title flex items-center gap-2">
-        {color ? <span className="category-dot" style={{ background: color }} /> : null}
-        {title}
-      </h3>
+    <MobileCountryContext.Provider value={mobile}>
+      <div className="inspector-body scroll-thin mobile-country-body" style={mobile ? { overflow: "visible", maxHeight: "none", flexShrink: 0 } : undefined}>
+        {content}
+      </div>
+    </MobileCountryContext.Provider>
+  );
+}
+
+function Section({ title, color, children, mobilePriority = 7, primary = false, className = "" }: { title: string; color?: string; children: React.ReactNode; mobilePriority?: number; primary?: boolean; className?: string }) {
+  const mobile = useContext(MobileCountryContext);
+  const heading = (
+    <h3 className="section-title flex items-center gap-2">
+      {color ? <span className="category-dot" style={{ background: color }} /> : null}
+      {title}
+    </h3>
+  );
+  if (mobile && !primary) {
+    return (
+      <details className={`fiche-section mobile-country-secondary group ${className}`} data-mobile-priority={mobilePriority}>
+        <summary className="mobile-country-summary flex min-h-11 cursor-pointer items-center justify-between gap-2">
+          {heading}<span aria-hidden="true" className="group-open:rotate-180">⌄</span>
+        </summary>
+        <div className="mt-1.5">{children}</div>
+      </details>
+    );
+  }
+  return (
+    <section className={`fiche-section ${className}`}>
+      {heading}
       <div className="mt-1.5">{children}</div>
     </section>
   );
@@ -75,6 +116,7 @@ function FeedSection({
   now,
   status,
   title,
+  mobilePriority = 7,
 }: {
   sectionKey: CountrySectionKey;
   data: { recent: LiveItem[]; older: LiveItem | null };
@@ -82,10 +124,11 @@ function FeedSection({
   now: number;
   status: Load<unknown>["status"];
   title?: string;
+  mobilePriority?: number;
 }) {
   const shown = data.recent.slice(0, 5);
   return (
-    <Section title={title ?? label(THEME_LABELS[sectionKey], locale)} color={THEME_COLORS[sectionKey]}>
+    <Section title={title ?? label(THEME_LABELS[sectionKey], locale)} color={THEME_COLORS[sectionKey]} mobilePriority={mobilePriority}>
       {data.recent.length ? (
         <ul className="space-y-2">
           {shown.map((item, i) => (
@@ -230,6 +273,8 @@ export function CountryPanel() {
   }, [storeFeeds, countryFeeds.data, iso]);
 
   const sections = useMemo(() => countrySections(items, iso, now), [items, iso, now]);
+  const recent = useMemo(() => Object.values(sections).flatMap((section) => section.recent)
+    .sort((first, second) => Date.parse(itemTime(second)!) - Date.parse(itemTime(first)!)).slice(0, 5), [sections]);
   const markets = useMemo(() => countryMarkets(items, iso), [items, iso]);
   const aircraft = useMemo(() => militaryNow(items, iso, now), [items, iso, now]);
   const layerStatus = (id: LayerId) => {
@@ -276,9 +321,43 @@ export function CountryPanel() {
   const rangeLabel = (TIME_RANGES.find((r) => r.key === range)?.label ?? range).toLowerCase();
   const leaders = indicators.data?.leaders;
   const feedStatus = countryFeeds.status === "error" && !items.length ? "error" : countryFeeds.status;
+  const annualIndicators = (
+    <div className="mt-2">
+      {indicators.status === "loading" ? (
+        <p className="meta">{tr(locale, "Indicateurs Banque mondiale : chargement…", "World Bank indicators: loading…")}</p>
+      ) : indicators.status === "error" || !indicators.data ? (
+        <p className="meta">{tr(locale, "Indicateurs Banque mondiale : service indisponible.", "World Bank indicators: service unavailable.")}</p>
+      ) : (
+        <dl className="kv">
+          {(["population", "gdp"] as const).map((key) => {
+            const indicator = indicators.data![key];
+            const available = indicator.status === "available" && indicator.value !== null;
+            const title = key === "population" ? tr(locale, "Population", "Population") : tr(locale, "PIB nominal", "Nominal GDP");
+            return (
+              <div key={key} className="contents">
+                <dt>{title}</dt>
+                <dd>
+                  {available ? (
+                    <a href={indicator.sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:underline" title={tr(locale, "Source : Banque mondiale", "Source: World Bank")}>
+                      {new Intl.NumberFormat(fr ? "fr-FR" : "en-US", key === "gdp" ? { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 } : { maximumFractionDigits: 0 }).format(indicator.value!)} ({indicator.year})
+                    </a>
+                  ) : indicator.status === "error" ? (
+                    tr(locale, "Banque mondiale indisponible", "World Bank unavailable")
+                  ) : (
+                    tr(locale, "Non publié par la Banque mondiale", "Not published by the World Bank")
+                  )}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      )}
+      <p className="meta mt-1">{tr(locale, "Indicateurs annuels : dernière année publiée, pas du temps réel.", "Annual indicators: latest published year, not real time.")}</p>
+    </div>
+  );
 
   return (
-    <section className="panel corners boot inspector" aria-label={tr(locale, `Fiche pays : ${name}`, `Country profile: ${name}`)}>
+    <section className="panel corners boot inspector mobile-country-panel max-md:!max-h-none max-md:shrink-0" aria-label={tr(locale, `Fiche pays : ${name}`, `Country profile: ${name}`)}>
       <span className="corner" />
       <header className="inspector-head">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -299,7 +378,25 @@ export function CountryPanel() {
         </button>
       </header>
 
-      <div className="inspector-body scroll-thin">
+      <CountrySections>
+        <Section title={tr(locale, "Indicateurs essentiels", "Essential indicators")} primary mobilePriority={3} className="mobile-country-indicators md:hidden">
+          {annualIndicators}
+        </Section>
+        <Section title={tr(locale, "Activité dans nos sources", "Activity in our sources")} primary mobilePriority={1} className="mobile-country-activity md:hidden">
+          <p className="meta">{tr(locale, `Période : ${rangeLabel}`, `Period: ${rangeLabel}`)}</p>
+          {local.length ? (
+            <dl className="kv">
+              <dt>{tr(locale, "Incidents vérifiés", "Verified incidents")}</dt><dd>{int(totals.verified)}</dd>
+              <dt>{tr(locale, "Articles de presse non confirmés", "Unconfirmed press articles")}</dt><dd>{int(totals.press)}</dd>
+              <dt>{tr(locale, "Anomalies thermiques", "Thermal anomalies")}</dt><dd>{int(totals.satellite)}</dd>
+            </dl>
+          ) : <p className="empty-line">{tr(locale, `Rien dans nos sources de conflit sur ${rangeLabel}.`, `Nothing in our conflict sources over ${rangeLabel}.`)}</p>}
+          <p className="meta">{tr(locale, "Natures distinctes, jamais additionnées. Couverture non exhaustive.", "Distinct categories, never summed. Coverage is not exhaustive.")}</p>
+        </Section>
+        <Section title={tr(locale, "Éléments récents · 24 h", "Recent reports · 24 h")} primary mobilePriority={2} className="mobile-country-recent md:hidden">
+          {recent.length ? <ul className="space-y-2">{recent.map((item) => <MiniItem key={item.id} item={item} locale={locale} now={now} />)}</ul>
+            : <p className="empty-line">{feedStatus === "loading" ? tr(locale, "Chargement…", "Loading…") : feedStatus === "error" ? tr(locale, "Flux indisponibles.", "Feeds unavailable.") : label(EMPTY_24H, locale)}</p>}
+        </Section>
         <button
           type="button"
           className="action-button"
@@ -309,10 +406,10 @@ export function CountryPanel() {
         </button>
 
         {feedStatus === "error" ? (
-          <p className="error-note mt-3">{tr(locale, "Flux du pays indisponibles : le service des flux n'a pas répondu.", "Country feeds unavailable: the feed service did not respond.")}</p>
+          <p className="error-note mt-3" data-mobile-priority={0}>{tr(locale, "Flux du pays indisponibles : le service des flux n'a pas répondu.", "Country feeds unavailable: the feed service did not respond.")}</p>
         ) : null}
 
-        <Section title={tr(locale, "Conflit", "Conflict")} color={THEME_COLORS.conflict}>
+        <Section title={tr(locale, "Conflit", "Conflict")} color={THEME_COLORS.conflict} mobilePriority={5}>
           {local.length ? (
             <>
               <dl className="kv">
@@ -352,7 +449,7 @@ export function CountryPanel() {
           )}
         </Section>
 
-        <Section title={tr(locale, "Activité militaire observée", "Observed military activity")} color={THEME_COLORS.military}>
+        <Section title={tr(locale, "Activité militaire observée", "Observed military activity")} color={THEME_COLORS.military} mobilePriority={6}>
           {aircraft.length ? (
             <>
               {(["aircraft", "vessel"] as const).map((kind) => {
@@ -393,7 +490,7 @@ export function CountryPanel() {
         <FeedSection sectionKey="social" data={sections.social} locale={locale} now={now} status={feedStatus} />
         <FeedSection sectionKey="disaster" data={sections.disaster} locale={locale} now={now} status={feedStatus} />
         <FeedSection sectionKey="weather" title={tr(locale, "Alertes météo officielles", "Official weather alerts")} data={sections.weather} locale={locale} now={now} status={feedStatus} />
-        <FeedSection sectionKey="infrastructure" title={tr(locale, "Pannes internet et ports", "Internet outages and ports")} data={sections.infrastructure} locale={locale} now={now} status={feedStatus} />
+        <FeedSection sectionKey="infrastructure" title={tr(locale, "Pannes internet et ports", "Internet outages and ports")} data={sections.infrastructure} locale={locale} now={now} status={feedStatus} mobilePriority={8} />
         <FeedSection sectionKey="health" data={sections.health} locale={locale} now={now} status={feedStatus} />
         <FeedSection sectionKey="un" data={sections.un} locale={locale} now={now} status={feedStatus} />
 
@@ -436,7 +533,7 @@ export function CountryPanel() {
           ) : null}
         </Section>
 
-        <Section title={tr(locale, "Installations connues", "Known facilities")}>
+        <Section title={tr(locale, "Installations connues", "Known facilities")} mobilePriority={8}>
           <div className="space-y-1.5">
             <FacilityList layerId="nuclear_plants" features={nuclearFeatures} locale={locale} status={layerStatus("nuclear_plants")} />
             <FacilityList layerId="military_bases" features={baseFeatures} locale={locale} status={layerStatus("military_bases")} />
@@ -472,41 +569,10 @@ export function CountryPanel() {
           ) : (
             <p className="empty-line">{tr(locale, "Aucune cotation de ce pays dans nos sources de marché.", "No quote for this country in our market sources.")}</p>
           )}
-          <div className="mt-2">
-            {indicators.status === "loading" ? (
-              <p className="meta">{tr(locale, "Indicateurs Banque mondiale : chargement…", "World Bank indicators: loading…")}</p>
-            ) : indicators.status === "error" || !indicators.data ? (
-              <p className="meta">{tr(locale, "Indicateurs Banque mondiale : service indisponible.", "World Bank indicators: service unavailable.")}</p>
-            ) : (
-              <dl className="kv">
-                {(["population", "gdp"] as const).map((key) => {
-                  const indicator = indicators.data![key];
-                  const available = indicator.status === "available" && indicator.value !== null;
-                  const title = key === "population" ? tr(locale, "Population", "Population") : tr(locale, "PIB nominal", "Nominal GDP");
-                  return (
-                    <div key={key} className="contents">
-                      <dt>{title}</dt>
-                      <dd>
-                        {available ? (
-                          <a href={indicator.sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:underline" title={tr(locale, "Source : Banque mondiale", "Source: World Bank")}>
-                            {new Intl.NumberFormat(fr ? "fr-FR" : "en-US", key === "gdp" ? { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 } : { maximumFractionDigits: 0 }).format(indicator.value!)} ({indicator.year})
-                          </a>
-                        ) : indicator.status === "error" ? (
-                          tr(locale, "Banque mondiale indisponible", "World Bank unavailable")
-                        ) : (
-                          tr(locale, "Non publié par la Banque mondiale", "Not published by the World Bank")
-                        )}
-                      </dd>
-                    </div>
-                  );
-                })}
-              </dl>
-            )}
-            <p className="meta mt-1">{tr(locale, "Indicateurs annuels : dernière année publiée, pas du temps réel.", "Annual indicators: latest published year, not real time.")}</p>
-          </div>
+          <div className="max-md:hidden">{annualIndicators}</div>
         </Section>
 
-        <Section title={tr(locale, "Dirigeants", "Leaders")}>
+        <Section title={tr(locale, "Dirigeants", "Leaders")} mobilePriority={4}>
           {indicators.status === "loading" ? (
             <p className="meta">{tr(locale, "Chargement…", "Loading…")}</p>
           ) : leaders?.status === "available" && leaders.leaders.length ? (
@@ -535,7 +601,10 @@ export function CountryPanel() {
             {leaders?.fetchedAt ? ` · ${absoluteDateTime(leaders.fetchedAt, locale)}` : ""}
           </p>
         </Section>
-      </div>
+        <Section title={tr(locale, "Sources et limites", "Sources and limitations")} mobilePriority={9} className="mobile-country-sources md:hidden">
+          <p className="meta">{tr(locale, "Chaque élément conserve sa source, sa date et ses réserves. Les indicateurs annuels proviennent de la Banque mondiale ; dirigeants et installations de Wikidata ; sanctions de l’OFAC. Une absence dans nos sources ne confirme pas une absence d’activité.", "Each report retains its source, timestamp and caveats. Annual indicators come from the World Bank; leaders and facilities from Wikidata; sanctions from OFAC. Absence in our sources does not confirm absence of activity.")}</p>
+        </Section>
+      </CountrySections>
     </section>
   );
 }
