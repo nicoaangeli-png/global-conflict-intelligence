@@ -8,6 +8,25 @@ export const AGENT_TOOLS = [
   { type: "web_search" },
   {
     type: "function",
+    name: "get_orbital_events",
+    description: "Événements du nouveau moteur ORBITAL, preuves, première source observée, facteurs du score heuristique, contradictions et chronologie des seuils 75/90. Recherche locale dans les 200 événements récents du snapshot, sans réseau. Pour des événements similaires, fournir lat/lon et éventuellement kind ; coordonnées inconnues exclues de la proximité. country correspond exactement au code ou nom conservé par le moteur.",
+    parameters: {
+      type: "object",
+      properties: {
+        eventId: { type: "string", minLength: 1, maxLength: 160 },
+        query: { type: "string", minLength: 1, maxLength: 200 },
+        country: { type: "string", minLength: 1, maxLength: 80 },
+        lat: { type: "number", minimum: -90, maximum: 90 },
+        lon: { type: "number", minimum: -180, maximum: 180 },
+        radiusKm: { type: "number", exclusiveMinimum: 0, maximum: 500, description: "Avec lat et lon ; défaut 100 km" },
+        kind: { type: "string", enum: ["explosion", "earthquake", "protest", "outage", "thermal", "incident", "weather", "other"] },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
     name: "get_platform_overview",
     description:
       "Situation mondiale vue par la console ORBITAL (données réelles sourcées uniquement, aucune démonstration) : zones actives, enregistrements 24h/7j/30j, couverture (documenté / presse / thermique), disponibilité et date la plus récente par source, pays les plus actifs. À utiliser pour toute question sur « ce que montre la carte ».",
@@ -88,6 +107,7 @@ export const AGENT_TOOLS = [
 ];
 
 export const TOOL_STATUS: Record<string, string> = {
+  get_orbital_events: "Lecture des preuves du moteur ORBITAL…",
   get_platform_overview: "Lecture de la situation mondiale ORBITAL…",
   get_country_activity: "Interrogation de la base d'événements…",
   get_live_feeds: "Lecture des flux mondiaux…",
@@ -97,6 +117,7 @@ export const TOOL_STATUS: Record<string, string> = {
 };
 
 export const TOOL_LABEL: Record<string, string> = {
+  get_orbital_events: "Détections et preuves ORBITAL",
   get_platform_overview: "Situation mondiale ORBITAL",
   get_country_activity: "Activité pays ORBITAL",
   get_live_feeds: "Flux mondiaux ORBITAL",

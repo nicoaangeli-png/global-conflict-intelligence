@@ -1,4 +1,5 @@
 import type { FeedCategory, FeedSourceState, LiveItem } from "@/types/feeds";
+import { ingestFeedSignals } from "@/server/detection";
 import { countryAt, type WorldIndex } from "@/lib/geo/world";
 import { readResponseBytes, ResponseTooLargeError } from "@/server/connectors/types";
 import { getSourceHealth, markUnconfigured, newestDate, recordAttempt, type SourceDescriptor } from "@/server/health/registry";
@@ -290,6 +291,7 @@ export async function runSource(
       next.at = now();
       next.okAt = next.at;
       next.state = { ...baseState(def), status: "ok", message, fetchedAt, itemCount: items.length };
+      await ingestFeedSignals(items);
       recordAttempt(descriptor, { ok: true, startedAt: started, finishedAt: next.at, itemCount: items.length, newestDataAt: newestDate(items.map(itemDate), next.at), warning: message });
     } catch (error) {
       next.at = now();

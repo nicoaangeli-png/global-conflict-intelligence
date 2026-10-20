@@ -16,6 +16,7 @@ import type { AgentContext } from "../types";
 import { isoOfStoreCountry, resolveIso3Only, resolveRequestedCountry } from "./country";
 import { boundedLiveFeedData, LIVE_FEEDS_DEFAULT_HOURS, LIVE_FEEDS_DEFAULT_LIMIT, LIVE_FEEDS_MAX_HOURS, LIVE_FEEDS_MAX_LIMIT, optionalBoundedInteger } from "./liveFeeds";
 import type { ToolArgs, ToolResult } from "./types";
+import { getOrbitalEvents } from "./detection";
 
 /**
  * Exécution des outils internes d'AURA. Chaque outil consomme les services métier
@@ -41,6 +42,8 @@ const FATALITIES_DATASETS = new Set(["acled", "ucdp", "import:csv"]);
 
 export async function runTool(name: string, args: ToolArgs, context: AgentContext): Promise<ToolResult> {
   switch (name) {
+    case "get_orbital_events":
+      return getOrbitalEvents(args);
     case "get_platform_overview": {
       const range = rangeOf(args.range);
       const filters = realFilters(range);

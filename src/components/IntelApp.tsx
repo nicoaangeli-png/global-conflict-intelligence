@@ -12,6 +12,7 @@ import { useIntelStore } from "@/store/useIntelStore";
 import { tr } from "@/lib/i18n";
 import { CountrySearch } from "@/components/feeds/CountrySearch";
 import { MobileSheet } from "@/components/mobile/MobileSheet";
+import { DetectionPanel } from "@/components/detection/DetectionPanel";
 import { useMobileViewport } from "@/components/mobile/useMobileViewport";
 import { Globe2, List, Search, Layers, Sparkles } from "lucide-react";
 
@@ -196,6 +197,7 @@ export function IntelApp() {
           onBriefing={() => { if (mobile) { closePane(); setSettingsOpen(false); } setBriefingOpen(true); }}
         />
         {mobile === false && <ThemeBar />}
+        <DetectionPanel visible={mobile !== null && !settingsOpen && !briefingOpen && !agentOpen && (mobile === false || mobilePane === "globe")} />
 
         {mobile === false && <div className="left-column">
           <WorldFeedPanel />
@@ -224,7 +226,7 @@ export function IntelApp() {
 
         {briefingOpen ? <BriefingModal onClose={() => setBriefingOpen(false)} /> : null}
 
-        {(mobile === false || (mobile && (agentOpen || auraLoaded))) && <AgentPanel />}
+        {(mobile === false || (mobile && (mobilePane === "globe" || agentOpen || auraLoaded))) && <AgentPanel />}
         {mobile === false && <><HoverCountryBadge />
         <HoverReadout />
         <HoverFeedReadout />

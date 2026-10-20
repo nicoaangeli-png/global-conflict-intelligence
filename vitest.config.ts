@@ -10,6 +10,7 @@ export default defineConfig({
     },
   },
   test: {
+    env: { ORBITAL_DETECTION_PATH: ":memory:" },
     include: ["tests/**/*.test.ts"],
     environment: "node",
     // Aucun test ne doit appeler un service réseau réel : les connecteurs sont testés sur fixtures.

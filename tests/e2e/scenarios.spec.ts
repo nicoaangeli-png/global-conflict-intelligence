@@ -79,7 +79,7 @@ test.describe("parcours principal", () => {
       },
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "Ouvrir AURA, analyste IA" }).click();
+    await page.getByRole("button", { name: "Parler à AURA", exact: true }).click();
     await page.getByPlaceholder(/Demande à AURA/).fill("Question de test ?");
     await page.getByRole("button", { name: "Envoyer la question" }).click();
     const log = page.getByRole("log", { name: "Conversation avec AURA" });
@@ -93,7 +93,7 @@ test.describe("modes dégradés", () => {
     const errors = trackErrors(page);
     await mockApis(page, { auraConfigured: false });
     await page.goto("/");
-    await page.getByRole("button", { name: "Ouvrir AURA, analyste IA" }).click();
+    await page.getByRole("button", { name: "Parler à AURA", exact: true }).click();
     await expect(page.getByText(/Agente non configurée/)).toBeVisible();
     await expect(page.locator(".left-column")).toContainText("Séisme de test M5.1");
     expect(errors).toEqual([]);
@@ -108,7 +108,7 @@ test.describe("modes dégradés", () => {
       },
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "Ouvrir AURA, analyste IA" }).click();
+    await page.getByRole("button", { name: "Parler à AURA", exact: true }).click();
     await page.getByPlaceholder(/Demande à AURA/).fill("Question ?");
     await page.getByRole("button", { name: "Envoyer la question" }).click();
     await expect(page.getByRole("log", { name: "Conversation avec AURA" })).toContainText("Service OpenAI indisponible.");

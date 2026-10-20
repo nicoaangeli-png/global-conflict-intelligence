@@ -1,4 +1,5 @@
 import "server-only";
+import { ingestConflictSignals } from "@/server/detection";
 import { aggregateClusters, dedupe } from "@/lib/clustering/cluster";
 import {
   REAL_DATASETS,
@@ -298,6 +299,7 @@ async function ingest(options: { days?: number }) {
   const { kept, removed } = dedupe(collected);
   let upserted = { inserted: 0, updated: 0 };
   if (kept.length) upserted = await state.repository.upsert(kept);
+  if (kept.length) await ingestConflictSignals(kept);
   bumpStoreVersion();
 
   delete zoneRef.__orbitalConflictZones;
