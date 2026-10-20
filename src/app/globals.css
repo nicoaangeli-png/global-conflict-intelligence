@@ -934,7 +934,8 @@ input[type="range"]::-webkit-slider-thumb {
   .mobile-tools > summary { list-style: none; display: grid; place-items: center; width: 44px; height: 44px; cursor: pointer; font-size: 24px; }
   .mobile-tools-content { position: absolute; top: var(--content-top); left: 8px; right: 8px; z-index: 45; padding: 12px; display: flex; flex-wrap: wrap; gap: 12px; }
   .mobile-tools .sources-popover { position: fixed; top: calc(var(--content-top) + 70px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--content-top) - var(--mobile-nav-h) - 80px); }
-  .app-header .brand { font-size: 20px; letter-spacing: .12em; }
+  /* Taille liée à la largeur : les polices système Linux/Android, plus larges, chevauchaient le menu « ⋯ ». */
+  .app-header .brand { font-size: clamp(15px, 4.6vw, 20px); letter-spacing: clamp(.04em, calc((100vw - 330px) * .002), .12em); min-width: 0; overflow: hidden; white-space: nowrap; }
   .app-header .header-button, .lang-switch button { min-width: 44px; min-height: 44px; }
   .lang-switch { height: auto; }
   .left-column, .right-column { display: none; }
