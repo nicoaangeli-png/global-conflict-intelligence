@@ -23,6 +23,7 @@ import { firmsConnector } from "./connectors/firms";
 import { isRealSourceRecord } from "./dataPolicy";
 import { createRepository, LocalRepository, type Repository } from "./repository";
 import { ConnectorError } from "./connectors/types";
+import { markUnconfigured, newestDate, recordAttempt, registerSource, type SourceDescriptor } from "./health/registry";
 
 /**
  * Service d'ingestion et d'interrogation.
@@ -33,6 +34,31 @@ import { ConnectorError } from "./connectors/types";
  */
 
 const CONNECTORS: Connector[] = [csvConnector, acledConnector, ucdpConnector, firmsConnector, gdeltConnector];
+
+/** Provenance des connecteurs pour la santé des sources (registre commun). */
+const CONNECTOR_PROVENANCE: Record<Connector["id"], { homepage: string | null; nature: string; quota?: string }> = {
+  acled: { homepage: "https://acleddata.com/", nature: "incidents codés par la source", quota: "accès sur compte approuvé ACLED" },
+  ucdp: { homepage: "https://ucdp.uu.se/", nature: "incidents codés par la source, publication différée" },
+  gdelt: { homepage: "https://www.gdeltproject.org/", nature: "mentions presse, non confirmées" },
+  firms: { homepage: "https://firms.modaps.eosdis.nasa.gov/", nature: "détections thermiques satellite, jamais une frappe confirmée", quota: "clé MAP_KEY : 5 000 transactions / 10 min" },
+  csv: { homepage: null, nature: "import opérateur" },
+};
+
+function connectorDescriptor(connector: Connector): SourceDescriptor {
+  const provenance = CONNECTOR_PROVENANCE[connector.id];
+  return {
+    id: `connector:${connector.id}`,
+    kind: "connector",
+    name: connector.label,
+    category: "conflicts",
+    homepage: provenance.homepage,
+    license: null,
+    nature: provenance.nature,
+    quota: provenance.quota ?? null,
+    // Ingestion toutes les 15 min : trois échéances manquées = données anciennes.
+    staleAfterMs: 3 * AUTO_REFRESH_MS + 5 * 60_000,
+  };
+}
 
 interface IntelState {
   repository: Repository;
@@ -118,6 +144,8 @@ export async function ensureReady(): Promise<void> {
  * l'agrégat filtré. Aucun connecteur inutilisable n'est sollicité.
  */
 const AUTO_REFRESH_MS = 15 * 60 * 1000;
+
+for (const connector of CONNECTORS) registerSource(connectorDescriptor(connector));
 const AUTO_REFRESH_FIRST_MS = 2_000;
 
 function startAutoRefresh() {
@@ -217,13 +245,17 @@ async function ingest(options: { days?: number }) {
   const notes: string[] = [];
 
   for (const connector of CONNECTORS) {
+    const descriptor = connectorDescriptor(connector);
     if (!connector.isConfigured()) {
       notes.push(`${connector.label} : non configuré`);
+      markUnconfigured(descriptor, connector.describe());
       continue;
     }
+    const startedAt = Date.now();
     try {
       const events = await connector.fetchEvents({ days });
       collected.push(...events);
+      recordAttempt(descriptor, { ok: true, startedAt, finishedAt: Date.now(), itemCount: events.length, newestDataAt: newestDate(events.map((event) => event.eventDate)) });
       const detail = connector.lastReport?.();
       notes.push(`${connector.label} : ${events.length} événements${detail ? ` (${detail})` : ""}`);
       const st = state.statuses.find((s) => s.id === (connector.id === "csv" ? "import" : connector.id));
@@ -235,6 +267,8 @@ async function ingest(options: { days?: number }) {
       const detail = err instanceof ConnectorError ? (connector.id === "csv" ? err.kind : err.message) : "réponse invalide";
       const message = `${connector.label}: ${detail}`;
       notes.push(`${connector.label} : ${message}`);
+      // Après un succès antérieur, les enregistrements en base restent consultables : « stale ».
+      recordAttempt(descriptor, { ok: false, startedAt, finishedAt: Date.now(), error: message });
       const st = state.statuses.find((s) => s.id === (connector.id === "csv" ? "import" : connector.id));
       if (st) {
         st.reachable = false;

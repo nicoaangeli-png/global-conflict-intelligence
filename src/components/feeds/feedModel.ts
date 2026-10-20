@@ -317,9 +317,23 @@ export function latestDataDate(items: LiveItem[], sourceId: string, now = Date.n
   return best;
 }
 
-/** Message d'état lisible d'une source de flux. */
+/** Message d'état lisible d'une source de flux (santé normalisée si le serveur la fournit). */
 export function sourceStatusLabel(state: FeedSourceState, locale: Locale): string {
   const fr = locale === "fr";
+  switch (state.health) {
+    case "healthy":
+      return fr ? "Opérationnelle" : "Operational";
+    case "degraded":
+      return fr ? "Partiellement disponible" : "Partially available";
+    case "stale":
+      return fr ? "Données anciennes (actualisation en échec ou en retard)" : "Stale data (refresh failed or overdue)";
+    case "unavailable":
+      return fr ? "Indisponible" : "Unavailable";
+    case "unconfigured":
+      return fr ? "Non branchée" : "Not connected";
+    case "pending":
+      return fr ? "Pas encore interrogée" : "Not queried yet";
+  }
   switch (state.status) {
     case "ok":
       return fr ? "Opérationnelle" : "Operational";
@@ -332,9 +346,26 @@ export function sourceStatusLabel(state: FeedSourceState, locale: Locale): strin
   }
 }
 
+/** Couleur du témoin d'état d'une source : ok, avertissement, erreur ou éteint. */
+export function sourceTone(state: FeedSourceState): "ok" | "warn" | "error" | "off" {
+  switch (state.health) {
+    case "healthy":
+      return "ok";
+    case "degraded":
+    case "stale":
+      return "warn";
+    case "unavailable":
+      return "error";
+    case "unconfigured":
+    case "pending":
+      return "off";
+  }
+  return state.status === "ok" ? "ok" : state.status === "not_configured" ? "off" : state.status === "stale" ? "warn" : "error";
+}
+
 /** Sources en échec à signaler dans le fil d'un thème (« Source indisponible : … »). */
 export function failingSourcesFor(sources: FeedSourceState[], theme: ThemeKey): FeedSourceState[] {
-  return sources.filter((s) => (s.status === "error" || s.status === "stale") && themeCovers(theme, s.category));
+  return sources.filter((s) => (s.status === "error" || s.status === "stale" || s.health === "stale" || s.health === "unavailable") && themeCovers(theme, s.category));
 }
 
 /** Catégories effectivement demandées au serveur (une requête par catégorie). */

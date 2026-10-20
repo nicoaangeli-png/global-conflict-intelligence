@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { LAYER_IDS, type LayerId, type LayerResponse } from "@/types/layers";
 import { FeedError } from "@/server/feeds/util";
+import { recordAttempt, registerSource, type SourceDescriptor } from "@/server/health/registry";
 import { loadSubmarineCables, SUBMARINE_CABLE_LICENSE } from "./cables";
 import { loadSanctions } from "./sanctions";
 import { loadMilitaryBases, loadNuclearPlants, MILITARY_BASE_LIMIT } from "./wikidata";
@@ -50,6 +51,15 @@ const metadata: Record<LayerId, LayerMeta> = {
     caveat: "Liste des États-Unis uniquement (pas l'UE ni l'ONU) ; une entité est comptée dans chaque pays où elle a une adresse ; ce n'est pas une mesure de risque.",
   },
 };
+
+/** Descripteur de santé d'un calque (registre commun) ; rafraîchi chaque jour. */
+function layerDescriptor(id: LayerId): SourceDescriptor {
+  const meta = metadata[id];
+  return { id: `layer:${id}`, kind: "layer", name: `${meta.title} (${meta.sourceName})`, category: "reference", homepage: meta.homepage, license: meta.license, nature: "référentiel", staleAfterMs: 3 * DAY_MS };
+}
+
+// Calques chargés à la demande : « pending » tant qu'aucun n'a été affiché.
+for (const id of LAYER_IDS) registerSource(layerDescriptor(id));
 
 const holder = globalThis as unknown as { __orbitalLayers?: Map<LayerId, MemoryEntry> };
 const memory = (holder.__orbitalLayers ??= new Map<LayerId, MemoryEntry>());
@@ -133,19 +143,26 @@ export async function loadLayer(id: LayerId, deps: LayerDeps = {}): Promise<Laye
 
   const task = (async () => {
     const disk = await readCached(id, dir);
+    const descriptor = layerDescriptor(id);
     if (disk && nowMs - disk.checkedAt < DAY_MS) {
       memory.set(id, { ...disk });
+      if (disk.response.status !== "error") {
+        recordAttempt(descriptor, { ok: true, cached: true, startedAt: disk.checkedAt, finishedAt: disk.checkedAt, itemCount: disk.response.features.length, newestDataAt: disk.response.asOf, warning: disk.response.status === "stale" ? disk.response.message : null });
+      }
       return disk.response;
     }
     const previous = existing?.response ?? disk?.response;
+    const startedAt = Date.now();
     try {
       const response = await loadFresh(id, nowMs);
+      recordAttempt(descriptor, { ok: true, startedAt, finishedAt: Date.now(), itemCount: response.features.length, newestDataAt: response.asOf });
       memory.set(id, { checkedAt: nowMs, response });
       await writeCached(id, dir, nowMs, response);
       return response;
     } catch (error) {
       // Échec : nouvel essai après ERROR_RETRY_MS, et non 24 h plus tard.
       const retryAt = nowMs - DAY_MS + ERROR_RETRY_MS;
+      recordAttempt(descriptor, { ok: false, startedAt, finishedAt: Date.now(), error: readableError(error), servedItems: previous?.features.length ?? 0 });
       if (previous?.features.length) {
         const response: LayerResponse = {
           ...previous,

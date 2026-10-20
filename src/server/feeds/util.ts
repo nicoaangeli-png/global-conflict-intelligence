@@ -1,6 +1,7 @@
 import type { FeedCategory, FeedSourceState, LiveItem } from "@/types/feeds";
 import { countryAt, type WorldIndex } from "@/lib/geo/world";
 import { readResponseBytes, ResponseTooLargeError } from "@/server/connectors/types";
+import { getSourceHealth, markUnconfigured, newestDate, recordAttempt, type SourceDescriptor } from "@/server/health/registry";
 
 export const USER_AGENT = "ORBITAL/0.2 (planetary monitor; contact nicoa.angeli@gmail.com)";
 export const FETCH_TIMEOUT_MS = 10_000;
@@ -181,6 +182,8 @@ export interface FeedSourceDef {
   load(ctx: FeedContext): Promise<LiveItem[] | FeedLoadResult>;
   /** Source sans flux exploitable : état affiché tel quel, sans appel réseau. */
   unavailable?: { status: "error" | "not_configured"; message: string };
+  /** Limite ou quota connu de la source, en clair (santé des sources). */
+  quota?: string;
 }
 
 export interface FeedLoadResult {
@@ -213,6 +216,30 @@ function baseState(def: FeedSourceDef): Omit<FeedSourceState, "status" | "messag
   return { sourceId: def.sourceId, sourceName: def.sourceName, category: def.category, homepage: def.homepage, license: def.license };
 }
 
+/** Descripteur de santé d'une source de flux (registre commun). */
+export function feedDescriptor(def: FeedSourceDef): SourceDescriptor {
+  return {
+    id: `feed:${def.sourceId}`,
+    kind: "feed",
+    name: def.sourceName,
+    category: def.category,
+    homepage: def.homepage,
+    license: def.license,
+    quota: def.quota ?? null,
+    // Au-delà de 3 périodes de rafraîchissement sans succès, les données sont anciennes.
+    staleAfterMs: def.ttlMs * 3,
+  };
+}
+
+/** État publié enrichi de la santé normalisée (copie : l'état en cache n'est pas modifié). */
+function withHealth(def: FeedSourceDef, state: FeedSourceState, nowMs: number): FeedSourceState {
+  const health = getSourceHealth(`feed:${def.sourceId}`, nowMs);
+  if (!health) return state;
+  return { ...state, health: health.status, lastSuccessAt: health.lastSuccessAt, latencyMs: health.latencyMs, newestDataAt: health.newestDataAt, quota: health.quota };
+}
+
+const itemDate = (item: LiveItem) => item.occurredAt ?? item.publishedAt;
+
 function readableError(error: unknown): string {
   if (error instanceof FeedError) return error.message;
   return "Données reçues dans un format inattendu ; source ignorée.";
@@ -227,11 +254,12 @@ export async function runSource(
   getIndex: () => Promise<WorldIndex | null>,
   now: () => number = Date.now,
 ): Promise<{ items: LiveItem[]; state: FeedSourceState }> {
+  const descriptor = feedDescriptor(def);
   if (def.unavailable) {
-    return {
-      items: [],
-      state: { ...baseState(def), status: def.unavailable.status, message: def.unavailable.message, fetchedAt: null, itemCount: 0 },
-    };
+    if (def.unavailable.status === "not_configured") markUnconfigured(descriptor, def.unavailable.message);
+    else if (!getSourceHealth(descriptor.id)?.lastAttemptAt) recordAttempt(descriptor, { ok: false, startedAt: now(), finishedAt: now(), error: def.unavailable.message });
+    const state: FeedSourceState = { ...baseState(def), status: def.unavailable.status, message: def.unavailable.message, fetchedAt: null, itemCount: 0 };
+    return { items: [], state: withHealth(def, state, now()) };
   }
   const cache = store();
   let entry = cache.get(def.sourceId);
@@ -239,7 +267,7 @@ export async function runSource(
   if (entry && (fresh(entry) || entry.inflight)) {
     if (entry.inflight) await entry.inflight;
     entry = cache.get(def.sourceId) ?? entry;
-    return { items: entry.items, state: entry.state };
+    return { items: entry.items, state: withHealth(def, entry.state, now()) };
   }
 
   const previous = entry;
@@ -262,9 +290,11 @@ export async function runSource(
       next.at = now();
       next.okAt = next.at;
       next.state = { ...baseState(def), status: "ok", message, fetchedAt, itemCount: items.length };
+      recordAttempt(descriptor, { ok: true, startedAt: started, finishedAt: next.at, itemCount: items.length, newestDataAt: newestDate(items.map(itemDate), next.at), warning: message });
     } catch (error) {
       next.at = now();
       const message = readableError(error);
+      recordAttempt(descriptor, { ok: false, startedAt: started, finishedAt: next.at, error: message, servedItems: next.okAt !== null ? next.items.length : 0 });
       if (next.items.length && next.okAt !== null) {
         next.state = {
           ...next.state,
@@ -281,7 +311,7 @@ export async function runSource(
     }
   })();
   await next.inflight;
-  return { items: next.items, state: next.state };
+  return { items: next.items, state: withHealth(def, next.state, now()) };
 }
 
 /** Exécute `worker` sur `values` avec au plus `limit` appels simultanés. */

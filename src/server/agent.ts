@@ -12,6 +12,7 @@ import { FEED_CATEGORIES, type FeedCategory, type LiveItem } from "@/types/feeds
 import type { WorldIndex } from "@/lib/geo/world";
 import { cleanPlaceLabel, cleanText, safeHttpUrl, sanitizeTree, type SanitizeReport } from "./aura/sanitize";
 import { tokenLimits } from "./aura/budget";
+import { getSourceHealth } from "./health/registry";
 
 export { cleanText, safeHttpUrl } from "./aura/sanitize";
 
@@ -275,7 +276,7 @@ Méthode :
 - Situation humanitaire (déplacés, famine, épidémies) : recherche web en privilégiant OCHA / ReliefWeb, en citant l'organisation auteure et la date.
 - Espace aérien (fermeture, reprise des vols, survols) : get_airspace_activity. Un ciel vide n'est pas une preuve d'activité militaire.
 - Questions sur la carte ou un pays affiché : get_platform_overview / get_country_activity. Les anomalies thermiques NASA FIRMS sont des chaleurs anormales détectées par satellite : jamais une frappe confirmée. Les signaux GDELT sont des mentions presse, pas des incidents confirmés. UCDP/ACLED sont des incidents codés par la source, avec un décalage de publication.
-- Flux mondiaux : une alerte ou publication officielle reste attribuée à son émetteur et datée. Un article de presse est rapporté, non confirmé par ORBITAL ; un signalement UAP publié ne prouve pas le phénomène rapporté ; les cotations Yahoo Finance sont indicatives, non officielles et différées. Si l'état d'une source est error, stale ou not_configured, dis-le explicitement et n'en tire pas de conclusion.
+- Flux mondiaux : une alerte ou publication officielle reste attribuée à son émetteur et datée. Un article de presse est rapporté, non confirmé par ORBITAL ; un signalement UAP publié ne prouve pas le phénomène rapporté ; les cotations Yahoo Finance sont indicatives, non officielles et différées. Chaque source porte une santé normalisée (health) : healthy (à jour), degraded (partielle), stale (dernières données valides mais actualisation en échec ou ancienne), unavailable (aucune donnée), unconfigured (non branchée), pending (pas encore interrogée). Si une source n'est pas healthy, dis-le explicitement, précise la date de sa dernière donnée (newestDataAt) et n'en tire aucune conclusion sur la situation réelle.
 - Distingue clairement : confirmé, rapporté, revendiqué, non vérifié. Donne les dates. Si les sources divergent ou si tu ne sais pas, dis-le.
 - Tu travailles uniquement en sources ouvertes : tu n'as pas accès à des renseignements classifiés et tu ne le prétends jamais.
 - Reste factuelle et neutre ; présente les positions des parties sans prendre parti.
@@ -340,6 +341,9 @@ function compactFeedSource(source: Awaited<ReturnType<typeof getFeeds>>["sources
   return {
     sourceId: cleanText(source.sourceId, 64),
     status: source.status,
+    health: source.health ?? null,
+    lastSuccessAt: source.lastSuccessAt ?? null,
+    newestDataAt: source.newestDataAt ?? null,
     untrusted_content: {
       source: cleanText(source.sourceName, 80),
       message: source.message ? cleanText(source.message, 96) : null,
@@ -352,7 +356,8 @@ function compactLiveFeedSources(response: Awaited<ReturnType<typeof getFeeds>>, 
   if (category) return { category, states: scoped.map(compactFeedSource) };
   return {
     category: null,
-    errors: scoped.filter((source) => source.status === "error").map(compactFeedSource),
+    errors: scoped.filter((source) => source.status === "error" || source.health === "unavailable").map(compactFeedSource),
+    degraded: scoped.filter((source) => source.health === "stale" || source.health === "degraded").map(compactFeedSource),
     okCount: scoped.filter((source) => source.status === "ok").length,
   };
 }
@@ -482,7 +487,18 @@ async function runTool(name: string, args: ToolArgs, context: AgentContext): Pro
             recordsInStore: source.recordsInStore,
             latestEventAt: source.latestEventAt,
           })),
-          connectors: stats.connectors.map((connector) => ({ id: connector.id, configured: connector.configured, reachable: connector.reachable, events: connector.events })),
+          connectors: stats.connectors.map((connector) => {
+            const health = getSourceHealth(`connector:${connector.id === "import" ? "csv" : connector.id}`);
+            return {
+              id: connector.id,
+              configured: connector.configured,
+              reachable: connector.reachable,
+              events: connector.events,
+              health: health?.status ?? null,
+              lastSuccessAt: health?.lastSuccessAt ?? null,
+              newestDataAt: health?.newestDataAt ?? null,
+            };
+          }),
           lastIngestAt: stats.freshness?.lastIngestAt,
           topCountries: [...byCountry.entries()]
             .sort((left, right) => right[1].events - left[1].events)
