@@ -1,3 +1,4 @@
+import "server-only";
 import { CASUALTY_WORDS } from "./collect";
 import {
   CHAPTER_KEYS,

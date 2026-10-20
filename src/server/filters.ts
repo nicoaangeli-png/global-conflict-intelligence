@@ -16,13 +16,19 @@ export function resolveDatasets(requested: readonly string[]): SourceDataset[] {
   return known.length ? [...new Set(known)] : [...REAL_DATASETS];
 }
 
+/** Nombre maximal de valeurs retenues par filtre de liste (protège la longueur d'URL/requête). */
+export const MAX_FILTER_VALUES = 50;
+
+const unique = <T,>(values: T[]): T[] => [...new Set(values)];
+
 /** Lecture / validation des filtres transmis par l'interface. */
 export function filtersFromSearchParams(params: URLSearchParams): EventFilters {
   const list = (key: string): string[] =>
     (params.get(key) ?? "")
       .split(",")
       .map((s) => s.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .slice(0, MAX_FILTER_VALUES);
 
   const range = list("range")[0] as TimeRangeKey | undefined;
   const validRange = TIME_RANGES.some((r) => r.key === range) ? (range as TimeRangeKey) : "30d";
@@ -31,12 +37,12 @@ export function filtersFromSearchParams(params: URLSearchParams): EventFilters {
 
   return {
     range: validRange,
-    types: list("types").filter((t): t is EventType => (EVENT_TYPES as readonly string[]).includes(t)),
+    types: unique(list("types").filter((t): t is EventType => (EVENT_TYPES as readonly string[]).includes(t))),
     datasets: resolveDatasets(list("datasets")),
-    confidences: list("confidences").filter((c): c is Confidence =>
+    confidences: unique(list("confidences").filter((c): c is Confidence =>
       (CONFIDENCE_LEVELS as readonly string[]).includes(c),
-    ),
-    countries: list("countries"),
+    )),
+    countries: unique(list("countries")),
     minFatalities: Math.max(0, Number(params.get("minFatalities") ?? 0) || 0),
     at: atDate && !Number.isNaN(atDate.getTime()) ? atDate.toISOString() : null,
     ...(params.get("thermal") === "all" || params.get("thermal") === "near-conflict"

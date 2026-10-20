@@ -1,3 +1,4 @@
+import "server-only";
 import type { LiveItem } from "@/types/feeds";
 import { countryFromCoords, num, plainText, str, type FeedContext, type FeedSourceDef } from "./util";
 

@@ -1,3 +1,4 @@
+import "server-only";
 import { countryAt } from "@/lib/geo/world";
 import { loadWorldIndex } from "../world";
 import type { ConflictEvent } from "@/types/conflict";

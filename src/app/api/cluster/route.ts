@@ -1,15 +1,25 @@
 import { NextResponse } from "next/server";
 import { queryClusterEvents } from "@/server/intel";
 import { filtersFromSearchParams } from "@/server/filters";
+import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
 
+/** Bornes du corps : le détail d'un foyer tient en quelques centaines d'octets. */
+const CLUSTER_BODY_BYTES = 16 * 1024;
 
 /**
  * POST /api/cluster
  * Détail d'un foyer : les événements contenus dans la cellule géographique
  * demandée. Corps : { filters, degrees, lat, lon }.
+ * Corps borné (16 Ko) et lû sans dépasser la mémoire : une requête ne doit jamais
+ * pouvoir forcer le serveur à lire un corps arbitrairement grand.
  */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as {
+  if (!isJsonContentType(request)) {
+    return NextResponse.json({ error: "Content-Type application/json requis" }, { status: 415 });
+  }
+  const raw = await readBoundedText(request, CLUSTER_BODY_BYTES);
+  if (!raw.ok) return NextResponse.json({ error: raw.error }, { status: raw.status });
+  let body: {
     filters?: Record<string, string>;
     degrees?: number;
     lat?: number;
@@ -17,6 +27,11 @@ export async function POST(request: Request) {
     limit?: number;
     clusterId?: string;
   } | null;
+  try {
+    body = JSON.parse(raw.text) as typeof body;
+  } catch {
+    return NextResponse.json({ error: "corps invalide" }, { status: 400 });
+  }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "corps invalide" }, { status: 400 });
   }

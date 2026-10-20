@@ -48,3 +48,41 @@ RestartSec=5
    ~10 s à se remplir après un redémarrage (démarrage à froid).
 
 Retour arrière : arrêter le service, restaurer l'archive de l'étape 1, redémarrer.
+
+## Base de données et migrations
+
+- SQLite est migré automatiquement à l'ouverture (`PRAGMA user_version`) ; PostgreSQL
+  applique ses migrations dans une transaction sous verrou consultatif
+  (`orbital_schema_migrations`). Une base au schéma plus récent que l'application est
+  refusée au démarrage : ne jamais démarrer une ancienne version sur une base migrée.
+- **Sauvegarder `data/` avant chaque bascule** (étape 1) : c'est le seul retour arrière
+  fiable pour SQLite. Avec PostgreSQL, utiliser `pg_dump` avant la bascule et vérifier
+  que la restauration fonctionne.
+- `systemctl stop` envoie `SIGTERM` : SQLite effectue un checkpoint WAL et tronque le
+  fichier `-wal`. Un arrêt forcé (`SIGKILL`, coupure) reste récupérable par WAL ;
+  `PRAGMA quick_check` est exécuté à l'ouverture et son résultat apparaît dans
+  `GET /api/health`.
+- Rétention : GDELT 30 jours et FIRMS 14 jours par défaut
+  (`ORBITAL_RETENTION_GDELT_DAYS`, `ORBITAL_RETENTION_FIRMS_DAYS`).
+
+## Supervision
+
+- `GET /api/health` : statut global, stockage (version du schéma, intégrité), résumé des
+  sources, configuration d'AURA et nature du magasin de limitation de débit.
+- `GET /api/sources/status` : détail par source (dernier succès, âge des données, latence,
+  erreur). Lecture seule, aucun appel réseau déclenché.
+- Ces deux routes sont légères et peuvent être interrogées par une sonde toutes les
+  minutes. Un statut `degraded` n'indique pas un processus mort : consulter le détail.
+
+## Compression du proxy
+
+Next ne compresse pas les réponses JSON des routes (`/api/events` peut dépasser 600 Ko
+bruts pour 30 jours de données). Activer la compression du proxy, par exemple avec Caddy :
+
+```caddyfile
+encode zstd gzip
+```
+
+Elle s'applique notamment à `/api/events`, `/api/stats`, `/api/latest` et `/api/layers`.
+Ne pas mettre ces réponses en cache partagé : elles dépendent des filtres et de
+l'ingestion (`Cache-Control: no-store`).

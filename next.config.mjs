@@ -21,6 +21,10 @@ const securityHeaders = [
   { key: "Content-Security-Policy", value: contentSecurityPolicy },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // HSTS : ignoré en HTTP (développement local), appliqué en HTTPS (production derrière Caddy).
+  { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "X-DNS-Prefetch-Control", value: "off" },
   {
     key: "Permissions-Policy",
     value: "camera=(), geolocation=(), microphone=(self), payment=(), usb=(), browsing-topics=()",
