@@ -3,9 +3,13 @@ import { countryFromCoords, num, plainText, str, type FeedContext, type FeedSour
 
 interface AisEnvelope {
   MessageType?: string;
-  MetaData?: { MMSI?: number | string; ShipName?: string; Latitude?: number; Longitude?: number };
+  /** AISStream publie `latitude`/`longitude` en minuscules dans MetaData. */
+  MetaData?: { MMSI?: number | string; ShipName?: string; latitude?: number; longitude?: number; Latitude?: number; Longitude?: number };
   Message?: {
-    PositionReport?: { UserID?: number | string; Sog?: number; Cog?: number; Valid?: boolean };
+    PositionReport?: {
+      UserID?: number | string; Sog?: number; Cog?: number; TrueHeading?: number;
+      Latitude?: number; Longitude?: number; Valid?: boolean;
+    };
     ShipStaticData?: { UserID?: number | string; CallSign?: string; Name?: string; Type?: number; Valid?: boolean };
   };
 }
@@ -183,8 +187,9 @@ export function ingestAisMessage(raw: unknown, receivedAt = Date.now()): void {
   const message = envelope.Message?.PositionReport;
   if (!message || message.Valid === false) return;
   const mmsi = mmsiFrom(envelope.MetaData?.MMSI, message.UserID);
-  const lat = num(envelope.MetaData?.Latitude);
-  const lon = num(envelope.MetaData?.Longitude);
+  const meta = envelope.MetaData;
+  const lat = num(meta?.latitude ?? meta?.Latitude ?? message.Latitude);
+  const lon = num(meta?.longitude ?? meta?.Longitude ?? message.Longitude);
   if (!mmsi || lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
   const previous = state.vessels.get(mmsi);
   const name = cleanAisText(envelope.MetaData?.ShipName) ?? previous?.name ?? null;

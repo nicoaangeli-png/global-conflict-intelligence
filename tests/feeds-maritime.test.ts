@@ -21,7 +21,8 @@ const BASE = Date.parse("2026-10-19T18:00:00.000Z");
 function position(mmsi: number, name: string, lat: number, lon: number, speed = 12.4, course = 86.7) {
   return {
     MessageType: "PositionReport",
-    MetaData: { MMSI: mmsi, ShipName: name, Latitude: lat, Longitude: lon },
+    // Format réel observé : `latitude`/`longitude` en minuscules dans MetaData.
+    MetaData: { MMSI: mmsi, MMSI_String: mmsi, ShipName: name, latitude: lat, longitude: lon, time_utc: "2026-10-19 18:00:00.000000000 +0000 UTC" },
     Message: { PositionReport: { MessageID: 1, UserID: mmsi, Sog: speed, Cog: course, Valid: true } },
   };
 }

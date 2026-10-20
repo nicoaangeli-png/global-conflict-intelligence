@@ -94,9 +94,9 @@ describe("adsb.lol — aéronefs militaires", () => {
     expect(parseAdsbMilitary(raw, ctx())[0].occurredAt).toBe("2026-10-19T16:46:11.794Z");
   });
 
-  it("déclare la licence ODbL et limite les collectes à une par minute", () => {
+  it("déclare la licence ODbL et limite les collectes à une toutes les 15 s", () => {
     expect(militarySources).toHaveLength(1);
-    expect(militarySources[0].ttlMs).toBe(60_000);
+    expect(militarySources[0].ttlMs).toBe(15_000);
     expect(militarySources[0].license).toContain("ODbL");
     expect(militarySources[0].license).toContain("adsb.lol");
   });

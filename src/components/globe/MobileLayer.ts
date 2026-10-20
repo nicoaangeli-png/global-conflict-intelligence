@@ -24,6 +24,13 @@ export const VEHICLE_COLORS: Record<VehicleKind, string> = { aircraft: '#c3d494'
 const AIRCRAFT_ALT = 1.011;
 const VESSEL_ALT = 1.006;
 const MAX_STEP_RAD = (1 * Math.PI) / 180;
+/**
+ * Glissement entre deux positions OBSERVÉES successives, étalé sur l'intervalle de
+ * rafraîchissement : le symbole avance en continu sans jamais dépasser la dernière
+ * position publiée (aucune extrapolation). Au-delà de ~3°, saut direct.
+ */
+export const MOBILE_GLIDE_MS = 15_000;
+const MAX_GLIDE_RAD = (3 * Math.PI) / 180;
 
 const pointVertex = /* glsl */ `
   uniform float uPixelRatio;
@@ -181,6 +188,12 @@ export class MobileLayer {
   private trackOwners = new Uint32Array(0);
   private selectedId: string | null = null;
   private hoveredId: string | null = null;
+  /** Position affichée de chaque mobile (point de départ du glissement suivant). */
+  private shown = new Map<string, THREE.Vector3>();
+  private glideFrom = new Float32Array(0);
+  private glideTo = new Float32Array(0);
+  private glideStart = 0;
+  private gliding = false;
 
   constructor(private readonly radius: number) {
     this.pointMaterial = new THREE.ShaderMaterial({
@@ -218,6 +231,9 @@ export class MobileLayer {
     this.items = items.filter((item) => vehicleOf(item) !== null && item.lat !== null && item.lon !== null && Number.isFinite(item.lat) && Number.isFinite(item.lon));
     const n = this.items.length;
     this.positions = new Float32Array(n * 3);
+    this.glideFrom = new Float32Array(n * 3);
+    this.glideTo = new Float32Array(n * 3);
+    const shown = new Map<string, THREE.Vector3>();
     const colors = new Float32Array(n * 3);
     const bright = new Float32Array(n);
     const sel = new Float32Array(n);
@@ -239,7 +255,12 @@ export class MobileLayer {
       const kind = vehicleOf(item);
       const r = this.altitude(kind);
       latLonToVector3(item.lat as number, item.lon as number, r, v);
-      this.positions.set([v.x, v.y, v.z], i * 3);
+      this.glideTo.set([v.x, v.y, v.z], i * 3);
+      const from = this.shown.get(item.id);
+      const start = from && from.angleTo(v) <= MAX_GLIDE_RAD ? from.clone().setLength(r) : v.clone();
+      this.glideFrom.set([start.x, start.y, start.z], i * 3);
+      this.positions.set([start.x, start.y, start.z], i * 3);
+      shown.set(item.id, start);
       c.set(VEHICLE_COLORS[kind ?? 'aircraft']);
       colors.set([c.r, c.g, c.b], i * 3);
       bright[i] = ageBrightness(item, now);
@@ -290,6 +311,9 @@ export class MobileLayer {
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), this.radius * 1.5);
     this.points.geometry.dispose();
     this.points.geometry = geometry;
+    this.shown = shown;
+    this.glideStart = performance.now();
+    this.gliding = n > 0;
 
     this.trackOwners = Uint32Array.from(tOwner);
     const trackSel = new Float32Array(tOwner.length);
@@ -331,9 +355,28 @@ export class MobileLayer {
     this.lineMaterial.uniforms.uDim.value = any ? 0.45 : 1;
   }
 
-  public update(dpr: number, width: number, height: number): void {
+  public update(dpr: number, width: number, height: number, now = performance.now()): void {
     this.pointMaterial.uniforms.uPixelRatio.value = dpr;
     (this.pointMaterial.uniforms.uViewport.value as THREE.Vector2).set(width, height);
+    if (this.gliding) this.glide(now);
+  }
+
+  /** Avance chaque symbole sur l'arc entre sa position affichée et la dernière observée. */
+  private glide(now: number): void {
+    const t = Math.min(1, Math.max(0, (now - this.glideStart) / MOBILE_GLIDE_MS));
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    for (let i = 0; i < this.items.length; i++) {
+      a.fromArray(this.glideFrom, i * 3);
+      b.fromArray(this.glideTo, i * 3);
+      const r = b.length();
+      a.lerp(b, t).setLength(r);
+      a.toArray(this.positions, i * 3);
+      this.shown.get(this.items[i].id)?.copy(a);
+    }
+    const attr = this.points.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (attr) attr.needsUpdate = true;
+    if (t >= 1) this.gliding = false;
   }
 
   /** Mobile le plus proche du pointeur (≤ 11 px CSS), face visible uniquement. */

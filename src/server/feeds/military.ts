@@ -154,8 +154,8 @@ export const militarySources: FeedSourceDef[] = [
     category: "military",
     homepage: "https://adsb.lol/",
     license: "Open Database License (ODbL) 1.0 — attribution « adsb.lol »",
-    // Une collecte au plus par minute quand `/api/feeds` est effectivement sollicitée.
-    ttlMs: 60_000,
+    // Une collecte au plus toutes les 15 s quand `/api/feeds` est effectivement sollicitée.
+    ttlMs: 15_000,
     async load(ctx) {
       return parseAdsbMilitary(await fetchJson("https://api.adsb.lol/v2/mil", { maxBytes: 2 * 1024 * 1024 }), ctx);
     },

@@ -22,7 +22,7 @@ const GlobeScene = dynamic(() => import("@/components/globe/GlobeScene").then((m
 /** Polling des flux mondiaux (en plus du rafraîchissement manuel). */
 const FEEDS_POLL_MS = 2 * 60_000;
 /** Positions des mobiles militaires : rafraîchies plus souvent que les autres flux. */
-const MILITARY_POLL_MS = 30_000;
+const MILITARY_POLL_MS = 15_000;
 
 /** Détermine si l'utilisateur est en train de saisir dans un champ texte / zone éditable */
 function isTypingContext(e: KeyboardEvent): boolean {
@@ -72,7 +72,7 @@ export function IntelApp() {
   }, [refresh, refreshFeeds]);
 
   // Mobiles militaires (avions, navires) visibles sur le globe ou onglet Militaire ouvert :
-  // positions et trajets rafraîchis toutes les 30 s (le cache serveur borne le rythme réel).
+  // positions et trajets rafraîchis toutes les 15 s (le cache serveur borne le rythme réel).
   const mobilesLive = useIntelStore((s) => s.mobilesOn.aircraft || s.mobilesOn.vessel);
   useEffect(() => {
     if (theme !== "military" && !mobilesLive) return;
