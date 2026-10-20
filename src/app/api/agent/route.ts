@@ -1,104 +1,18 @@
 import { agentConfigured, agentLimits, normalizeContext, runAgent, type AgentMessage } from "@/server/agent";
-import { checkOrbitalOrigin } from "@/server/auraOrigin";
+import { checkAuraAccess } from "@/server/aura/access";
+import { admitAgentRequest, recordAgentTokens, requestFingerprint } from "@/server/aura/budget";
+import { clientKey } from "@/server/aura/clientIdentity";
+import { checkOrbitalOrigin, jsonResponse as json } from "@/server/aura/origin";
+import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Gate = {
-  globalHits: number[];
-  clientHits: Map<string, number[]>;
-  inflight: number;
-  inflightByClient: Map<string, number>;
-  day: string;
-  dayCount: number;
-};
-
-const holder = globalThis as unknown as { __orbitalAgentGate?: Gate };
-const gate: Gate = (holder.__orbitalAgentGate ??= {
-  globalHits: [],
-  clientHits: new Map(),
-  inflight: 0,
-  inflightByClient: new Map(),
-  day: "",
-  dayCount: 0,
-});
-
-function json(body: unknown, status: number, headers: Record<string, string> = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers },
-  });
-}
-
-function clientKey(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("cf-connecting-ip") || "local";
-}
-
-function pruneHits(hits: number[], now: number, windowMs: number) {
-  const threshold = now - windowMs;
-  let firstValid = 0;
-  while (firstValid < hits.length && hits[firstValid] < threshold) firstValid++;
-  if (firstValid > 0) hits.splice(0, firstValid);
-}
-
-function enforceGate(clientId: string): { ok: true } | { ok: false; status: number; error: string; retryAfter?: number } {
-  const limits = agentLimits();
-  const now = Date.now();
-  const today = new Date(now).toISOString().slice(0, 10);
-
-  if (gate.day !== today) {
-    gate.day = today;
-    gate.dayCount = 0;
-    gate.globalHits = [];
-    gate.clientHits.clear();
-    gate.inflight = 0;
-    gate.inflightByClient.clear();
-  }
-
-  if (gate.dayCount >= limits.dailyRequests) {
-    return { ok: false, status: 429, error: "quota journalier AURA épuisé" };
-  }
-
-  if (gate.inflight >= limits.maxConcurrent) {
-    return { ok: false, status: 503, error: "service d'analyse saturé, réessayez dans quelques instants", retryAfter: 2 };
-  }
-
-  const clientActive = gate.inflightByClient.get(clientId) ?? 0;
-  if (clientActive >= limits.perClientConcurrent) {
-    return { ok: false, status: 429, error: "une seule requête concurrente par client", retryAfter: 1 };
-  }
-
-  pruneHits(gate.globalHits, now, 60_000);
-  if (gate.globalHits.length >= limits.globalPerMinute) {
-    return { ok: false, status: 429, error: "limite globale par minute atteinte", retryAfter: 5 };
-  }
-
-  let clientBucket = gate.clientHits.get(clientId);
-  if (!clientBucket) {
-    clientBucket = [];
-    gate.clientHits.set(clientId, clientBucket);
-  }
-  pruneHits(clientBucket, now, 60_000);
-  if (clientBucket.length >= limits.perClientPerMinute) {
-    return { ok: false, status: 429, error: "limite de requêtes par minute atteinte", retryAfter: 10 };
-  }
-
-  gate.dayCount++;
-  gate.globalHits.push(now);
-  clientBucket.push(now);
-  gate.inflight++;
-  gate.inflightByClient.set(clientId, clientActive + 1);
-
-  return { ok: true };
-}
-
-function releaseGate(clientId: string) {
-  gate.inflight = Math.max(0, gate.inflight - 1);
-  const cur = gate.inflightByClient.get(clientId) ?? 1;
-  if (cur <= 1) gate.inflightByClient.delete(clientId);
-  else gate.inflightByClient.set(clientId, cur - 1);
-}
+/**
+ * Analyse AURA (NDJSON). Ordre des contrôles, chacun dans son module :
+ * origine (navigateur) → accès (jeton facultatif) → format → corps borné →
+ * validation → admission (budgets, débit, concurrence, doublons) → exécution.
+ */
 
 export async function GET() {
   const limits = agentLimits();
@@ -116,31 +30,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const rejected = checkOrbitalOrigin(request);
+  const rejected = checkOrbitalOrigin(request) ?? checkAuraAccess(request);
   if (rejected) return rejected;
 
-  const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-  if (contentType !== "application/json") {
-    return json({ error: "Content-Type application/json requis" }, 415);
-  }
+  if (!isJsonContentType(request)) return json({ error: "Content-Type application/json requis" }, 415);
 
   const limits = agentLimits();
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > limits.bodyBytes) {
-    return json({ error: "corps trop volumineux" }, 413);
-  }
-
-  let text: string;
-  try {
-    text = await request.text();
-  } catch {
-    return json({ error: "lecture du corps impossible" }, 400);
-  }
-  if (text.length > limits.bodyBytes) return json({ error: "corps trop volumineux" }, 413);
+  const body = await readBoundedText(request, limits.bodyBytes);
+  if (!body.ok) return json({ error: body.error }, body.status);
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(body.text);
   } catch {
     return json({ error: "JSON invalide" }, 400);
   }
@@ -177,28 +78,35 @@ export async function POST(request: Request) {
     return json({ error: `historique trop long (max ${limits.maxTotalChars} caractères au total)` }, 400);
   }
 
-  const clientId = clientKey(request);
-  const gateResult = enforceGate(clientId);
-  if (!gateResult.ok) {
-    const headers: Record<string, string> = {};
-    if (gateResult.retryAfter) headers["Retry-After"] = String(gateResult.retryAfter);
-    return json({ error: gateResult.error }, gateResult.status, headers);
+  const normContext = normalizeContext(context);
+  const admission = await admitAgentRequest(clientKey(request), requestFingerprint([cleanMessages, normContext]), limits);
+  if (!admission.ok) {
+    const headers: Record<string, string> = admission.retryAfter ? { "Retry-After": String(admission.retryAfter) } : {};
+    return json({ error: admission.error, code: admission.code }, admission.status, headers);
   }
 
-  const normContext = normalizeContext(context);
+  // Déconnexion du client ou annulation du flux : l'appel OpenAI est interrompu.
+  const abort = new AbortController();
+  const onClientGone = () => abort.abort();
+  if (request.signal.aborted) abort.abort();
+  else request.signal.addEventListener("abort", onClientGone, { once: true });
+
   const encoder = new TextEncoder();
   let finished = false;
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const chunk of runAgent(cleanMessages, normContext)) {
+        for await (const chunk of runAgent(cleanMessages, normContext, {
+          signal: abort.signal,
+          onUsage: (tokens) => void recordAgentTokens(tokens),
+        })) {
           controller.enqueue(encoder.encode(`${JSON.stringify(chunk)}\n`));
           if (chunk.t === "done" || chunk.t === "incomplete" || chunk.t === "error") {
             finished = true;
           }
         }
-        if (!finished) {
+        if (!finished && !abort.signal.aborted) {
           controller.enqueue(
             encoder.encode(
               `${JSON.stringify({
@@ -210,17 +118,24 @@ export async function POST(request: Request) {
           );
         }
       } catch (err) {
-        if (!finished) {
-          const message = err instanceof Error ? err.message : "Erreur interne de l'agente";
-          controller.enqueue(encoder.encode(`${JSON.stringify({ t: "error", text: message, code: "server_error" })}\n`));
+        // Jamais le message interne : il peut contenir des détails d'infrastructure.
+        console.warn("[agent] échec du flux", err instanceof Error ? err.name : "unknown");
+        if (!finished && !abort.signal.aborted) {
+          controller.enqueue(encoder.encode(`${JSON.stringify({ t: "error", text: "Erreur interne de l'agente.", code: "server_error" })}\n`));
         }
       } finally {
-        releaseGate(clientId);
-        controller.close();
+        request.signal.removeEventListener("abort", onClientGone);
+        await admission.release();
+        try {
+          controller.close();
+        } catch {
+          // Flux déjà annulé par le client.
+        }
       }
     },
-    cancel() {
-      releaseGate(clientId);
+    async cancel() {
+      abort.abort();
+      await admission.release();
     },
   });
 

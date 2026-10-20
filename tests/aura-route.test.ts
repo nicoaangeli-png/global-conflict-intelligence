@@ -10,6 +10,7 @@ vi.mock("@/server/agent", () => ({
 }));
 
 import { GET, POST } from "@/app/api/agent/route";
+import { MemoryRateLimitStore, setRateLimitStore } from "@/server/aura/rateLimit";
 
 const headers = { Host: "localhost:3005", Origin: "http://localhost:3005", "Content-Type": "application/json", "X-Orbital-Client": "aura" };
 const body = (messages = [{ role: "user", content: "Question ?" }]) => JSON.stringify({ messages, context: { locale: "fr" } });
@@ -19,6 +20,7 @@ function request(overrides: Record<string, string> = {}, raw = body()) {
 }
 
 beforeEach(() => {
+  setRateLimitStore(new MemoryRateLimitStore());
   mocks.runAgent.mockImplementation(async function* () { yield { t: "delta", text: "Réponse." }; yield { t: "done" }; });
 });
 
@@ -61,5 +63,36 @@ describe("route AURA — portage Vitest sans fournisseur", () => {
     const response = await POST(request());
     const chunks = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
     expect(chunks.at(-1)).toMatchObject({ t: "error", code: "no_terminal" });
+  });
+
+  it("n'expose jamais le message d'une erreur interne au client", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mocks.runAgent.mockImplementation(async function* () {
+      yield { t: "delta", text: "début" };
+      throw new Error("ECONNREFUSED /home/ubuntu/orbital/data/secret.sqlite");
+    });
+    const text = await (await POST(request())).text();
+    expect(text).not.toContain("ECONNREFUSED");
+    expect(text).not.toContain("/home/");
+    expect(text.trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ t: "error", code: "server_error" });
+  });
+
+  it("transmet un signal d'annulation à l'agent et libère la place quand le client se déconnecte", async () => {
+    let seen: AbortSignal | undefined;
+    mocks.runAgent.mockImplementation(async function* (_messages: unknown, _context: unknown, options: { signal?: AbortSignal }) {
+      seen = options.signal;
+      yield { t: "delta", text: "début" };
+      await new Promise((resolve) => options.signal?.addEventListener("abort", resolve, { once: true }));
+    });
+    const client = new AbortController();
+    const response = await POST(new Request("http://localhost:3005/api/agent", { method: "POST", headers, body: body(), signal: client.signal }));
+    const reader = response.body!.getReader();
+    await reader.read();
+    client.abort();
+    await reader.cancel();
+    expect(seen?.aborted).toBe(true);
+    // Place libérée : une autre question est admise immédiatement.
+    mocks.runAgent.mockImplementation(async function* () { yield { t: "done" }; });
+    expect((await POST(request({}, body([{ role: "user", content: "Autre question ?" }])))).status).toBe(200);
   });
 });

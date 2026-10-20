@@ -10,6 +10,10 @@ import { canonicalCountryIdentity, normalizeCountryName, resolveCountryIdentity 
 import { REAL_DATASETS, TIME_RANGES } from "@/types/conflict";
 import { FEED_CATEGORIES, type FeedCategory, type LiveItem } from "@/types/feeds";
 import type { WorldIndex } from "@/lib/geo/world";
+import { cleanPlaceLabel, cleanText, safeHttpUrl, sanitizeTree, type SanitizeReport } from "./aura/sanitize";
+import { tokenLimits } from "./aura/budget";
+
+export { cleanText, safeHttpUrl } from "./aura/sanitize";
 
 /**
  * AURA — agente d'analyse géopolitique.
@@ -189,53 +193,6 @@ const TOOL_LABEL: Record<string, string> = {
   get_airspace_activity: "Espace aérien",
 };
 
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
-const INSTRUCTION_PATTERN =
-  /(ignor\w*|oubli\w*|disregard|forget)[^.\n]{0,50}(instruction|consigne|prompt|règle|regle|rule)|system prompt|prompt système|prompt systeme|you are now|tu es désormais|tu es desormais|developer message|<\/?[\w:-]+(?:\s[^<>]*)?>/gi;
-const REDACTION = "[texte retiré : tentative d'instruction]";
-
-type SanitizeReport = { redacted: number; truncated: number };
-
-export function cleanText(value: unknown, maxLength: number, report?: SanitizeReport): string {
-  if (typeof value !== "string") return "";
-  let text = value.replace(CONTROL_CHARACTERS, " ").replace(/\s{2,}/g, " ").trim();
-  if (INSTRUCTION_PATTERN.test(text)) {
-    INSTRUCTION_PATTERN.lastIndex = 0;
-    text = text.replace(INSTRUCTION_PATTERN, REDACTION);
-    if (report) report.redacted += 1;
-  }
-  INSTRUCTION_PATTERN.lastIndex = 0;
-  if (text.length > maxLength) {
-    text = `${text.slice(0, maxLength)}…`;
-    if (report) report.truncated += 1;
-  }
-  return text;
-}
-
-export function safeHttpUrl(value: unknown): string | null {
-  if (typeof value !== "string" || value.length > 600) return null;
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-function sanitizeTree(node: unknown, report: SanitizeReport, depth = 0): unknown {
-  if (depth > 6) return null;
-  if (typeof node === "string") return cleanText(node, 240, report);
-  if (Array.isArray(node)) return node.slice(0, 40).map((entry) => sanitizeTree(entry, report, depth + 1));
-  if (node && typeof node === "object") {
-    const cleaned: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(node as Record<string, unknown>)) {
-      cleaned[key] = /url$/i.test(key) ? (safeHttpUrl(entry) ?? undefined) : sanitizeTree(entry, report, depth + 1);
-    }
-    return cleaned;
-  }
-  return node;
-}
-
 const SELECTED_ISO3 = /^[A-Z]{3}$/;
 
 export function normalizeContext(raw: unknown): AgentContext {
@@ -249,24 +206,26 @@ export function normalizeContext(raw: unknown): AgentContext {
     cluster: null,
   };
 
-  const countryName = cleanText(country?.name, 80);
+  // Texte libre de l'interface inséré dans les consignes : seuls de vrais noms de lieux passent.
+  const countryName = cleanPlaceLabel(country?.name);
   if (country && countryName) {
-    const hint = cleanText(country.iso3 ?? country.iso, 8).toUpperCase();
+    const rawHint = cleanText(country.iso3 ?? country.iso, 8).toUpperCase();
+    const hint = SELECTED_ISO3.test(rawHint) ? rawHint : "";
     const identity = canonicalCountryIdentity(countryName, { isoA3: hint || undefined });
     const iso3 = identity && SELECTED_ISO3.test(identity.iso3) ? identity.iso3 : undefined;
     context.country = { name: identity && identity.name !== identity.iso3 ? identity.name : countryName, iso3 };
   }
 
   if (cluster) {
-    const clusterCountry = cleanText(cluster.country, 80);
-    const locality = cleanText(cluster.locality, 80);
+    const clusterCountry = cleanPlaceLabel(cluster.country);
+    const locality = cleanPlaceLabel(cluster.locality);
     if (clusterCountry || locality) {
       const identity = clusterCountry ? canonicalCountryIdentity(clusterCountry) : null;
       context.cluster = {
         locality: locality || undefined,
         country: clusterCountry || undefined,
         countryIso3: identity && SELECTED_ISO3.test(identity.iso3) ? identity.iso3 : undefined,
-        eventCount: typeof cluster.eventCount === "number" && Number.isFinite(cluster.eventCount) ? Math.max(0, Math.floor(cluster.eventCount)) : undefined,
+        eventCount: typeof cluster.eventCount === "number" && Number.isFinite(cluster.eventCount) ? Math.min(10_000_000, Math.max(0, Math.floor(cluster.eventCount))) : undefined,
       };
     }
   }
@@ -712,6 +671,9 @@ type RunState = {
   sources: Map<string, string>;
   provenance: ProvenanceItem[];
   functionCalls: number;
+  /** Tokens OpenAI consommés par cette requête (entrée + sortie, tous tours confondus). */
+  tokens: number;
+  onUsage?: (tokens: number) => void;
 };
 
 function addProvenance(run: RunState, item: ProvenanceItem) {
@@ -950,8 +912,15 @@ async function* streamRound(body: ReadableStream<Uint8Array>, run: RunState, sig
         }
       }
     } else if (event.type === "response.completed" || event.type === "response.incomplete") {
-      const response = event.response as { id?: string; output?: OutputItem[]; incomplete_details?: { reason?: string } | null } | undefined;
+      const response = event.response as
+        | { id?: string; output?: OutputItem[]; incomplete_details?: { reason?: string } | null; usage?: { total_tokens?: number } | null }
+        | undefined;
       state.responseId = response?.id;
+      const used = response?.usage?.total_tokens;
+      if (typeof used === "number" && Number.isFinite(used) && used > 0) {
+        run.tokens += used;
+        run.onUsage?.(used);
+      }
       for (const item of response?.output ?? []) addCall(readFunctionCall(item));
       if (event.type === "response.incomplete") {
         state.terminal = "incomplete";
@@ -1027,6 +996,8 @@ async function* orchestrate(
       return { kind: "complete" };
     }
     if (lastRound) return { kind: "incomplete", reason: "tool_rounds" };
+    // Budget de tokens par requête : pas de nouveau tour (les sorties d'outils regonflent l'entrée).
+    if (run.tokens >= tokenLimits().perRequestTokens) return { kind: "incomplete", reason: "token_budget" };
     if (!state.responseId) throw new AgentFailure("protocol", "missing response id");
 
     const outputs = [];
@@ -1045,6 +1016,7 @@ async function* orchestrate(
 function incompleteText(reason: string, locale: AgentContext["locale"]) {
   if (reason === "max_output_tokens") return translate(locale, "Réponse incomplète : limite de longueur atteinte, le texte s'arrête ici.", "Incomplete answer: length limit reached, the text stops here.");
   if (reason === "content_filter") return translate(locale, "Réponse interrompue par un filtre de contenu.", "Answer interrupted by a content filter.");
+  if (reason === "token_budget") return translate(locale, "Réponse incomplète : budget de tokens de la requête atteint.", "Incomplete answer: request token budget reached.");
   if (reason === "tool_rounds") return translate(locale, "Réponse incomplète : limite d'appels d'outils atteinte.", "Incomplete answer: tool call limit reached.");
   return translate(locale, "Réponse incomplète : OpenAI a interrompu la génération.", "Incomplete answer: OpenAI stopped the generation.");
 }
@@ -1060,13 +1032,22 @@ function classifyFailure(error: unknown, deadlineHit: boolean, locale: AgentCont
     if (error.code.startsWith("upstream_") || error.code === "protocol") {
       return { kind: "error", code: error.code, text: translate(locale, "L'analyse a échoué en cours de route.", "The analysis failed midway.") };
     }
+    // Messages d'AgentFailure : textes rédigés ici (aucun détail interne ni secret).
     return { kind: "error", code: error.code, text: error.message };
   }
   console.warn("[agent] échec", error instanceof Error ? error.name : "unknown");
   return { kind: "error", code: "network", text: translate(locale, "Service d'analyse indisponible.", "Analysis service unavailable.") };
 }
 
-export async function* runAgent(messages: AgentMessage[], context: AgentContext, signal?: AbortSignal): AsyncGenerator<AgentChunk> {
+export type RunAgentOptions = {
+  /** Annule l'appel OpenAI (déconnexion du client) : plus aucun token consommé. */
+  signal?: AbortSignal;
+  /** Appelé à chaque tour avec les tokens consommés (budget journalier). */
+  onUsage?: (tokens: number) => void;
+};
+
+export async function* runAgent(messages: AgentMessage[], context: AgentContext, options: RunAgentOptions = {}): AsyncGenerator<AgentChunk> {
+  const { signal, onUsage } = options;
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     yield { t: "error", code: "not_configured", text: "Agente non configurée : OPENAI_API_KEY manquante dans .env.local." };
@@ -1074,7 +1055,7 @@ export async function* runAgent(messages: AgentMessage[], context: AgentContext,
   }
   const deadline = AbortSignal.timeout(agentLimits().deadlineMs);
   const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
-  const run: RunState = { emitted: 0, sources: new Map(), provenance: [], functionCalls: 0 };
+  const run: RunState = { emitted: 0, sources: new Map(), provenance: [], functionCalls: 0, tokens: 0, onUsage };
 
   let outcome: Outcome;
   try {
