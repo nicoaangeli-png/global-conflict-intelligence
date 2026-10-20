@@ -321,13 +321,14 @@ export function AgentPanel() {
         ref={launcherRef}
         type="button"
         onClick={() => setOpen(true)}
-        className="panel pointer-events-auto flex items-center gap-2 py-1 pl-1 pr-3 transition hover:border-cyan/40"
-        aria-label={fr ? "Ouvrir AURA, analyste IA" : "Open AURA, AI analyst"}
+        className="panel aura-glow pointer-events-auto flex items-center gap-2 py-1 pl-1 pr-3 transition hover:border-cyan/40"
+        aria-label={fr ? "Parler à AURA" : "Talk to AURA"}
+        aria-expanded={false}
       >
         <AuraCore state={holoState} levelRef={voice.levelRef} width={64} height={64} />
         <span className="flex flex-col items-start">
-          <span className="label-strong">AURA</span>
-          <span className="text-[11px] text-text-faint">{fr ? "Analyste IA · voix" : "AI analyst · voice"}</span>
+          <span className="label-strong">{fr ? "Parler à AURA" : "Talk to AURA"}</span>
+          <span className="text-[11px] text-text-faint">{fr ? "Chat vocal · micro à activer" : "Voice chat · start mic to speak"}</span>
         </span>
       </button>
       </div>
