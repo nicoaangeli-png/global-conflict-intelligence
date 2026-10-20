@@ -3,8 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { CAMERA, GLOBE } from '@/lib/config/visual';
-import { clusterDegreesForCamera } from '@/lib/clustering/cluster';
-import { latLonToCameraAngles, vector3ToLatLon } from '@/lib/geo/latlon';
+import { vector3ToLatLon } from '@/lib/geo/latlon';
 import { countryAt } from '@/lib/geo/world';
 import { loadWorld } from '@/lib/geo/referentials';
 import { HolographicEarth } from './HolographicEarth';
@@ -22,7 +21,8 @@ import { tr } from '@/lib/i18n';
 import type { LiveItem } from '@/types/feeds';
 import { itemsForTheme, type ThemeKey } from '../feeds/feedModel';
 import { isPointPrecise } from '../feeds/conflictModel';
-import { GlobeGesture, globeFieldOfView, globeFrameDelta, globeMarkerBudget, globeQuality, pinchDistance } from '@/lib/globeQuality';
+import { GlobeGesture, globeFieldOfView, globeFrameDelta, globeMarkerBudget, globeQuality } from '@/lib/globeQuality';
+import { GlobeCameraController } from './GlobeCamera';
 
 /**
  * Points de flux visibles pour un thème (« conflict » : aucun, « all » : l'actualité).
@@ -31,8 +31,6 @@ import { GlobeGesture, globeFieldOfView, globeFrameDelta, globeMarkerBudget, glo
 function feedItemsFor(theme: ThemeKey, feeds: LiveItem[], allWeather: boolean): LiveItem[] {
   return itemsForTheme(feeds, theme, Date.now(), { allWeather }).filter((item) => item.category !== 'military');
 }
-
-const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 export function GlobeScene() {
   const [quality, setQuality] = useState(() => globeQuality({}));
@@ -71,31 +69,16 @@ export function GlobeScene() {
   const budgetSelectedFeedId = Number.isFinite(quality.markerLimit) ? selectedFeedId : null;
   const budgetHoveredFeedId = Number.isFinite(quality.markerLimit) ? hoveredFeedId : null;
 
-  const sphericalRef = useRef<{
-    distance: number;
-    targetDistance: number;
-    theta: number;
-    targetTheta: number;
-    phi: number;
-    targetPhi: number;
-  }>({
-    distance: CAMERA.initial.distance,
-    targetDistance: CAMERA.initial.distance,
-    theta: CAMERA.initial.theta,
-    targetTheta: CAMERA.initial.theta,
-    phi: CAMERA.initial.phi,
-    targetPhi: CAMERA.initial.phi,
-  });
-
-  const isDraggingRef = useRef(false);
-  const velocityRef = useRef({ theta: 0, phi: 0 });
-  const lastInteractionTimeRef = useRef(Date.now());
+  // Caméra orbitale (état, inertie, zoom) : logique pure dans GlobeCamera.ts.
+  const cameraRef = useRef<GlobeCameraController | null>(null);
+  cameraRef.current ??= new GlobeCameraController();
   const lastReportedDegrees = useRef(0);
   const debounceZoomTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || !cameraRef.current) return;
     const container = containerRef.current;
+    const orbit = cameraRef.current;
     let width = Math.max(1, container.clientWidth);
     let height = Math.max(1, container.clientHeight);
     const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -186,7 +169,7 @@ export function GlobeScene() {
       conflictLayer.group.traverse((object) => {
         if (object instanceof THREE.Points) object.visible = next.effects;
       });
-      if (next.reducedMotion) velocityRef.current = { theta: 0, phi: 0 };
+      if (next.reducedMotion) orbit.stop();
     };
     applyQuality();
     motionQuery.addEventListener('change', applyQuality);
@@ -214,7 +197,7 @@ export function GlobeScene() {
     const reportZoom = () => {
       if (debounceZoomTimer.current) clearTimeout(debounceZoomTimer.current);
       debounceZoomTimer.current = setTimeout(() => {
-        const degrees = clusterDegreesForCamera(sphericalRef.current.targetDistance);
+        const degrees = orbit.clusterDegrees;
         if (Math.abs(degrees - lastReportedDegrees.current) > 0.05) {
           lastReportedDegrees.current = degrees;
           setDegrees(degrees);
@@ -245,9 +228,7 @@ export function GlobeScene() {
       gesture.down(e.pointerId, e.clientX, e.clientY);
       renderer.domElement.setPointerCapture(e.pointerId);
       updatePointer(e);
-      isDraggingRef.current = true;
-      velocityRef.current = { theta: 0, phi: 0 };
-      lastInteractionTimeRef.current = Date.now();
+      orbit.beginDrag();
     };
 
     const onMouseMove = (e: PointerEvent) => {
@@ -261,34 +242,12 @@ export function GlobeScene() {
         if (!movement) return;
         const { deltaX, deltaY, previousSpan, span } = movement;
         if (span > 0 || previousSpan > 0) {
-          sphericalRef.current.targetDistance = pinchDistance(
-            sphericalRef.current.targetDistance, previousSpan, span, CAMERA.minDistance, CAMERA.maxDistance,
-          );
-          velocityRef.current = { theta: 0, phi: 0 };
-          lastInteractionTimeRef.current = Date.now();
+          orbit.pinch(previousSpan, span);
           reportZoom();
           return;
         }
 
-        // Rotation fluide proportionnelle à la distance caméra (plus on est près, plus le contrôle est fin)
-        const scale = (sphericalRef.current.targetDistance / CAMERA.initial.distance) * CAMERA.rotateSpeed;
-        const vTheta = -deltaX * scale;
-        const vPhi = -deltaY * scale;
-
-        // Amortissement de vélocité
-        velocityRef.current = {
-          theta: velocityRef.current.theta * 0.35 + vTheta * 0.65,
-          phi: velocityRef.current.phi * 0.35 + vPhi * 0.65,
-        };
-
-        sphericalRef.current.targetTheta += vTheta;
-        sphericalRef.current.targetPhi = clamp(
-          sphericalRef.current.targetPhi + vPhi,
-          0.15,
-          Math.PI - 0.15
-        );
-
-        lastInteractionTimeRef.current = Date.now();
+        orbit.drag(deltaX, deltaY);
         hover(null);
         setHoveredCountry(null);
         useIntelStore.getState().hoverFeed(null);
@@ -342,7 +301,7 @@ export function GlobeScene() {
       if (!gesture.has(e.pointerId)) return;
       const rect = updatePointer(e);
       const tap = gesture.end(e.pointerId, e.clientX, e.clientY);
-      isDraggingRef.current = gesture.active;
+      orbit.dragging = gesture.active;
       if (renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
 
       // Si l'utilisateur a glissé de plus de 5px au total, c'était une rotation du globe.
@@ -386,49 +345,15 @@ export function GlobeScene() {
       if (!gesture.has(e.pointerId)) return;
       interactionVersion++;
       gesture.end(e.pointerId, e.clientX, e.clientY, true);
-      isDraggingRef.current = gesture.active;
+      orbit.dragging = gesture.active;
       if (renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
-      velocityRef.current = { theta: 0, phi: 0 };
+      orbit.stop();
       clearHover();
     };
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      lastInteractionTimeRef.current = Date.now();
-
-      const isPinch = e.ctrlKey;
-      const isHorizontalTrackpad = Math.abs(e.deltaX) > Math.abs(e.deltaY);
-
-      if (isPinch) {
-        // Pincement Trackpad macOS (Pinch to Zoom) : progressif et doux
-        const factor = Math.exp(e.deltaY * 0.005);
-        sphericalRef.current.targetDistance = clamp(
-          sphericalRef.current.targetDistance * factor,
-          CAMERA.minDistance,
-          CAMERA.maxDistance
-        );
-      } else if (isHorizontalTrackpad || (Math.abs(e.deltaX) > 2 && Math.abs(e.deltaY) < 30)) {
-        // Balayage à 2 doigts sur trackpad (Trackpad Pan/Rotate) : tourne le globe, NE ZOOME PAS !
-        const rotScale = 0.0022;
-        sphericalRef.current.targetTheta += -e.deltaX * rotScale;
-        sphericalRef.current.targetPhi = clamp(
-          sphericalRef.current.targetPhi + -e.deltaY * rotScale,
-          0.15,
-          Math.PI - 0.15
-        );
-        velocityRef.current = { theta: 0, phi: 0 };
-      } else {
-        // Molette de souris classique ou scroll vertical trackpad franc
-        // Zoom exponentiel doux sans saut brusque
-        const boundedDelta = clamp(e.deltaY, -60, 60);
-        const zoomFactor = Math.exp(boundedDelta * 0.0016);
-        sphericalRef.current.targetDistance = clamp(
-          sphericalRef.current.targetDistance * zoomFactor,
-          CAMERA.minDistance,
-          CAMERA.maxDistance
-        );
-      }
-
+      orbit.wheel(e);
       // Débouncage de la mise à jour d'agrégation réseau (évite tout freeze)
       reportZoom();
     };
@@ -472,38 +397,8 @@ export function GlobeScene() {
       if (delta === null) return;
       lastFrame = timestamp;
       if (!profile.reducedMotion) elapsedTime += delta;
-      const frameScale = delta * 60;
-      const now = Date.now();
-
-      if (!isDraggingRef.current && !profile.reducedMotion) {
-        const decay = CAMERA.damping ** frameScale;
-        const inertiaScale = (1 - decay) / (1 - CAMERA.damping);
-        sphericalRef.current.targetTheta += velocityRef.current.theta * inertiaScale;
-        sphericalRef.current.targetPhi = clamp(
-          sphericalRef.current.targetPhi + velocityRef.current.phi * inertiaScale,
-          0.15,
-          Math.PI - 0.15
-        );
-        velocityRef.current.theta *= decay;
-        velocityRef.current.phi *= decay;
-
-        // Auto-rotation lente uniquement après 25 secondes d'inactivité totale
-        if (now - lastInteractionTimeRef.current > 25000) {
-          sphericalRef.current.targetTheta += CAMERA.autoRotate.speed * delta * 0.4;
-        }
-      }
-
-      const s = sphericalRef.current;
-      const smoothing = profile.reducedMotion ? 1 : 1 - 0.88 ** frameScale;
-      s.theta += (s.targetTheta - s.theta) * smoothing;
-      s.phi += (s.targetPhi - s.phi) * smoothing;
-      s.distance += (s.targetDistance - s.distance) * smoothing;
-
-      const sinPhi = Math.sin(s.phi);
-      camera.position.x = s.distance * sinPhi * Math.sin(s.theta);
-      camera.position.y = s.distance * Math.cos(s.phi);
-      camera.position.z = s.distance * sinPhi * Math.cos(s.theta);
-      camera.lookAt(0, 0, 0);
+      orbit.step(delta, { reducedMotion: profile.reducedMotion });
+      orbit.applyTo(camera);
 
       const dpr = renderer.getPixelRatio();
       if (holographicEarthRef.current) holographicEarthRef.current.update(elapsedTime);
@@ -528,8 +423,8 @@ export function GlobeScene() {
       for (const pointerId of pointerIds) {
         if (dom.hasPointerCapture(pointerId)) dom.releasePointerCapture(pointerId);
       }
-      isDraggingRef.current = false;
-      velocityRef.current = { theta: 0, phi: 0 };
+      orbit.dragging = false;
+      orbit.stop();
       clearHover();
     };
     const onVisibilityChange = () => {
@@ -537,7 +432,7 @@ export function GlobeScene() {
       animationFrameId = null;
       lastFrame = null;
       pauseInteraction();
-      lastInteractionTimeRef.current = Date.now();
+      orbit.touch();
       if (!document.hidden) animationFrameId = requestAnimationFrame(animate);
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -547,7 +442,7 @@ export function GlobeScene() {
     return () => {
       disposed = true;
       gesture.reset();
-      isDraggingRef.current = false;
+      orbit.dragging = false;
       if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
       resizeObserver.disconnect();
       motionQuery.removeEventListener('change', applyQuality);
@@ -677,61 +572,25 @@ export function GlobeScene() {
     }
   }, [selected, hoveredId, quality.markerLimit]);
 
-  // Recentrage sur requête externe sans coup de zoom violent
+  // Recentrage sur requête externe sans coup de zoom violent (le zoom choisi est conservé).
   useEffect(() => {
-    if (!focusRequest) return;
-    const angles = latLonToCameraAngles(focusRequest.lat, focusRequest.lon);
-    let targetTheta = angles.theta;
-    const targetPhi = clamp(angles.phi, 0.15, Math.PI - 0.15);
-
-    const currentTheta = sphericalRef.current.theta;
-    const twoPi = Math.PI * 2;
-    targetTheta = currentTheta + ((((targetTheta - currentTheta) % twoPi) + twoPi * 1.5) % twoPi) - Math.PI;
-
-    sphericalRef.current.targetTheta = targetTheta;
-    sphericalRef.current.targetPhi = targetPhi;
-    velocityRef.current = { theta: 0, phi: 0 };
-    // Préserve le niveau de zoom choisi par l'utilisateur (ne force plus un zoom brutal à 1.85)
-    lastInteractionTimeRef.current = Date.now();
+    if (focusRequest) cameraRef.current?.focus(focusRequest.lat, focusRequest.lon);
   }, [focusRequest]);
 
-  // Fonctions de contrôle manuel pour la barre d'outils tactique
-  const handleZoomIn = () => {
-    sphericalRef.current.targetDistance = clamp(
-      sphericalRef.current.targetDistance * 0.78,
-      CAMERA.minDistance,
-      CAMERA.maxDistance
-    );
-    lastInteractionTimeRef.current = Date.now();
-    const deg = clusterDegreesForCamera(sphericalRef.current.targetDistance);
-    setDegrees(deg);
+  // Contrôles manuels de la barre d'outils du globe.
+  const zoomBy = (factor: number) => {
+    const orbit = cameraRef.current;
+    if (!orbit) return;
+    orbit.zoomBy(factor);
+    setDegrees(orbit.clusterDegrees);
   };
-
-  const handleZoomOut = () => {
-    sphericalRef.current.targetDistance = clamp(
-      sphericalRef.current.targetDistance * 1.28,
-      CAMERA.minDistance,
-      CAMERA.maxDistance
-    );
-    lastInteractionTimeRef.current = Date.now();
-    const deg = clusterDegreesForCamera(sphericalRef.current.targetDistance);
-    setDegrees(deg);
-  };
-
+  const handleZoomIn = () => zoomBy(0.78);
+  const handleZoomOut = () => zoomBy(1.28);
   const handleResetView = () => {
-    sphericalRef.current.targetDistance = CAMERA.initial.distance;
-    sphericalRef.current.targetTheta = CAMERA.initial.theta;
-    sphericalRef.current.targetPhi = CAMERA.initial.phi;
-    velocityRef.current = { theta: 0, phi: 0 };
-    lastInteractionTimeRef.current = Date.now();
+    cameraRef.current?.reset();
     setDegrees(2.4);
   };
-
-  const handleNorthUp = () => {
-    sphericalRef.current.targetPhi = Math.PI / 2;
-    velocityRef.current.phi = 0;
-    lastInteractionTimeRef.current = Date.now();
-  };
+  const handleNorthUp = () => cameraRef.current?.northUp();
 
   return (
     <div className="relative h-full w-full select-none">

@@ -1,10 +1,14 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useIntelStore } from "@/store/useIntelStore";
 import { canonicalCountryIdentity } from "@/lib/geo/country";
 import { AuraCore, type AuraState } from "./AuraCore";
 import { speakable, useAuraVoice, type VoiceEngine } from "./useAuraVoice";
+import { readNdjson } from "@/lib/ndjson";
+import { AnswerText, buildHistory, citationNumbering, cleanUrl, DEFAULT_LIMITS, ProvenanceList, safeHref, host, type Citation, type Limits, type Provenance, type Source, type StreamChunk, type Turn } from "./auraTranscript";
+
+export { AnswerText, buildHistory } from "./auraTranscript";
 
 /**
  * AURA — analyste géopolitique vocale.
@@ -14,38 +18,6 @@ import { speakable, useAuraVoice, type VoiceEngine } from "./useAuraVoice";
  * temporelle) accompagne chaque question. Une réponse n'est « complète » que si
  * le serveur envoie `done` ; sinon elle est marquée incomplète ou interrompue.
  */
-
-type Source = { title: string; url: string };
-type Citation = { start: number; end: number; url: string; title: string };
-type Provenance = {
-  kind: "tool" | "web_search";
-  label: string;
-  source: string;
-  status: "ok" | "empty" | "unavailable" | "error";
-  retrievedAt: string;
-  detail?: string;
-  url?: string;
-};
-type TurnStatus = "streaming" | "complete" | "incomplete" | "interrupted" | "error";
-type Turn = {
-  id: number;
-  role: "user" | "assistant";
-  content: string;
-  status?: TurnStatus;
-  notice?: string;
-  sources?: Source[];
-  citations?: Citation[];
-  provenance?: Provenance[];
-};
-type Limits = { maxMessages: number; maxUserChars: number; maxAssistantChars: number; maxTotalChars: number };
-type StreamChunk = {
-  t: string;
-  text?: string;
-  items?: unknown[];
-  spans?: Citation[];
-};
-
-const DEFAULT_LIMITS: Limits = { maxMessages: 12, maxUserChars: 2000, maxAssistantChars: 12_000, maxTotalChars: 24_000 };
 
 type Recognition = {
   lang: string;
@@ -57,130 +29,6 @@ type Recognition = {
   onend: (() => void) | null;
   onerror: (() => void) | null;
 };
-
-function cleanSegment(text: string) {
-  return text
-    .replace(/\(\s*\[[^\]]*\]\([^)]*\)\s*\)/g, "")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/^#+\s*/gm, "")
-    .replace(/[ \t]+\n/g, "\n");
-}
-
-function cleanUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.searchParams.get("utm_source") === "openai") parsed.searchParams.delete("utm_source");
-    return parsed.toString();
-  } catch {
-    return url;
-  }
-}
-
-function safeHref(url: string) {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-const host = (url: string) => {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-};
-
-function citationNumbering(turn: Turn) {
-  const numbering = new Map<string, number>();
-  const ordered = (turn.citations ?? [])
-    .filter((citation) => citation.end <= turn.content.length && citation.end > citation.start)
-    .sort((left, right) => left.end - right.end);
-  for (const citation of ordered) if (!numbering.has(citation.url)) numbering.set(citation.url, numbering.size + 1);
-  return { numbering, ordered };
-}
-
-export function AnswerText({ turn, fr }: { turn: Turn; fr: boolean }) {
-  const { numbering, ordered } = citationNumbering(turn);
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-  const ends = [...new Set(ordered.map((citation) => citation.end))];
-  ends.forEach((end, endIndex) => {
-    const segment = cleanSegment(turn.content.slice(cursor, end));
-    nodes.push(<Fragment key={`t${endIndex}`}>{endIndex === 0 ? segment.trimStart() : segment}</Fragment>);
-    cursor = end;
-    const urls = [...new Set(ordered.filter((citation) => citation.end === end).map((citation) => citation.url))];
-    urls.forEach((url) => {
-      const href = safeHref(url);
-      const number = numbering.get(url);
-      if (!href || !number) return;
-      nodes.push(
-        <a
-          key={`c${endIndex}-${number}`}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ml-[1px] align-super text-[11px] text-cyan hover:underline"
-          aria-label={`Source ${number} : ${host(url)}`}
-          title={host(url)}
-        >
-          [{number}]
-        </a>,
-      );
-    });
-  });
-  const rest = cleanSegment(turn.content.slice(cursor));
-  nodes.push(<Fragment key="tail">{ends.length === 0 ? rest.trim() : rest.trimEnd()}</Fragment>);
-  return <>{nodes}</>;
-}
-
-function formatTime(iso: string) {
-  return `${iso.slice(0, 16).replace("T", " ")} UTC`;
-}
-
-function ProvenanceList({ items, fr }: { items: Provenance[]; fr: boolean }) {
-  const statusLabel: Record<Provenance["status"], string> = {
-    ok: "ok",
-    empty: fr ? "aucune donnée" : "no data",
-    unavailable: fr ? "indisponible" : "unavailable",
-    error: fr ? "erreur" : "error",
-  };
-  return (
-    <details className="mt-2 text-[11px] text-text-faint">
-      <summary className="cursor-pointer hover:text-cyan">{`Provenance (${items.length})`}</summary>
-      <ul className="mt-1 space-y-1">
-        {items.map((item, index) => (
-          <li key={index} className={item.status === "ok" ? "" : "text-alert-soft"}>
-            <span className="text-text-dim">{item.kind === "web_search" ? (fr ? "Recherche web" : "Web search") : item.label}</span>
-            {item.kind === "web_search" ? ` « ${item.label} »` : ""} · {item.source} · {statusLabel[item.status]} · {formatTime(item.retrievedAt)}
-            {item.detail ? ` · ${item.detail}` : ""}
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
-
-export function buildHistory(turns: Turn[], question: string, limits: Limits) {
-  const pairs: { role: "user" | "assistant"; content: string }[][] = [];
-  for (let index = 0; index + 1 < turns.length; index += 2) {
-    const asked = turns[index];
-    const answered = turns[index + 1];
-    if (asked.role === "user" && answered.role === "assistant" && answered.status === "complete" && answered.content && answered.content.length <= limits.maxAssistantChars) {
-      pairs.push([
-        { role: "user", content: asked.content },
-        { role: "assistant", content: answered.content },
-      ]);
-    }
-  }
-  const current = { role: "user" as const, content: question };
-  const size = (list: typeof pairs) => list.reduce((total, pair) => total + pair[0].content.length + pair[1].content.length, 0) + current.content.length;
-  while (pairs.length && (pairs.length * 2 + 1 > limits.maxMessages || size(pairs) > limits.maxTotalChars)) pairs.shift();
-  return [...pairs.flat(), current];
-}
 
 export function AgentPanel() {
   const locale = useIntelStore((state) => state.locale);
@@ -356,16 +204,9 @@ export function AgentPanel() {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? (fr ? "Service indisponible." : "Service unavailable."));
       }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      const handleLine = (line: string) => {
-        let chunk: StreamChunk;
-        try {
-          chunk = JSON.parse(line) as StreamChunk;
-        } catch {
-          return;
-        }
+      const handleChunk = (value: unknown) => {
+        if (!value || typeof value !== "object") return;
+        const chunk = value as StreamChunk;
         if (chunk.t === "delta" && chunk.text) {
           answer += chunk.text;
           setStatus(null);
@@ -390,19 +231,7 @@ export function AgentPanel() {
           notice = chunk.text;
         }
       };
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let newline = buffer.indexOf("\n");
-        while (newline >= 0) {
-          const line = buffer.slice(0, newline).trim();
-          buffer = buffer.slice(newline + 1);
-          if (line) handleLine(line);
-          newline = buffer.indexOf("\n");
-        }
-      }
-      if (buffer.trim()) handleLine(buffer.trim());
+      for await (const value of readNdjson(response.body)) handleChunk(value);
 
       if (terminal === "done" && answer) {
         flushSpeech(true);
