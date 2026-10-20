@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:mobile": "playwright test",
+    "test:e2e": "playwright test",
+    "test:mobile": "playwright test tests/mobile",
     "typecheck": "tsc --noEmit --incremental false",
     "audit:deps": "pnpm audit"
   },
