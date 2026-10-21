@@ -10,15 +10,15 @@ import { RETENTION_MS, SqliteDetectionStore } from "@/server/detection/store";
 
 const NOW = Date.parse("2026-10-20T08:43:00Z");
 function signal(overrides: Partial<Signal> = {}): Signal {
-  return { id: "first", provider: "local-a", sourceName: "Local A", url: "https://local-a.example/news/1", title: "Explosion signalée à Odessa près du port",
+  return { id: "first", provider: "local-a", sourceName: "Local A", url: "https://local-a.example/news/1", title: "Explosion signalée à Odessa près du port, terminal Neptune",
     text: null, kind: "explosion", nature: "press", occurredAt: new Date(NOW).toISOString(), publishedAt: null, receivedAt: new Date(NOW).toISOString(),
-    position: { lat: 46.48, lon: 30.73, precision: "city" }, place: "Odessa", countries: ["UKR"], entities: [], upstreamAgency: null,
+    position: { lat: 46.48, lon: 30.73, precision: "city" }, place: "Odessa", countries: ["UKR"], entities: ["terminal Neptune"], upstreamAgency: null,
     confirmsOccurrence: false, severity: null, metric: null, caveat: "Signal non confirmé", ...overrides };
 }
 function setup() { const store = new SqliteDetectionStore(":memory:"); return { store, engine: new DetectionEngine(store) }; }
 function distinct(index: number, overrides: Partial<Signal> = {}): Signal {
   const titles = ["Explosion près du port Odessa : témoins sur les quais", "Détonation entendue à Odessa dans le quartier maritime", "Odessa : explosion observée depuis une rue voisine", "Un bruit d'explosion à Odessa rapporté par une équipe locale", "Explosion dans Odessa, dégâts au port selon un correspondant"];
-  return signal({ id: `source-${index}`, provider: `publisher-${index}`, url: `https://news-${index}.example/story`, title: titles[index % titles.length], ...overrides });
+  return signal({ id: `source-${index}`, provider: `publisher-${index}`, url: `https://news-${index}.example/story`, title: `${titles[index % titles.length]} — terminal Neptune`, ...overrides });
 }
 
 describe("détection incrémentale ORBITAL", () => {
@@ -60,7 +60,7 @@ describe("détection incrémentale ORBITAL", () => {
   });
   it("D : formulations et graphies différentes du même lieu fusionnent", async () => {
     const { engine, store } = setup();
-    await engine.ingest([signal(), distinct(1, { title: "Forte détonation entendue dans le centre d'Odesa", place: "Odesa" })], NOW);
+    await engine.ingest([signal(), distinct(1, { title: "Forte détonation entendue près du port d'Odesa", place: "Odesa" })], NOW);
     expect((await engine.snapshot(NOW)).events).toHaveLength(1);
     await store.close();
   });
@@ -78,7 +78,7 @@ describe("détection incrémentale ORBITAL", () => {
     const { engine, store } = setup();
     await engine.ingest([signal(), distinct(1)], NOW);
     const before = (await engine.snapshot(NOW)).events[0];
-    await engine.ingest([distinct(2, { nature: "official", confirmsOccurrence: true, title: "Explosion constatée près du port Odessa par les autorités" })], NOW + 60_000);
+    await engine.ingest([distinct(2, { nature: "official", confirmsOccurrence: true, title: "Explosion constatée près du port Odessa, terminal Neptune, par les autorités" })], NOW + 60_000);
     const after = (await engine.snapshot(NOW + 60_000)).events[0];
     expect(after.confidenceScore).toBeGreaterThan(before.confidenceScore);
     expect(after.status).toBe("high");
@@ -116,7 +116,7 @@ describe("détection incrémentale ORBITAL", () => {
   });
   it("I : sans coordonnées, conserve null et rapproche le lieu explicite", async () => {
     const { engine, store } = setup();
-    await engine.ingest([signal({ position: null }), distinct(1, { position: null })], NOW);
+    await engine.ingest([signal({ position: null }), distinct(1, { position: null, title: "Explosion signalée à Odessa près du port, terminal Neptune, quai fermé" })], NOW);
     const event = (await engine.snapshot(NOW)).events[0];
     expect(event.position).toBeNull();
     expect(event.evidenceCount).toBe(2);
