@@ -35,8 +35,12 @@ RestartSec=5
 1. **Sauvegarde** de l'installation courante, données comprises :
    `tar czf ~/orbital-backups/orbital-<date>.tar.gz --exclude=orbital/node_modules -C ~ orbital`
 2. **Dossier de préparation** : copie de l'installation sans `data/` ni `.next/`,
-   puis synchronisation des sources depuis le poste de développement. Les motifs
-   d'exclusion rsync doivent être **ancrés à la racine** (`/data/`, `/.next/`,
+   puis synchronisation des sources d'un **commit de `main` dont la CI est verte**,
+   exportées proprement (jamais un dossier de travail local, qui peut contenir des
+   modifications non commitées) :
+   `git archive --format=tar <sha> | tar -x -C /tmp/orbital-<sha>`, puis
+   `git rev-parse <sha> > /tmp/orbital-<sha>/REVISION` et rsync de ce dossier.
+   Les motifs d'exclusion rsync doivent être **ancrés à la racine** (`/data/`, `/.next/`,
    `/node_modules/`, `/.env.local`) : un motif `data/` exclurait aussi `src/data`,
    `public/data` et les dossiers `data` des dépendances.
 3. Dans le dossier de préparation : `pnpm install --frozen-lockfile`, puis `pnpm build`.
