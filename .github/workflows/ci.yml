@@ -163,7 +163,15 @@ jobs:
       - name: Installer les dépendances verrouillées
         run: pnpm install --frozen-lockfile
 
-      - name: Migrations et dépôt PostgreSQL
-        run: pnpm vitest run tests/postgres-migrations.test.ts
+      - name: Migrations, contrat SQLite/PostgreSQL et concurrence sur base réelle
+        run: >-
+          pnpm vitest run
+          tests/postgres-migrations.test.ts
+          tests/detection-postgres.test.ts
+          tests/detection-store-contract.test.ts
+          tests/detection-migration-script.test.ts
+          tests/detection-sqlite-migrations.test.ts
+          tests/detection-backend.test.ts
+          tests/detection-clustering-backends.test.ts
         env:
           ORBITAL_TEST_DATABASE_URL: postgresql://orbital:orbital@localhost:5432/orbital_test

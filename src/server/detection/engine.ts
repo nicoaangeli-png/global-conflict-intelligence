@@ -1,5 +1,5 @@
-import type { DetectionResponse, OrbitalEvent, Signal } from "@/types/detection";
-import { match, signalTime, WINDOW_MS } from "./cluster";
+import type { DetectionResponse, MatchDecision, OrbitalEvent, Signal } from "@/types/detection";
+import { CANDIDATE_WINDOW_MS, consensusPosition, matchDecision, matchingAnchor, signalTime } from "./cluster";
 import { confidence, contradictions } from "./confidence";
 import { evidence, hash, independence } from "./fingerprint";
 import { importance, isLive } from "./importance";
@@ -20,7 +20,7 @@ export function assess(event: OrbitalEvent, now: number): OrbitalEvent {
   event.importanceScore = priority.score;
   event.importanceReasons = priority.reasons;
   event.occurredAt = event.evidence.map((item) => item.signal.occurredAt).filter((value): value is string => value !== null).sort()[0] ?? null;
-  event.position = event.evidence.map((item) => item.signal.position).find((position) => position && ["point", "city"].includes(position.precision)) ?? event.evidence[0]?.signal.position ?? null;
+  event.position = consensusPosition(event) ?? (event.evidence.every((item) => !item.signal.position || !["point", "city"].includes(item.signal.position.precision)) ? event.evidence[0]?.signal.position ?? null : null);
   event.countries = [...new Set(event.evidence.flatMap((item) => item.signal.countries))];
   return event;
 }
@@ -30,29 +30,41 @@ function timeline(event: OrbitalEvent, now: number, type: OrbitalEvent["timeline
   event.timeline.push({ at: new Date(now).toISOString(), type, signalId, confidenceScore: event.confidenceScore, status: event.status, independentSourceCount: event.independentSourceCount });
 }
 
-const anchor = (event: OrbitalEvent) => Math.min(...event.evidence.map((item) => signalTime(item.signal) ?? Date.parse(item.signal.receivedAt)));
+const anchor = matchingAnchor;
 
 export class DetectionEngine {
   constructor(private store: DetectionStore) {}
 
-  ingest(signals: Signal[], now = Date.now()): { accepted: number; skipped: number } {
+  async ingest(signals: Signal[], now = Date.now()): Promise<{ accepted: number; skipped: number }> {
     if (signals.length > 500) throw new Error("Detection batch exceeds 500 signals");
-    return this.store.transaction((transaction) => {
-      transaction.purge(now - RETENTION_MS);
+    return this.store.transaction(async (transaction) => {
+      // Verrouille les catégories présentes dans le lot AVANT toute lecture ou purge :
+      // deux instances qui ingèrent le même signal, ou deux signaux du même événement,
+      // ne peuvent pas calculer leurs candidats sur le même état ancien.
+      await transaction.lock([...new Set(signals.map((signal) => signal.kind))]);
+      await transaction.purge(now - RETENTION_MS);
       let accepted = 0;
       let skipped = 0;
       for (const signal of signals) {
         const time = signalTime(signal);
-        if (!signal.id || !signal.title || !signal.provider || !Number.isFinite(Date.parse(signal.receivedAt)) || (time !== null && (!Number.isFinite(time) || time < now - RETENTION_MS || time > now + 5 * 60_000))) { skipped++; continue; }
+        if (!signal.id || !signal.title || !signal.provider || !Number.isFinite(Date.parse(signal.receivedAt)) || [signal.occurredAt, signal.publishedAt, signal.detectedAt].some((value) => value != null && !Number.isFinite(Date.parse(value))) || (time !== null && (time < now - RETENTION_MS || time > now + 5 * 60_000))) { skipped++; continue; }
         const digest = hash(JSON.stringify({ ...signal, receivedAt: undefined }));
-        const previous = transaction.bySignal(signal.id);
+        const previous = await transaction.bySignal(signal.id);
         if (previous?.digest === digest) { skipped++; continue; }
         let event = previous?.event;
+        let matching: MatchDecision | undefined;
         if (!event && time !== null) {
-          event = transaction.candidates(signal.kind, time, WINDOW_MS)
-            .map((candidate) => ({ candidate, score: match(signal, candidate) }))
-            .filter((candidate) => candidate.score > 0)
-            .sort((first, second) => second.score - first.score || first.candidate.id.localeCompare(second.candidate.id))[0]?.candidate;
+          const candidates = await transaction.candidates(signal.kind, time, CANDIDATE_WINDOW_MS);
+          const ranked = candidates
+            .map((candidate) => ({ candidate, decision: matchDecision(signal, candidate) }))
+            .filter((candidate) => candidate.decision.matched)
+            .sort((first, second) => second.decision.score - first.decision.score || first.candidate.id.localeCompare(second.candidate.id));
+          if (ranked[0] && ranked[1] && ranked[0].decision.score - ranked[1].decision.score <= 0.05) {
+            matching = { version: 1, matched: false, score: 0, reasons: ["rejected_ambiguous"], positiveFactors: [], negativeFactors: ["rejected_ambiguous"], supportingSignalIds: [], examinedEvidence: ranked[0].decision.examinedEvidence };
+          } else if (ranked[0]) {
+            event = ranked[0].candidate;
+            matching = ranked[0].decision;
+          }
         }
         const first = !event;
         if (!event) {
@@ -64,35 +76,37 @@ export class DetectionEngine {
         const at = event.evidence.findIndex((item) => item.signal.id === signal.id);
         const oldScore = event.confidenceScore;
         const oldStatus = event.status;
-        if (at >= 0) event.evidence[at] = evidence(signal);
-        else if (event.evidence.length < MAX_EVIDENCE) event.evidence.push(evidence(signal));
+        if (at >= 0) event.evidence[at] = { ...evidence(signal), matching: event.evidence[at].matching };
+        else if (event.evidence.length < MAX_EVIDENCE) event.evidence.push({ ...evidence(signal), ...(matching ? { matching } : {}) });
         else { event.evidenceTruncated = true; }
         if (event.timeline.length >= MAX_TIMELINE) event.evidenceTruncated = true;
         event.lastReceivedAt = new Date(now).toISOString();
         assess(event, now);
         timeline(event, now, first ? "first_signal" : previous ? "evidence_updated" : "evidence_added", signal.id);
         if (!first && (oldScore !== event.confidenceScore || oldStatus !== event.status)) timeline(event, now, "assessment_changed", null);
-        transaction.put(event, anchor(event));
-        transaction.remember(signal.id, event.id, digest);
+        await transaction.put(event, anchor(event));
+        await transaction.remember(signal.id, event.id, digest);
         accepted++;
       }
       return { accepted, skipped };
     });
   }
 
-  snapshot(now = Date.now()): DetectionResponse {
-    return this.store.transaction((transaction) => {
-      transaction.purge(now - RETENTION_MS);
-      const events = transaction.recent(200).map((event) => {
+  async snapshot(now = Date.now()): Promise<DetectionResponse> {
+    return this.store.transaction(async (transaction) => {
+      await transaction.purge(now - RETENTION_MS);
+      const events = await transaction.recent(200);
+      for (const event of events) {
         const oldScore = event.confidenceScore;
         const oldStatus = event.status;
         assess(event, now);
         if (oldScore !== event.confidenceScore || oldStatus !== event.status) {
           timeline(event, now, "assessment_changed", null);
-          transaction.put(event, anchor(event));
+          // Écriture optimiste : la garde last_received empêche d'écraser une ingestion
+          // plus récente, et aucune preuve n'est modifiée par un instantané.
+          await transaction.put(event, anchor(event));
         }
-        return event;
-      });
+      }
       return { generatedAt: new Date(now).toISOString(), events, live: events.filter((event) => isLive(event, now)).sort((first, second) => second.importanceScore - first.importanceScore || second.confidenceScore - first.confidenceScore).slice(0, 12), status: "ok" };
     });
   }

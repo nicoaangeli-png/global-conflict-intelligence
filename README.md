@@ -158,6 +158,15 @@ sauvegardes. Un fichier JSON illisible n'est pas écrasé silencieusement. Aprè
 arrêt brutal, vérifier qu'aucun processus n'écrit avant de retirer un éventuel
 fichier `.lock`. PostgreSQL n'est pas testé sans instance configurée.
 
+Le moteur de détection suit la même priorité : `DATABASE_URL` active son backend
+PostgreSQL (tables `detection_events` et `detection_signals`, migration v4) ;
+sinon il utilise `ORBITAL_DETECTION_PATH` (défaut `data/detection.sqlite`).
+`ORBITAL_DETECTION_STORAGE` vaut `auto` par défaut et peut forcer `sqlite` ou
+`postgres`. Une erreur PostgreSQL ne retombe jamais silencieusement sur SQLite :
+le snapshot passe à `unavailable`. Plusieurs instances peuvent partager l'état
+de détection via PostgreSQL. La reprise volontaire des données SQLite existantes
+et la stratégie de concurrence sont décrites dans `docs/postgres-detection.md`.
+
 ## API de lecture
 
 - `GET /api/events` : agrégats ; `GET /api/stats` : statistiques de la même sélection.
@@ -172,3 +181,14 @@ courtes et hebdomadaires sur 6 mois / 1 an. Les classements regroupent les pays
 par nombre d'événements chargés et filtrés : ils ne mesurent pas un risque mondial
 objectif. Les budgets militaires SIPRI nécessitent un import annuel sourcé ;
 aucune API militaire ou position tactique fictive n'est ajoutée.
+
+## Gouvernance des données, licences et conformité
+
+Le périmètre documentaire recense **36 lignes** (sources, flux, import, assets et services), dont un connecteur GKG historique désactivé : ce ne sont pas 36 fournisseurs ni 36 flux actifs.
+
+- [Matrice fournisseurs, licences, attributions et incertitudes](docs/data-governance/sources-licensing.md)
+- [Maturité commerciale et plan de diligence](docs/data-governance/commercial-readiness.md)
+
+Ces documents ne constituent pas un avis juridique ni une autorisation de commercialisation. Les droits d'usage payant, de stockage et de redistribution restent à confirmer par jeu et contrat ; BYOK ne remplace pas une licence. Aucun audit complet des licences transitives ne démontre ici l'absence de GPL/AGPL.
+
+Les données OFAC ne constituent pas une certification KYC/AML. Les mentions presse GDELT et observations thermiques FIRMS restent des signaux non confirmés. Les attributions existantes doivent être conservées ; les droits des articles tiers ne découlent pas de l'ouverture des métadonnées GDELT.

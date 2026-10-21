@@ -33,6 +33,23 @@ export interface EventEvidence {
   fingerprint: string;
   independenceGroup: string;
   dependenceReasons: string[];
+  matching?: MatchDecision;
+}
+
+export type MatchReason = "temporal_match" | "geographic_match" | "place_match" | "textual_match" | "entity_match"
+  | "continuing_event" | "uncertain_occurrence" | "ignored_outliers" | "rejected_kind" | "rejected_time"
+  | "rejected_distance" | "rejected_place" | "rejected_entities" | "rejected_country" | "rejected_content"
+  | "rejected_consensus" | "rejected_limit" | "rejected_ambiguous" | "rejected_contradiction";
+
+export interface MatchDecision {
+  version: 1;
+  matched: boolean;
+  score: number;
+  reasons: MatchReason[];
+  positiveFactors: MatchReason[];
+  negativeFactors: MatchReason[];
+  supportingSignalIds: string[];
+  examinedEvidence: number;
 }
 
 export interface ConfidenceBreakdown {

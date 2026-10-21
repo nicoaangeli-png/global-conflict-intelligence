@@ -62,12 +62,21 @@ Retour arrière : arrêter le service, restaurer l'archive de l'étape 1, redém
 - **Sauvegarder `data/` avant chaque bascule** (étape 1) : c'est le seul retour arrière
   fiable pour SQLite. Avec PostgreSQL, utiliser `pg_dump` avant la bascule et vérifier
   que la restauration fonctionne.
+- Le moteur de détection utilise PostgreSQL dès que `DATABASE_URL` est défini
+  (migration v4 : `detection_events`, `detection_signals`). Plusieurs instances
+  partagent alors le même état. La reprise des anciennes données
+  `data/detection.sqlite` est volontaire : voir `docs/postgres-detection.md`
+  (`scripts/migrate-detection-sqlite-to-postgres.cjs`, simulation par défaut).
+  `ORBITAL_DETECTION_STORAGE=sqlite` permet de rester sur le fichier local pendant
+  la vérification, sans modifier la source.
 - `systemctl stop` envoie `SIGTERM` : SQLite effectue un checkpoint WAL et tronque le
   fichier `-wal`. Un arrêt forcé (`SIGKILL`, coupure) reste récupérable par WAL ;
   `PRAGMA quick_check` est exécuté à l'ouverture et son résultat apparaît dans
   `GET /api/health`.
 - Rétention : GDELT 30 jours et FIRMS 14 jours par défaut
-  (`ORBITAL_RETENTION_GDELT_DAYS`, `ORBITAL_RETENTION_FIRMS_DAYS`).
+  (`ORBITAL_RETENTION_GDELT_DAYS`, `ORBITAL_RETENTION_FIRMS_DAYS`). La détection
+  conserve 7 jours d'événements (`RETENTION_MS`), purgés par lots avec
+  `FOR UPDATE SKIP LOCKED` côté PostgreSQL.
 
 ## Supervision
 
