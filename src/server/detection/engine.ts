@@ -35,21 +35,26 @@ const anchor = (event: OrbitalEvent) => Math.min(...event.evidence.map((item) =>
 export class DetectionEngine {
   constructor(private store: DetectionStore) {}
 
-  ingest(signals: Signal[], now = Date.now()): { accepted: number; skipped: number } {
+  async ingest(signals: Signal[], now = Date.now()): Promise<{ accepted: number; skipped: number }> {
     if (signals.length > 500) throw new Error("Detection batch exceeds 500 signals");
-    return this.store.transaction((transaction) => {
-      transaction.purge(now - RETENTION_MS);
+    return this.store.transaction(async (transaction) => {
+      // Verrouille les catégories présentes dans le lot AVANT toute lecture ou purge :
+      // deux instances qui ingèrent le même signal, ou deux signaux du même événement,
+      // ne peuvent pas calculer leurs candidats sur le même état ancien.
+      await transaction.lock([...new Set(signals.map((signal) => signal.kind))]);
+      await transaction.purge(now - RETENTION_MS);
       let accepted = 0;
       let skipped = 0;
       for (const signal of signals) {
         const time = signalTime(signal);
         if (!signal.id || !signal.title || !signal.provider || !Number.isFinite(Date.parse(signal.receivedAt)) || (time !== null && (!Number.isFinite(time) || time < now - RETENTION_MS || time > now + 5 * 60_000))) { skipped++; continue; }
         const digest = hash(JSON.stringify({ ...signal, receivedAt: undefined }));
-        const previous = transaction.bySignal(signal.id);
+        const previous = await transaction.bySignal(signal.id);
         if (previous?.digest === digest) { skipped++; continue; }
         let event = previous?.event;
         if (!event && time !== null) {
-          event = transaction.candidates(signal.kind, time, WINDOW_MS)
+          const candidates = await transaction.candidates(signal.kind, time, WINDOW_MS);
+          event = candidates
             .map((candidate) => ({ candidate, score: match(signal, candidate) }))
             .filter((candidate) => candidate.score > 0)
             .sort((first, second) => second.score - first.score || first.candidate.id.localeCompare(second.candidate.id))[0]?.candidate;
@@ -72,27 +77,29 @@ export class DetectionEngine {
         assess(event, now);
         timeline(event, now, first ? "first_signal" : previous ? "evidence_updated" : "evidence_added", signal.id);
         if (!first && (oldScore !== event.confidenceScore || oldStatus !== event.status)) timeline(event, now, "assessment_changed", null);
-        transaction.put(event, anchor(event));
-        transaction.remember(signal.id, event.id, digest);
+        await transaction.put(event, anchor(event));
+        await transaction.remember(signal.id, event.id, digest);
         accepted++;
       }
       return { accepted, skipped };
     });
   }
 
-  snapshot(now = Date.now()): DetectionResponse {
-    return this.store.transaction((transaction) => {
-      transaction.purge(now - RETENTION_MS);
-      const events = transaction.recent(200).map((event) => {
+  async snapshot(now = Date.now()): Promise<DetectionResponse> {
+    return this.store.transaction(async (transaction) => {
+      await transaction.purge(now - RETENTION_MS);
+      const events = await transaction.recent(200);
+      for (const event of events) {
         const oldScore = event.confidenceScore;
         const oldStatus = event.status;
         assess(event, now);
         if (oldScore !== event.confidenceScore || oldStatus !== event.status) {
           timeline(event, now, "assessment_changed", null);
-          transaction.put(event, anchor(event));
+          // Écriture optimiste : la garde last_received empêche d'écraser une ingestion
+          // plus récente, et aucune preuve n'est modifiée par un instantané.
+          await transaction.put(event, anchor(event));
         }
-        return event;
-      });
+      }
       return { generatedAt: new Date(now).toISOString(), events, live: events.filter((event) => isLive(event, now)).sort((first, second) => second.importanceScore - first.importanceScore || second.confidenceScore - first.confidenceScore).slice(0, 12), status: "ok" };
     });
   }

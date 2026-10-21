@@ -10,9 +10,11 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
+    "test:postgres": "vitest run tests/postgres-migrations.test.ts tests/detection-postgres.test.ts tests/detection-store-contract.test.ts tests/detection-migration-script.test.ts tests/detection-sqlite-migrations.test.ts tests/detection-backend.test.ts",
     "test:e2e": "playwright test",
     "test:mobile": "playwright test tests/mobile",
     "typecheck": "tsc --noEmit --incremental false",
+    "migrate:detection": "node scripts/migrate-detection-sqlite-to-postgres.cjs",
     "audit:deps": "pnpm audit"
   },
   "dependencies": {

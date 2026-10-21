@@ -158,6 +158,15 @@ sauvegardes. Un fichier JSON illisible n'est pas écrasé silencieusement. Aprè
 arrêt brutal, vérifier qu'aucun processus n'écrit avant de retirer un éventuel
 fichier `.lock`. PostgreSQL n'est pas testé sans instance configurée.
 
+Le moteur de détection suit la même priorité : `DATABASE_URL` active son backend
+PostgreSQL (tables `detection_events` et `detection_signals`, migration v4) ;
+sinon il utilise `ORBITAL_DETECTION_PATH` (défaut `data/detection.sqlite`).
+`ORBITAL_DETECTION_STORAGE` vaut `auto` par défaut et peut forcer `sqlite` ou
+`postgres`. Une erreur PostgreSQL ne retombe jamais silencieusement sur SQLite :
+le snapshot passe à `unavailable`. Plusieurs instances peuvent partager l'état
+de détection via PostgreSQL. La reprise volontaire des données SQLite existantes
+et la stratégie de concurrence sont décrites dans `docs/postgres-detection.md`.
+
 ## API de lecture
 
 - `GET /api/events` : agrégats ; `GET /api/stats` : statistiques de la même sélection.

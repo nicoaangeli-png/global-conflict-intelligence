@@ -43,6 +43,46 @@ CREATE INDEX IF NOT EXISTS conflict_events_country_idx ON conflict_events (count
 -- CREATE INDEX IF NOT EXISTS conflict_events_geom_idx ON conflict_events USING GIST (geom);
 `;
 
+/**
+ * Schéma du moteur de détection (migration v4).
+ *
+ * Les événements ne sont pas dédupliqués par une contrainte métier : le rapprochement
+ * (catégorie, temps, lieu, texte) reste dans `engine.ts`. Les contraintes garantissent
+ * l'unicité technique : un identifiant d'événement et un identifiant de signal sont
+ * uniques, un signal pointe vers un seul événement et disparaît avec lui.
+ *
+ * `anchor` est l'epoch millisecondes de la plus ancienne preuve : il sert à la fenêtre
+ * de candidats et à la rétention. `last_received` reste un TIMESTAMPTZ pour un tri
+ * et une comparaison corrects entre instances.
+ */
+export const DETECTION_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS detection_events (
+  id            TEXT PRIMARY KEY,
+  kind          TEXT NOT NULL,
+  anchor        DOUBLE PRECISION NOT NULL,
+  last_received TIMESTAMPTZ NOT NULL,
+  payload       JSONB NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Candidats : balayage borné par catégorie puis intervalle d'ancrage.
+CREATE INDEX IF NOT EXISTS detection_candidates ON detection_events (kind, anchor);
+-- Ordre stable identique à SQLite (anchor, id) pour les deux bornes de la fenêtre.
+CREATE INDEX IF NOT EXISTS detection_matching_order ON detection_events (kind, anchor, id);
+-- Rétention : suppression par ancienneté d'ancrage.
+CREATE INDEX IF NOT EXISTS detection_retention ON detection_events (anchor);
+-- Instantané : les 200 événements les plus récemment reçus.
+CREATE INDEX IF NOT EXISTS detection_recent ON detection_events (last_received DESC, id);
+CREATE TABLE IF NOT EXISTS detection_signals (
+  id       TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES detection_events(id) ON DELETE CASCADE,
+  digest   TEXT NOT NULL
+);
+-- PostgreSQL n'indexe pas automatiquement la colonne référencée d'une clé étrangère :
+-- sans cet index, chaque purge ferait un balayage complet des signaux.
+CREATE INDEX IF NOT EXISTS detection_signals_event ON detection_signals (event_id);
+`;
+
 export interface PostgresMigration {
   version: number;
   name: string;
@@ -65,6 +105,11 @@ CREATE INDEX IF NOT EXISTS conflict_events_country_iso3_idx ON conflict_events (
     version: 3,
     name: "index de fraîcheur (MAX(updated_at) des statistiques de santé)",
     sql: `CREATE INDEX IF NOT EXISTS conflict_events_updated_idx ON conflict_events (updated_at);`,
+  },
+  {
+    version: 4,
+    name: "moteur de détection : événements, signaux, candidats et rétention",
+    sql: DETECTION_SCHEMA_SQL,
   },
 ];
 
