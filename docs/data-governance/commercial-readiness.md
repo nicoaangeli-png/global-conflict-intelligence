@@ -67,6 +67,12 @@ et NOTICE, examiner les dépendances transitives, binaires et assets ; documente
 les exceptions et préserver les attributions. Le relevé des packages directs
 de la matrice ne permet pas de conclure à l'absence de copyleft.
 
+Le relevé local `pnpm licenses list --prod --json` du 21 octobre 2026 signale
+`@img/sharp-libvips-darwin-arm64@1.3.4` sous `LGPL-3.0-or-later`.
+Vérifié : cette déclaration figure dans les métadonnées installées sur macOS.
+À confirmer : composants réellement distribués, licences complètes et
+obligations correspondantes ; ce relevé n'est pas une SBOM de production.
+
 ## 6. Plan de mise en commercialisation recommandé
 
 1. Versionner les conditions/licences exactes de chaque ligne, date de consultation, jeu, endpoint, titulaire et preuve de permission.

@@ -328,6 +328,14 @@ Relevé indicatif de dépendances directes, pas audit complet de licences transi
 > [!NOTE]
 > À confirmer : licences transitives, binaires, polices, données et obligations NOTICE/attribution. Aucune conclusion générale sur le copyleft n'est possible à partir de cette seule liste.
 
+Vérification locale du 21 octobre 2026 : `pnpm licenses list --prod --json`
+signale notamment `@img/sharp-libvips-darwin-arm64` version `1.3.4` sous
+`LGPL-3.0-or-later`. Il s'agit des métadonnées du binaire macOS installé pour
+cette validation, pas d'une SBOM de l'artefact Linux de production. Restriction
+identifiée à examiner : conditions de redistribution, notices et obligations
+applicables au binaire réellement livré ; revue juridique nécessaire. Ce
+relevé ne démontre ni une présence de GPL/AGPL ni leur absence ailleurs.
+
 ---
 
 ## 5. Stratégie de Licence pour le Dépôt ORBITAL
