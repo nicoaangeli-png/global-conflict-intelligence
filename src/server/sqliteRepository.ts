@@ -1,9 +1,13 @@
+import "server-only";
 import type { ConflictEvent } from "@/types/conflict";
 import { chmod, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { assertRealSourceRecords } from "./dataPolicy";
 import type { EventQuery, Repository } from "./repository";
+import { migrateSqlite, type SqliteMigrationReport } from "./migrations/sqlite";
+
+export { SQLITE_SCHEMA_SQL } from "./migrations/sqlite";
 
 const DAY_MS = 86_400_000;
 const DEFAULT_GDELT_RETENTION_DAYS = 30;
@@ -11,43 +15,6 @@ const DEFAULT_FIRMS_RETENTION_DAYS = 14;
 const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 /** Taille d'un lot synchrone avant de rendre la main à la boucle Node.js. */
 export const SQLITE_UPSERT_BATCH_SIZE = 500;
-
-const SQLITE_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS conflict_events (
-  id              TEXT PRIMARY KEY,
-  source_dataset  TEXT NOT NULL,
-  event_type      TEXT NOT NULL,
-  country         TEXT NOT NULL DEFAULT '',
-  country_iso3    TEXT,
-  confidence      TEXT NOT NULL,
-  fatalities      INTEGER NOT NULL DEFAULT 0,
-  event_date      TEXT NOT NULL,
-  event_ts        INTEGER,
-  lat             REAL NOT NULL,
-  lon             REAL NOT NULL,
-  updated_at      TEXT NOT NULL,
-  payload         TEXT NOT NULL CHECK (json_valid(payload))
-) STRICT;
-`;
-
-const SQLITE_INDEX_SQL = `
-CREATE INDEX IF NOT EXISTS conflict_events_event_ts_idx
-  ON conflict_events (event_ts);
-CREATE INDEX IF NOT EXISTS conflict_events_dataset_event_ts_idx
-  ON conflict_events (source_dataset, event_ts);
-CREATE INDEX IF NOT EXISTS conflict_events_type_event_ts_idx
-  ON conflict_events (event_type, event_ts);
-CREATE INDEX IF NOT EXISTS conflict_events_country_event_ts_idx
-  ON conflict_events (country, event_ts);
-CREATE INDEX IF NOT EXISTS conflict_events_country_iso3_event_ts_idx
-  ON conflict_events (country_iso3, event_ts);
-CREATE INDEX IF NOT EXISTS conflict_events_geo_idx
-  ON conflict_events (lat, lon);
-CREATE INDEX IF NOT EXISTS conflict_events_updated_idx
-  ON conflict_events (updated_at);
-`;
-
-export const SQLITE_SCHEMA_SQL = `${SQLITE_TABLE_SQL}${SQLITE_INDEX_SQL}`;
 
 export interface SqliteRepositoryOptions {
   busyTimeoutMs?: number;
@@ -110,22 +77,6 @@ function validateEvent(event: unknown, index: number): asserts event is Conflict
   if (typeof record.country !== "string") throw new Error(`Invalid country at index ${index}`);
   for (const field of ["latitude", "longitude", "fatalities"]) {
     if (!Number.isFinite(record[field])) throw new Error(`Invalid ${field} at index ${index}`);
-  }
-}
-
-function ensureTimestampSchema(database: DatabaseSync): void {
-  const columns = database.prepare("PRAGMA table_info('conflict_events')").all() as Array<{ name: string }>;
-  if (!columns.some((column) => column.name === "event_ts")) {
-    database.exec("ALTER TABLE conflict_events ADD COLUMN event_ts INTEGER;");
-  }
-  const pending = database.prepare("SELECT id, payload FROM conflict_events WHERE event_ts IS NULL").all() as Array<{
-    id: string;
-    payload: string;
-  }>;
-  const update = database.prepare("UPDATE conflict_events SET event_ts = ? WHERE id = ?");
-  for (const row of pending) {
-    const payload = JSON.parse(row.payload) as { eventDate?: unknown };
-    update.run(timestampOf(payload.eventDate), row.id);
   }
 }
 
@@ -201,6 +152,8 @@ export class SqliteRepository implements Repository {
   private readonly applyRetention: boolean;
   private readonly initialJsonPath: string | null;
   private readonly now: () => Date;
+  private migration: SqliteMigrationReport | null = null;
+  private integrity: string | null = null;
 
   constructor(
     private readonly filename = process.env.ORBITAL_SQLITE_PATH ?? path.join(process.cwd(), "data", "intel-events.sqlite"),
@@ -223,16 +176,14 @@ export class SqliteRepository implements Repository {
       database.exec(`PRAGMA journal_mode = WAL;`);
       database.exec(`PRAGMA busy_timeout = ${this.busyTimeoutMs};`);
       database.exec("PRAGMA synchronous = NORMAL;");
-      database.exec("BEGIN IMMEDIATE;");
-      try {
-        database.exec(SQLITE_TABLE_SQL);
-        ensureTimestampSchema(database);
-        database.exec(SQLITE_INDEX_SQL);
-        database.exec("COMMIT;");
-      } catch (error) {
-        database.exec("ROLLBACK;");
-        throw error;
-      }
+      // Borne la taille du WAL après checkpoint (évite un fichier -wal de plusieurs dizaines de Mo).
+      database.exec("PRAGMA journal_size_limit = 16777216;");
+      // Schéma versionné (PRAGMA user_version) : migrations appliquées une fois, en transaction.
+      this.migration = migrateSqlite(database);
+      // Contrôle rapide d'intégrité (page, index) : signalé par la santé, sans bloquer la lecture.
+      const check = database.prepare("PRAGMA quick_check").get() as { quick_check?: string } | undefined;
+      this.integrity = check?.quick_check === "ok" ? "ok" : (check?.quick_check ?? "inconnue");
+      if (this.integrity !== "ok") console.error(`[sqlite] contrôle d'intégrité en échec : ${this.integrity}`);
       this.database = database;
       await this.importInitialJson(database);
       if (this.filename !== ":memory:") await secureSqliteFiles(this.filename);
@@ -242,6 +193,11 @@ export class SqliteRepository implements Repository {
       this.database = null;
       throw error;
     }
+  }
+
+  /** Version du schéma, migrations appliquées à l'ouverture et résultat du contrôle d'intégrité. */
+  diagnostics(): { schemaVersion: number | null; appliedMigrations: number[]; integrity: string | null } {
+    return { schemaVersion: this.migration?.to ?? null, appliedMigrations: this.migration?.applied ?? [], integrity: this.integrity };
   }
 
   private get db(): DatabaseSync {
@@ -395,6 +351,8 @@ export class SqliteRepository implements Repository {
       const gdelt = purge("gdelt", this.gdeltRetentionDays);
       const firms = purge("firms", this.firmsRetentionDays);
       this.db.exec("COMMIT");
+      // Statistiques du planificateur tenues à jour après une purge significative.
+      if (gdelt + firms > 0) this.db.exec("PRAGMA optimize;");
       return { gdelt, firms };
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -404,6 +362,13 @@ export class SqliteRepository implements Repository {
 
   close(): void {
     if (!this.database) return;
+    try {
+      // Arrêt propre : statistiques du planificateur puis WAL tronqué (si aucun autre lecteur).
+      this.database.exec("PRAGMA optimize;");
+      this.database.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch (error) {
+      console.warn("[sqlite] checkpoint à l'arrêt impossible", error instanceof Error ? error.message : "raison inconnue");
+    }
     this.database.close();
     this.database = null;
   }

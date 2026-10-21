@@ -13,13 +13,18 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Prérequis du projet et de la CI : Node.js 25 et pnpm 11. Le démarrage de base ne
+Prérequis : Node.js LTS (24 recommandé, voir `.nvmrc` ; 22.13 ou plus pris en
+charge, `node:sqlite` l'exige) et pnpm 11. Les versions Node impaires (25…) ne sont
+pas prises en charge. Le démarrage de base ne
 requiert aucune clé : les sources publiques compatibles restent disponibles et
 les connecteurs optionnels signalent simplement qu'ils ne sont pas configurés.
 
 Pour une exécution de production : `pnpm build`, puis `pnpm start`.
-Validation locale : `pnpm typecheck`, puis `pnpm test`.
-Audit des dépendances de production : `pnpm audit --prod`.
+Validation locale (identique à la CI) : `pnpm install --frozen-lockfile`,
+`pnpm typecheck`, `pnpm test`, `pnpm build`, puis `pnpm audit`.
+La CI (`.github/workflows/ci.yml`) exécute ces étapes sous Node 24 et Node 22 ;
+toute vulnérabilité connue fait échouer l'audit, sauf exceptions nommées et
+justifiées dans `pnpm-workspace.yaml`. Déploiement : `docs/deploiement.md`.
 Ne pas lancer un build dans `.next` pendant qu'un serveur utilise ce dossier.
 
 ## Variables d'environnement et paramètres

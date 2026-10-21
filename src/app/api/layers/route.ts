@@ -4,15 +4,27 @@ import { isLayerId, listLayers, loadLayer } from "@/server/layers";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET /api/layers?id=<LayerId> — calques de référence, hors événements. */
+/**
+ * GET /api/layers?id=<LayerId>[&country=<ISO3>] — calques de référence, hors événements.
+ * `country` ne renvoie que les éléments rattachés à ce pays (fiche pays) : le calque
+ * complet (jusqu'à ~750 Ko) n'est chargé par le navigateur que s'il est affiché.
+ */
 export async function GET(request: Request) {
-  const id = new URL(request.url).searchParams.get("id");
+  const params = new URL(request.url).searchParams;
+  const id = params.get("id");
+  const country = params.get("country");
   const headers = { "Cache-Control": "no-store" };
   if (id !== null && !isLayerId(id)) {
     return NextResponse.json({ error: "id must be a known LayerId" }, { status: 400, headers });
   }
+  if (country !== null && (!id || !/^[A-Z]{3}$/.test(country))) {
+    return NextResponse.json({ error: "country must be an ISO3 code, with id" }, { status: 400, headers });
+  }
   try {
-    return NextResponse.json(id ? await loadLayer(id) : { layers: await listLayers() }, { headers });
+    if (!id) return NextResponse.json({ layers: await listLayers() }, { headers });
+    const layer = await loadLayer(id);
+    const body = country ? { ...layer, features: layer.features.filter((feature) => feature.countries.includes(country)) } : layer;
+    return NextResponse.json(body, { headers });
   } catch {
     // Défense supplémentaire : loadLayer est déjà total, mais une route ne doit jamais divulguer une exception.
     return NextResponse.json({ error: "Les calques de référence sont momentanément indisponibles." }, { status: 503, headers });

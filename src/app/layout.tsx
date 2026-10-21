@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 // Icône inline (data:) : aucune ressource externe ni requête /favicon.ico en 404 (CSP stricte).
@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: "Globe 3D : conflits, catastrophes, santé, ONU, espace, nucléaire, économie et dossiers OVNI, à partir de sources réelles et datées.",
   icons: { icon: ICON },
 };
+
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", interactiveWidget: "resizes-content", themeColor: "#010409" };
 
 export default function RootLayout({
   children,

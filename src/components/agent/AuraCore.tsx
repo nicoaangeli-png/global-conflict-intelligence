@@ -35,13 +35,20 @@ export function AuraCore({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<AuraState>(state);
+  const redrawRef = useRef<(() => void) | null>(null);
   stateRef.current = state;
+
+  useEffect(() => {
+    redrawRef.current?.();
+  }, [state]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const mobileMedia = window.matchMedia("(max-width: 767px)");
+    const motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const dpr = Math.min(window.devicePixelRatio || 1, mobileMedia.matches ? 1.5 : 2);
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     ctx.scale(dpr, dpr);
@@ -50,7 +57,9 @@ export function AuraCore({
     const cx = width / 2;
     const cy = compact ? height / 2 : height / 2 + height * 0.07;
     const R = compact ? Math.min(width, height) * 0.46 : Math.min(width * 0.28, height * 0.37);
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let reduced = motionMedia.matches;
+    let mobile = mobileMedia.matches;
+    let visible = canvas.getClientRects().length > 0;
 
     const BARS = compact ? 36 : 72;
     const bars = new Float32Array(BARS);
@@ -85,18 +94,21 @@ export function AuraCore({
     };
 
     const draw = () => {
-      frame = requestAnimationFrame(draw);
+      frame = 0;
+      if (document.hidden || !visible) return;
+      if (!reduced) frame = requestAnimationFrame(draw);
       const now = performance.now();
+      if (!reduced && mobile && now - last < 1000 / 15) return;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const t = reduced ? 0 : (now - start) / 1000;
       const s = stateRef.current;
-      think += ((s === "thinking" ? 1 : 0) - think) * 0.06;
-      speak += ((s === "speaking" ? 1 : 0) - speak) * 0.08;
+      think += ((s === "thinking" ? 1 : 0) - think) * (reduced ? 1 : 0.06);
+      speak += ((s === "speaking" ? 1 : 0) - speak) * (reduced ? 1 : 0.08);
       const level = s === "speaking" ? Math.min(1, levelRef?.current ?? 0.6) : 0;
       const syllable = 0.5 + 0.5 * Math.abs(Math.sin(t * 9.5) * Math.sin(t * 5.3 + 0.7));
       energy += (level * syllable - energy) * 0.25;
-      spin += dt * (1 + think * 2.4 + speak * 0.5);
+      if (!reduced) spin += dt * (1 + think * 2.4 + speak * 0.5);
       const breath = 0.5 + 0.5 * Math.sin(t * 1.3);
 
       ctx.clearRect(0, 0, width, height);
@@ -292,8 +304,34 @@ export function AuraCore({
 
       ctx.globalCompositeOperation = "source-over";
     };
-    draw();
-    return () => cancelAnimationFrame(frame);
+    const refresh = () => {
+      cancelAnimationFrame(frame);
+      last = performance.now() - 1000 / 15;
+      draw();
+    };
+    const updatePreferences = () => {
+      reduced = motionMedia.matches;
+      mobile = mobileMedia.matches;
+      refresh();
+    };
+    const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      refresh();
+    });
+    observer?.observe(canvas);
+    redrawRef.current = refresh;
+    document.addEventListener("visibilitychange", refresh);
+    motionMedia.addEventListener("change", updatePreferences);
+    mobileMedia.addEventListener("change", updatePreferences);
+    refresh();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      redrawRef.current = null;
+      document.removeEventListener("visibilitychange", refresh);
+      motionMedia.removeEventListener("change", updatePreferences);
+      mobileMedia.removeEventListener("change", updatePreferences);
+    };
   }, [width, height, levelRef]);
 
   return <canvas ref={canvasRef} className={className} style={{ width, height, display: "block" }} aria-hidden="true" />;

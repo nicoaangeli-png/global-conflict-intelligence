@@ -7,10 +7,21 @@ on:
 permissions:
   contents: read
 
+# Un seul pipeline actif par branche : un nouveau push annule le précédent.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    name: Valider (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      # Node 24 (LTS de référence, .nvmrc) et Node 22 (LTS du serveur de production).
+      fail-fast: true
+      matrix:
+        node: [24, 22]
 
     steps:
       - name: Récupérer le dépôt
@@ -21,10 +32,10 @@ jobs:
         with:
           version: 11
 
-      - name: Installer Node.js 25 et activer le cache pnpm
+      - name: Installer Node.js ${{ matrix.node }} et activer le cache pnpm
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Installer les dépendances verrouillées
@@ -35,3 +46,124 @@ jobs:
 
       - name: Exécuter les tests
         run: pnpm test
+
+      - name: Compiler la version de production
+        run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  dependencies:
+    name: Contrôler les dépendances
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Installer Node.js (.nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      # Toute vulnérabilité connue, y compris dans l'outillage de développement, fait échouer
+      # le pipeline. Exceptions nommées et justifiées dans pnpm-workspace.yaml (auditConfig).
+      - name: Auditer les dépendances
+        run: pnpm audit
+
+  e2e:
+    name: Tests de bout en bout (navigateur)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Seulement si la validation passe : inutile de lancer un navigateur sur un build cassé.
+    needs: validate
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Installer Node.js (.nvmrc) et activer le cache pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Installer les dépendances verrouillées
+        run: pnpm install --frozen-lockfile
+
+      - name: Compiler la version de production
+        run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: Installer Chromium pour Playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      # API ORBITAL simulées dans le navigateur : aucun appel aux fournisseurs réels.
+      - name: Exécuter les scénarios navigateur
+        run: pnpm test:e2e
+        env:
+          E2E_SERVER_COMMAND: pnpm start -p 3011
+
+      - name: Conserver le rapport en cas d'échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  postgres:
+    name: Migrations PostgreSQL (base réelle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Même logique que e2e : une base réelle n'apporte rien si le code ne compile pas.
+    needs: validate
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: orbital
+          POSTGRES_PASSWORD: orbital
+          POSTGRES_DB: orbital_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U orbital"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Installer Node.js (.nvmrc) et activer le cache pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Installer les dépendances verrouillées
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrations et dépôt PostgreSQL
+        run: pnpm vitest run tests/postgres-migrations.test.ts
+        env:
+          ORBITAL_TEST_DATABASE_URL: postgresql://orbital:orbital@localhost:5432/orbital_test

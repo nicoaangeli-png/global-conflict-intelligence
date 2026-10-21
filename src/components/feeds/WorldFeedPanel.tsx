@@ -291,8 +291,9 @@ export function WorldFeedPanel() {
               ))}
               {failing.map((s) => (
                 <li key={s.sourceId} className="error-note">
-                  {s.status === "stale" ? tr(locale, "Source en retard", "Stale source") : tr(locale, "Source indisponible", "Source unavailable")} : {s.sourceName}
+                  {s.status === "stale" || s.health === "stale" ? tr(locale, "Source en retard", "Stale source") : tr(locale, "Source indisponible", "Source unavailable")} : {s.sourceName}
                   {s.message ? ` — ${s.message}` : ""}
+                  {!s.message && s.health === "stale" && s.lastSuccessAt ? ` — ${tr(locale, "dernière actualisation réussie", "last successful refresh")} ${relativeTime(s.lastSuccessAt, locale, now)}` : ""}
                 </li>
               ))}
             </ul>

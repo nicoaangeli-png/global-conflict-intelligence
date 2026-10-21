@@ -67,6 +67,7 @@ export const spaceSources: FeedSourceDef[] = [
     category: "space",
     homepage: "https://thespacedevs.com/llapi",
     license: "Données The Space Devs (CC BY 4.0), quota anonyme de 15 requêtes par heure",
+    quota: "15 requêtes par heure (accès anonyme)",
     // Quota anonyme : 2 requêtes par rafraîchissement, donc au plus 2 requêtes par heure en régime normal.
     ttlMs: 65 * 60_000,
     errorTtlMs: 20 * 60_000,

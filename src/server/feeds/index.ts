@@ -12,7 +12,8 @@ import { socialSources } from "./social";
 import { spaceSources } from "./space";
 import { unSources } from "./un";
 import { uapSources } from "./uap";
-import { runSource, type FeedSourceDef } from "./util";
+import { feedDescriptor, runSource, type FeedSourceDef } from "./util";
+import { registerSource } from "@/server/health/registry";
 import { weatherSources } from "./weather";
 
 /**
@@ -36,6 +37,9 @@ export const FEED_SOURCES: FeedSourceDef[] = [
   ...infrastructureSources,
   ...EXTRA_SOURCES,
 ];
+
+// Toutes les sources apparaissent dans l'état de santé dès le démarrage (« pending »).
+for (const def of FEED_SOURCES) registerSource(feedDescriptor(def));
 
 export interface GetFeedsQuery {
   category?: string | null;

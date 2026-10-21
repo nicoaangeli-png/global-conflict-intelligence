@@ -1,5 +1,7 @@
 import type { LiveItem } from "@/types/feeds";
 import { countryFromCoords, fetchJson, FeedError, num, plainText, str, type FeedContext, type FeedSourceDef } from "./util";
+import { recordObservation } from "@/server/coverage/observations";
+import { ADSB_PARAMS } from "@/server/coverage/score";
 
 interface AdsbAircraft {
   hex?: string;
@@ -107,12 +109,36 @@ function aircraftTitle(ac: AdsbAircraft): string {
   return details.length ? `${type} — ${details.join(" — ")}` : type;
 }
 
+/** Âge `seen_pos` au-delà duquel une position n'apporte plus rien à l'estimation de couverture. */
+const COVERAGE_MAX_POSITION_AGE_S = 3_600;
+
+/**
+ * Alimente l'estimation de couverture ADS-B avec TOUTES les positions de la réponse,
+ * y compris celles trop anciennes pour le globe : leur retard doit peser sur le score.
+ */
+export function recordAdsbCoverage(raw: unknown, receivedAtMs = Date.now()): void {
+  const response = raw as AdsbResponse | null;
+  if (!Array.isArray(response?.ac)) return;
+  for (const ac of response.ac) {
+    const hex = str(ac.hex);
+    const lat = num(ac.lat);
+    const lon = num(ac.lon);
+    const age = num(ac.seen_pos) ?? num(ac.seen);
+    if (!hex || lat === null || lon === null || age === null || age < 0 || age > COVERAGE_MAX_POSITION_AGE_S) continue;
+    recordObservation("adsb", { id: hex.toLowerCase(), lat, lon, observedAtMs: receivedAtMs - age * 1000, receivedAtMs, lagMs: age * 1000 }, ADSB_PARAMS.freshLagMs);
+  }
+}
+
+export interface AdsbProvider { name: string; homepage: string }
+const ADSB_LOL: AdsbProvider = { name: "adsb.lol", homepage: "https://adsb.lol/" };
+const ADSB_FI: AdsbProvider = { name: "adsb.fi", homepage: "https://adsb.fi/" };
+
 /** Convertit la photographie ADS-B : seules les positions vieilles d'au plus cinq minutes sont conservées. */
-export function parseAdsbMilitary(raw: unknown, ctx: FeedContext): LiveItem[] {
+export function parseAdsbMilitary(raw: unknown, ctx: FeedContext, provider: AdsbProvider = ADSB_LOL): LiveItem[] {
   const response = raw as AdsbResponse | null;
   const aircraft = response?.ac;
   const now = num(response?.now);
-  if (!Array.isArray(aircraft) || now === null) throw new FeedError("adsb.lol : format de réponse inattendu.");
+  if (!Array.isArray(aircraft) || now === null) throw new FeedError(`${provider.name} : format de réponse inattendu.`);
   // L'API expose actuellement `now` en millisecondes ; accepte aussi des secondes Unix sans inventer la date.
   const nowMs = now > 10_000_000_000 ? now : now * 1000;
   purgeAircraftTracks(nowMs);
@@ -142,9 +168,9 @@ export function parseAdsbMilitary(raw: unknown, ctx: FeedContext): LiveItem[] {
       nature: "sensor_measurement",
       title: aircraftTitle(ac),
       summary: summary || null,
-      url: "https://adsb.lol/",
+      url: provider.homepage,
       sourceId: "adsb-lol-military",
-      sourceName: "adsb.lol",
+      sourceName: provider.name,
       publishedAt: null,
       occurredAt: new Date(occurredMs).toISOString(),
       fetchedAt: ctx.fetchedAt,
@@ -161,6 +187,9 @@ export function parseAdsbMilitary(raw: unknown, ctx: FeedContext): LiveItem[] {
   return items;
 }
 
+const ADSB_LOL_COOLDOWN_MS = 60 * 60_000;
+let adsbLolCooldownUntil = 0;
+
 export const militarySources: FeedSourceDef[] = [
   {
     sourceId: "adsb-lol-military",
@@ -168,10 +197,26 @@ export const militarySources: FeedSourceDef[] = [
     category: "military",
     homepage: "https://adsb.lol/",
     license: "Open Database License (ODbL) 1.0 — attribution « adsb.lol »",
-    // Une collecte au plus toutes les 15 s quand `/api/feeds` est effectivement sollicitée.
-    ttlMs: 15_000,
+    // Une collecte au plus toutes les 30 s quand `/api/feeds` est effectivement sollicitée.
+    ttlMs: 30_000,
+    quota: "adsb.lol : 500 requêtes par jour et par IP ; relais adsb.fi (même format) quand le quota est atteint.",
     async load(ctx) {
-      return parseAdsbMilitary(await fetchJson("https://api.adsb.lol/v2/mil", { maxBytes: 2 * 1024 * 1024 }), ctx);
+      const options = { maxBytes: 2 * 1024 * 1024 };
+      if (Date.now() >= adsbLolCooldownUntil) {
+        try {
+          const raw = await fetchJson("https://api.adsb.lol/v2/mil", options);
+          recordAdsbCoverage(raw);
+          return parseAdsbMilitary(raw, ctx, ADSB_LOL);
+        } catch (error) {
+          if (!(error instanceof FeedError)) throw error;
+          // Quota journalier ou panne : on laisse adsb.lol tranquille une heure et on passe au relais.
+          adsbLolCooldownUntil = Date.now() + ADSB_LOL_COOLDOWN_MS;
+        }
+      }
+      const raw = await fetchJson("https://opendata.adsb.fi/api/v2/mil", options);
+      recordAdsbCoverage(raw);
+      const items = parseAdsbMilitary(raw, ctx, ADSB_FI);
+      return { items, message: "adsb.lol indisponible (quota) : positions fournies par adsb.fi." };
     },
   },
 ];

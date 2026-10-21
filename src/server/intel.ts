@@ -1,3 +1,5 @@
+import "server-only";
+import { ingestConflictSignals } from "@/server/detection";
 import { aggregateClusters, dedupe } from "@/lib/clustering/cluster";
 import {
   REAL_DATASETS,
@@ -23,6 +25,7 @@ import { firmsConnector } from "./connectors/firms";
 import { isRealSourceRecord } from "./dataPolicy";
 import { createRepository, LocalRepository, type Repository } from "./repository";
 import { ConnectorError } from "./connectors/types";
+import { markUnconfigured, newestDate, recordAttempt, registerSource, type SourceDescriptor } from "./health/registry";
 
 /**
  * Service d'ingestion et d'interrogation.
@@ -33,6 +36,31 @@ import { ConnectorError } from "./connectors/types";
  */
 
 const CONNECTORS: Connector[] = [csvConnector, acledConnector, ucdpConnector, firmsConnector, gdeltConnector];
+
+/** Provenance des connecteurs pour la santé des sources (registre commun). */
+const CONNECTOR_PROVENANCE: Record<Connector["id"], { homepage: string | null; nature: string; quota?: string }> = {
+  acled: { homepage: "https://acleddata.com/", nature: "incidents codés par la source", quota: "accès sur compte approuvé ACLED" },
+  ucdp: { homepage: "https://ucdp.uu.se/", nature: "incidents codés par la source, publication différée" },
+  gdelt: { homepage: "https://www.gdeltproject.org/", nature: "mentions presse, non confirmées" },
+  firms: { homepage: "https://firms.modaps.eosdis.nasa.gov/", nature: "détections thermiques satellite, jamais une frappe confirmée", quota: "clé MAP_KEY : 5 000 transactions / 10 min" },
+  csv: { homepage: null, nature: "import opérateur" },
+};
+
+function connectorDescriptor(connector: Connector): SourceDescriptor {
+  const provenance = CONNECTOR_PROVENANCE[connector.id];
+  return {
+    id: `connector:${connector.id}`,
+    kind: "connector",
+    name: connector.label,
+    category: "conflicts",
+    homepage: provenance.homepage,
+    license: null,
+    nature: provenance.nature,
+    quota: provenance.quota ?? null,
+    // Ingestion toutes les 15 min : trois échéances manquées = données anciennes.
+    staleAfterMs: 3 * AUTO_REFRESH_MS + 5 * 60_000,
+  };
+}
 
 interface IntelState {
   repository: Repository;
@@ -63,6 +91,23 @@ const state: IntelState =
     statuses: [],
     ingestReport: "aucune ingestion lancée",
   });
+
+/**
+ * Arrêt normal (SIGTERM/SIGINT donnant lieu à un `exit`) : ferme le dépôt pour
+ * checkpoint du WAL SQLite. Un arrêt brutal reste couvert par la journalisation WAL
+ * (testé dans `sqlite-migrations.test.ts`).
+ */
+const shutdownRef = globalThis as unknown as { __orbitalShutdownHooked?: boolean };
+if (!shutdownRef.__orbitalShutdownHooked) {
+  shutdownRef.__orbitalShutdownHooked = true;
+  process.once("exit", () => {
+    try {
+      void state.repository.close?.();
+    } catch {
+      // Rien à faire à l'arrêt.
+    }
+  });
+}
 
 function pickRepository(): Repository {
   return createRepository();
@@ -118,6 +163,8 @@ export async function ensureReady(): Promise<void> {
  * l'agrégat filtré. Aucun connecteur inutilisable n'est sollicité.
  */
 const AUTO_REFRESH_MS = 15 * 60 * 1000;
+
+for (const connector of CONNECTORS) registerSource(connectorDescriptor(connector));
 const AUTO_REFRESH_FIRST_MS = 2_000;
 
 function startAutoRefresh() {
@@ -217,13 +264,17 @@ async function ingest(options: { days?: number }) {
   const notes: string[] = [];
 
   for (const connector of CONNECTORS) {
+    const descriptor = connectorDescriptor(connector);
     if (!connector.isConfigured()) {
       notes.push(`${connector.label} : non configuré`);
+      markUnconfigured(descriptor, connector.describe());
       continue;
     }
+    const startedAt = Date.now();
     try {
       const events = await connector.fetchEvents({ days });
       collected.push(...events);
+      recordAttempt(descriptor, { ok: true, startedAt, finishedAt: Date.now(), itemCount: events.length, newestDataAt: newestDate(events.map((event) => event.eventDate)) });
       const detail = connector.lastReport?.();
       notes.push(`${connector.label} : ${events.length} événements${detail ? ` (${detail})` : ""}`);
       const st = state.statuses.find((s) => s.id === (connector.id === "csv" ? "import" : connector.id));
@@ -235,6 +286,8 @@ async function ingest(options: { days?: number }) {
       const detail = err instanceof ConnectorError ? (connector.id === "csv" ? err.kind : err.message) : "réponse invalide";
       const message = `${connector.label}: ${detail}`;
       notes.push(`${connector.label} : ${message}`);
+      // Après un succès antérieur, les enregistrements en base restent consultables : « stale ».
+      recordAttempt(descriptor, { ok: false, startedAt, finishedAt: Date.now(), error: message });
       const st = state.statuses.find((s) => s.id === (connector.id === "csv" ? "import" : connector.id));
       if (st) {
         st.reachable = false;
@@ -246,6 +299,8 @@ async function ingest(options: { days?: number }) {
   const { kept, removed } = dedupe(collected);
   let upserted = { inserted: 0, updated: 0 };
   if (kept.length) upserted = await state.repository.upsert(kept);
+  if (kept.length) await ingestConflictSignals(kept);
+  bumpStoreVersion();
 
   delete zoneRef.__orbitalConflictZones;
   delete profileRef.__orbitalSourceStats;
@@ -359,7 +414,48 @@ function thermalMode(filters: EventFilters): ThermalMode {
 }
 
 /** Lecture commune à la carte, aux indicateurs et aux listes : mêmes filtres partout. */
-async function selectEventsDetailed(filters: EventFilters, from: Date, to: Date) {
+/**
+ * Cache court de la sélection d'événements : chaque appel relisait et décodait tout le JSON
+ * de la période (≈ 12 Mo et 270 ms pour 20 000 lignes en production) à chaque zoom ou filtre,
+ * alors que la base ne change qu'à l'ingestion. Invalidé à chaque écriture ; 60 s au plus.
+ * Les appelants reçoivent une copie du tableau (certains trient en place).
+ */
+const SELECTION_CACHE_TTL_MS = 60_000;
+/** Deux bornes : nombre d'entrées et total d'événements retenus (≈ 500 octets chacun). */
+const SELECTION_CACHE_MAX = 8;
+const SELECTION_CACHE_MAX_EVENTS = 60_000;
+type SelectionResult = { events: ConflictEvent[]; thermal: ThermalSelection };
+const selectionRef = globalThis as unknown as { __orbitalSelectionCache?: Map<string, { at: number; version: number; result: SelectionResult }>; __orbitalStoreVersion?: number };
+const selectionCache = (selectionRef.__orbitalSelectionCache ??= new Map());
+
+/** Signale une écriture dans la base : les sélections en cache sont périmées. */
+function bumpStoreVersion() {
+  selectionRef.__orbitalStoreVersion = (selectionRef.__orbitalStoreVersion ?? 0) + 1;
+  selectionCache.clear();
+}
+
+async function selectEventsDetailed(filters: EventFilters, from: Date, to: Date): Promise<SelectionResult> {
+  const version = selectionRef.__orbitalStoreVersion ?? 0;
+  const key = JSON.stringify([filters.range, filters.at ?? null, filters.types, requestedDatasets(filters) ?? null, filters.confidences, filters.countries, filters.minFatalities, thermalMode(filters), filters.at ? to.getTime() : null]);
+  const cached = selectionCache.get(key);
+  if (cached && cached.version === version && Date.now() - cached.at < SELECTION_CACHE_TTL_MS) {
+    return { events: [...cached.result.events], thermal: cached.result.thermal };
+  }
+  const result = await loadSelection(filters, from, to);
+  if ((selectionRef.__orbitalStoreVersion ?? 0) === version) {
+    selectionCache.set(key, { at: Date.now(), version, result });
+    // Évince les plus anciennes entrées au-delà des bornes (une sélection peut peser plusieurs Mo).
+    while (
+      selectionCache.size > SELECTION_CACHE_MAX ||
+      [...selectionCache.values()].reduce((total, entry) => total + entry.result.events.length, 0) > SELECTION_CACHE_MAX_EVENTS
+    ) {
+      selectionCache.delete(selectionCache.keys().next().value!);
+    }
+  }
+  return { events: [...result.events], thermal: result.thermal };
+}
+
+async function loadSelection(filters: EventFilters, from: Date, to: Date): Promise<SelectionResult> {
   const storedEvents = await state.repository.query({
     from,
     to,
@@ -602,6 +698,7 @@ export async function queryLatestEvents(filters: EventFilters, limit = 60) {
 export function healthInfo() {
   return {
     repository: state.repository.kind,
+    schema: state.repository.diagnostics?.() ?? null,
     connectors: state.statuses,
     lastIngestAt: state.lastIngestAt,
     report: state.ingestReport,

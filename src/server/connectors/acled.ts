@@ -1,3 +1,4 @@
+import "server-only";
 import type { ConflictEvent, EventType } from "@/types/conflict";
 import { ConnectorError, type Connector, env, safeFetch, providerDate, validCoordinates } from "./types";
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { absoluteDateTime, int, relativeTime } from "@/lib/format";
 import { tr } from "@/lib/i18n";
 import { useIntelStore } from "@/store/useIntelStore";
-import { THEME_COLORS, THEME_LABELS, label, latestDataDate, sourceStatusLabel } from "./feedModel";
+import { THEME_COLORS, THEME_LABELS, label, latestDataDate, sourceStatusLabel, sourceTone } from "./feedModel";
 import { useNow } from "./useNow";
 
 /**
@@ -56,7 +56,7 @@ export function SourcesButton() {
   const conflictSources = (stats?.sources ?? []).filter((s) => CONFLICT_SOURCE_INFO[s.dataset]);
   const acled = stats?.connectors.find((c) => c.id === "acled");
   const okFeeds = feedSources.filter((s) => s.status === "ok").length;
-  const problems = feedSources.filter((s) => s.status === "error" || s.status === "stale").length + feedFailures.length;
+  const problems = feedSources.filter((s) => ["error", "warn"].includes(sourceTone(s))).length + feedFailures.length;
   const total = feedSources.length + conflictSources.length;
   const ok = okFeeds + conflictSources.length;
   const tone = feedsStatus === "error" ? "error" : problems ? "warn" : "ok";
@@ -143,7 +143,7 @@ export function SourcesButton() {
           <ul className="mt-1.5 space-y-1.5">
             {feedSources.map((s) => {
               const latest = latestDataDate(feeds, s.sourceId, now);
-              const tone = s.status === "ok" ? "ok" : s.status === "not_configured" ? "off" : s.status === "stale" ? "warn" : "error";
+              const tone = sourceTone(s);
               return (
                 <li key={s.sourceId} className="source-row">
                   <span className="status-dot" data-tone={tone} />
@@ -162,6 +162,7 @@ export function SourcesButton() {
                         ? ` · ${tr(locale, "donnée la plus récente", "latest data")} : ${latest ? `${absoluteDateTime(latest, locale)} (${relativeTime(latest, locale, now)})` : tr(locale, "aucun élément daté reçu", "no dated item received")}`
                         : ""}
                       {s.fetchedAt ? ` · ${tr(locale, "collecte", "collected")} ${relativeTime(s.fetchedAt, locale, now)}` : ""}
+                      {s.health === "stale" && s.lastSuccessAt ? ` · ${tr(locale, "dernier succès", "last success")} ${relativeTime(s.lastSuccessAt, locale, now)}` : ""}
                     </span>
                     {s.message ? <span className="meta block text-[#ffc58a]">{s.message}</span> : null}
                     {s.license ? <span className="meta block">{tr(locale, "Licence", "License")} : {s.license}</span> : null}

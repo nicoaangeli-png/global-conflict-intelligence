@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { LayerId } from "@/types/layers";
 import { absoluteDateTime, int } from "@/lib/format";
 import { tr, type Locale } from "@/lib/i18n";
@@ -9,6 +9,8 @@ import { LAYER_ORDER, LAYER_STYLE, layerSourceLine, type LayerGlyph } from "./la
 import { sourceVehicleKind, vehicleOf, type VehicleKind } from "@/components/feeds/vehicleModel";
 import { sourceStatusLabel } from "@/components/feeds/feedModel";
 import { VEHICLE_COLORS } from "@/components/globe/MobileLayer";
+import { CoverageLine } from "@/components/coverage/CoverageLine";
+import { useSensorCoverage } from "@/components/coverage/useSensorCoverage";
 
 /**
  * Sélecteur « Calques » du dock du globe : menu repliable, cases à cocher,
@@ -51,6 +53,10 @@ function MobileRow({ kind, locale }: { kind: VehicleKind; locale: Locale }) {
   );
   const failing = kindSources.filter((src) => src.status !== "ok");
   const caveat = mine.find((item) => item.caveat)?.caveat ?? null;
+  // Couverture mondiale du capteur : avions → ADS-B, navires militaires → AIS.
+  const sensor = kind === "aircraft" ? "adsb" : kind === "vessel" ? "ais" : null;
+  const coverage = useSensorCoverage(null, sensor !== null);
+  const refresh = kind === "aircraft" ? tr(locale, "positions rafraîchies toutes les 30 s", "positions refreshed every 30 s") : tr(locale, "flux AIS continu", "continuous AIS stream");
   const state = mine.length
     ? `${int(mine.length)} ${tr(locale, "en direct", "live")}`
     : feedsStatus === "loading" || feedsStatus === "idle"
@@ -68,13 +74,14 @@ function MobileRow({ kind, locale }: { kind: VehicleKind; locale: Locale }) {
       </label>
       <p className="meta layer-meta">
         {mine.length
-          ? `${sourceNames.join(", ")} · ${tr(locale, "positions rafraîchies toutes les 15 s", "positions refreshed every 15 s")} · ${
+          ? `${sourceNames.join(", ")} · ${refresh} · ${
               tracked ? tr(locale, `${tracked} trajet(s) observé(s)`, `${tracked} observed track(s)`) : tr(locale, "trajets pas encore publiés par la source", "tracks not yet published by the source")
             }`
           : kindSources.length
             ? `${kindSources.map((src) => src.sourceName).join(", ")} · ${tr(locale, "aucune position reçue pour l'instant", "no position received yet")}`
             : tr(locale, "Source en cours de branchement : rien à afficher pour l'instant.", "Source being connected: nothing to show yet.")}
       </p>
+      {sensor ? <CoverageLine sensor={sensor} coverage={coverage.data?.[sensor] ?? null} loading={coverage.status === "loading"} locale={locale} /> : null}
       {failing.map((src) => (
         <p key={src.sourceId} className={src.status === "not_configured" ? "meta layer-meta" : "error-note mt-1"}>
           {src.sourceName} : {sourceStatusLabel(src, locale)}
@@ -161,8 +168,9 @@ function LayerRow({ id, locale }: { id: LayerId; locale: Locale }) {
   );
 }
 
-export function LayersMenu() {
-  const [open, setOpen] = useState(false);
+export function LayersMenu({ embedded = false }: { embedded?: boolean }) {
+  const [open, setOpen] = useState(embedded);
+  const popoverId = useId();
   const locale = useIntelStore((s) => s.locale);
   const layersOn = useIntelStore((s) => s.layersOn);
   const catalogStatus = useIntelStore((s) => s.layerCatalog.status);
@@ -180,7 +188,7 @@ export function LayersMenu() {
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || embedded) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -197,25 +205,25 @@ export function LayersMenu() {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("mousedown", onClick);
     };
-  }, [open]);
+  }, [open, embedded]);
 
   return (
-    <div ref={rootRef} className="layers-menu">
-      <button
+    <div ref={rootRef} className={embedded ? "layers-menu layers-embedded" : "layers-menu"}>
+      {!embedded && <button
         ref={buttonRef}
         type="button"
         className="dock-wide"
         aria-expanded={open}
-        aria-controls="layers-popover"
+        aria-controls={popoverId}
         data-active={active > 0}
         onClick={() => setOpen((v) => !v)}
         title={tr(locale, "Calques : avions et navires militaires en direct ; centrales, bases, câbles, sanctions", "Layers: live military aircraft and vessels; plants, bases, cables, sanctions")}
       >
         {tr(locale, "Calques", "Layers")}
         {active ? <span className="dock-count">{active}</span> : null}
-      </button>
+      </button>}
       {open ? (
-        <div id="layers-popover" role="dialog" aria-label={tr(locale, "Calques", "Layers")} className="panel corners layers-popover scroll-thin">
+        <div id={popoverId} role={embedded ? undefined : "dialog"} aria-label={tr(locale, "Calques", "Layers")} className={embedded ? "layers-content" : "panel corners layers-popover scroll-thin"}>
           <span className="corner" />
           <h3 className="section-title">{tr(locale, "En direct", "Live")}</h3>
           <p className="meta mt-0.5">{tr(locale, "Positions publiées et trajets observés, sur tous les thèmes.", "Published positions and observed tracks, on every theme.")}</p>

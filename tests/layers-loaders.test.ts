@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildMilitaryBasesQuery, ERROR_RETRY_MS, loadLayer, parseSanctions, parseSubmarineCables, parseMilitaryBases, parseNuclearPlants, resetLayersCache } from "@/server/layers";
+import { buildMilitaryBasesQuery, ERROR_RETRY_MS, listLayers, loadLayer, parseSanctions, parseSubmarineCables, parseMilitaryBases, parseNuclearPlants, resetLayersCache } from "@/server/layers";
 import { publicationDateFromUrl } from "@/server/layers/sanctions";
 
 const fixture = (name: string) => readFileSync(path.join(__dirname, "fixtures", "layers", name), "utf8");
@@ -74,6 +74,24 @@ describe("cache de 24 h et repli stale", () => {
     expect(stale.status).toBe("stale");
     expect(stale.features).toHaveLength(3);
     expect(stale.message).toMatch(/dernier cache valide/i);
+  });
+
+  it("le catalogue ne télécharge aucun calque et reprend les comptes du cache", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "orbital-layers-"));
+    const now = Date.parse("2026-10-19T00:00:00.000Z");
+    const fetchMock = vi.fn(async () => new Response(fixture("wikidata-nuclear.json"), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const empty = await listLayers({ cacheDir: directory, now: () => now });
+    expect(empty.every((layer) => layer.itemCount === null)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await loadLayer("nuclear_plants", { cacheDir: directory, now: () => now });
+    resetLayersCache();
+    const cached = await listLayers({ cacheDir: directory, now: () => now + 60_000 });
+    expect(cached.find((layer) => layer.layerId === "nuclear_plants")?.itemCount).toBe(3);
+    expect(cached.filter((layer) => layer.layerId !== "nuclear_plants").every((layer) => layer.itemCount === null)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("après un échec sans cache, réessaie au bout de 10 min et non 24 h", async () => {

@@ -7,6 +7,8 @@ import { useIntelStore } from "@/store/useIntelStore";
 import { NATURE_LABELS, NATURE_TONE, THEME_COLORS, THEME_LABELS, isLive, itemTime, label } from "./feedModel";
 import { countryLabel, useCountryReference } from "./countryReference";
 import { formatDuration, trackPoints, vehicleFacts, vehicleHeading, vehicleOf } from "./vehicleModel";
+import { CoverageLine } from "@/components/coverage/CoverageLine";
+import { useSensorCoverage } from "@/components/coverage/useSensorCoverage";
 
 export const VEHICLE_LABELS = { aircraft: { fr: "Avion", en: "Aircraft" }, vessel: { fr: "Navire", en: "Vessel" }, merchant: { fr: "Navire civil", en: "Civilian vessel" } } as const;
 
@@ -68,6 +70,16 @@ function VehicleFacts({ item, locale, now }: { item: LiveItem; locale: Locale; n
       </dd>
     </dl>
   );
+}
+
+/** Couverture du capteur autour de la position du mobile (avion → ADS-B, navire → AIS). */
+function VehicleCoverage({ item, locale }: { item: LiveItem; locale: Locale }) {
+  const kind = vehicleOf(item);
+  const sensor = kind === "aircraft" ? "adsb" : kind ? "ais" : null;
+  const point = item.lat !== null && item.lon !== null ? { lat: item.lat, lon: item.lon } : null;
+  const coverage = useSensorCoverage(point, sensor !== null && point !== null);
+  if (!sensor || !point) return null;
+  return <CoverageLine sensor={sensor} zone coverage={coverage.data?.[sensor] ?? null} loading={coverage.status === "loading"} locale={locale} />;
 }
 
 /**
@@ -206,6 +218,7 @@ export function FeedItemDetail({ item, locale, now }: { item: LiveItem; locale: 
         <h2 className="text-[15px] font-light leading-snug text-[#eaf6ff]">{item.title}</h2>
         {item.summary ? <p className="mt-2 text-[12px] leading-relaxed text-[#b6d3e6]">{item.summary}</p> : null}
         <VehicleFacts item={item} locale={locale} now={now} />
+        <VehicleCoverage item={item} locale={locale} />
         {item.caveat ? <p className="feed-caveat mt-3 block">{item.caveat}</p> : null}
         <dl className="kv mt-3">
           <dt>{tr(locale, "Source", "Source")}</dt>

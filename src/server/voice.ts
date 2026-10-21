@@ -77,10 +77,13 @@ export async function synthesizeSpeech({
   text,
   voice,
   locale,
+  signal,
 }: {
   text: string;
   voice?: string;
   locale: "fr" | "en";
+  /** Annulation par le client : l'appel OpenAI est interrompu. */
+  signal?: AbortSignal;
 }): Promise<{ body: ReadableStream<Uint8Array>; contentType: string } | { error: SpeechFailure }> {
   const key = (process.env.OPENAI_API_KEY ?? "").trim();
   if (!key || process.env.AURA_TTS_DISABLED === "1") {
@@ -116,14 +119,16 @@ export async function synthesizeSpeech({
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(45_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000),
     });
   } catch {
     return { error: { code: "network", status: 502, message: "Service vocal OpenAI injoignable." } };
   }
 
   if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => "");
+    // Le détail d'OpenAI reste dans le journal serveur, jamais renvoyé au navigateur.
+    const detail = (await response.text().catch(() => "")).slice(0, 200);
+    console.warn("[voice] OpenAI", response.status, detail.replace(/\s+/g, " "));
     if (response.status === 401) {
       return { error: { code: "http_401", status: 502, message: "Clé OpenAI refusée pour la synthèse vocale." } };
     }
@@ -131,7 +136,7 @@ export async function synthesizeSpeech({
       return { error: { code: "http_429", status: 429, message: "Limite ou crédit OpenAI atteint pour la voix." } };
     }
     if (response.status === 400) {
-      return { error: { code: "http_400", status: 502, message: `Requête vocale refusée (vérifier AURA_TTS_MODEL / AURA_TTS_VOICE)${detail ? ` : ${detail.slice(0, 160)}` : "."}` } };
+      return { error: { code: "http_400", status: 502, message: "Requête vocale refusée (vérifier AURA_TTS_MODEL / AURA_TTS_VOICE)." } };
     }
     return { error: { code: `http_${response.status}`, status: 502, message: "Service vocal OpenAI indisponible." } };
   }

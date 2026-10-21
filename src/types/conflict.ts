@@ -129,6 +129,7 @@ export interface ConflictCluster {
   confidenceCounts: Partial<Record<Confidence, number>>;
   firstEventAt: string;
   lastEventAt: string;
+  /** Identifiants des événements ; échantillon d'au plus 24 dans la réponse de `/api/events`. */
   eventIds: string[];
   /**
    * Part (0..1) des événements issus de sources réelles. 0 = foyer entièrement

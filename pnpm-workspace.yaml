@@ -3,3 +3,10 @@ allowBuilds:
   sharp: true
 overrides:
   next>postcss: 8.5.30
+# Exceptions d'audit justifiées (outillage de compilation uniquement, aucun correctif publié
+# compatible avec tailwindcss 3) — à revoir lors de la migration tailwindcss 4.
+# Voir docs/durcissement/phase-1-node-ci.md.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm # braces (tailwindcss > chokidar) : motifs de glob = notre configuration
+    - GHSA-rj75-hqrm-r3gf # postcss-selector-parser (tailwindcss > postcss-nested) : notre propre CSS

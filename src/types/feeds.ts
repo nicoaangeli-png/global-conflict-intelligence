@@ -9,6 +9,7 @@
  *   publication officielle, article de presse, signalement publié (témoignage)… ;
  * - aucun champ n'est inventé : inconnu = `null`.
  */
+import type { SourceHealthStatus } from "./health";
 
 export const FEED_CATEGORIES = [
   "disaster", // catastrophes naturelles et climat (GDACS, USGS, EONET)
@@ -83,6 +84,16 @@ export interface FeedSourceState {
   itemCount: number;
   homepage: string;
   license: string | null;
+  /** Santé normalisée (registre commun, voir `@/types/health`). */
+  health?: SourceHealthStatus;
+  /** Dernière interrogation réussie (ISO). */
+  lastSuccessAt?: string | null;
+  /** Durée de la dernière tentative (ms). */
+  latencyMs?: number | null;
+  /** Date propre de la donnée la plus récente reçue (ISO). */
+  newestDataAt?: string | null;
+  /** Limite ou quota connu de la source. */
+  quota?: string | null;
 }
 
 export interface FeedsResponse {

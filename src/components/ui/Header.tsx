@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useIntelStore } from "@/store/useIntelStore";
 import { t, tr } from "@/lib/i18n";
 import { SourcesButton } from "@/components/feeds/SourcesPopover";
@@ -31,6 +31,7 @@ export function Header({
   settingsOpen,
   onSettings,
   onBriefing,
+  compact = false,
 }: {
   settingsOpen: boolean;
   onSettings: () => void;
@@ -39,12 +40,20 @@ export function Header({
    * n'est pas fourni, le bouton reste désactivé avec l'info-bulle « bientôt ».
    */
   onBriefing?: () => void;
+  compact?: boolean;
 }) {
   const streamStatus = useIntelStore((s) => s.streamStatus);
   const locale = useIntelStore((s) => s.locale);
   const setLocale = useIntelStore((s) => s.setLocale);
   const dict = t(locale).system;
+  const toolsRef = useRef<HTMLDetailsElement>(null);
+  const closeTools = () => { if (toolsRef.current) toolsRef.current.open = false; };
+  useEffect(() => { if (settingsOpen) closeTools(); }, [settingsOpen]);
   const streamTone = streamStatus === "open" ? "ok" : streamStatus === "connecting" ? "warn" : "error";
+  const secondary = <>
+    <SourcesButton />
+    <button type="button" className="header-button" disabled={!onBriefing} onClick={() => { closeTools(); onBriefing?.(); }}>🎙️ {dict.briefing}</button>
+  </>;
 
   return (
     <header className="app-header">
@@ -64,7 +73,7 @@ export function Header({
           <span className="status-dot" data-tone={streamTone} />
           {streamStatus === "open" ? dict.streamOpen : streamStatus === "connecting" ? dict.streamConnecting : dict.streamClosed}
         </span>
-        <SourcesButton />
+        {compact ? <details ref={toolsRef} className="mobile-tools"><summary aria-label={tr(locale, "Autres fonctions", "More tools")}>⋯</summary><div className="panel mobile-tools-content">{secondary}</div></details> : <><SourcesButton />
         {onBriefing ? (
           <button type="button" className="header-button" onClick={onBriefing}>
             🎙️ {dict.briefing}
@@ -79,7 +88,7 @@ export function Header({
               {dict.briefingSoon}
             </span>
           </span>
-        )}
+        )}</>}
         <button
           id="settings-trigger-button"
           type="button"
@@ -91,7 +100,7 @@ export function Header({
           onClick={onSettings}
           title={dict.settings}
         >
-          ⚙<span className="sr-only">{dict.settings}</span>
+          <span aria-hidden="true">⚙</span><span className={compact ? "settings-trigger-label" : "sr-only"}>{dict.settings}</span>
         </button>
         <div className="lang-switch" role="group" aria-label={tr(locale, "Langue", "Language")}>
           {(["fr", "en"] as const).map((l) => (

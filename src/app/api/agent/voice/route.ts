@@ -1,4 +1,8 @@
-import { checkOrbitalOrigin, jsonResponse } from "@/server/auraOrigin";
+import { checkAuraAccess } from "@/server/aura/access";
+import { admitVoiceRequest } from "@/server/aura/budget";
+import { clientKey } from "@/server/aura/clientIdentity";
+import { checkOrbitalOrigin, jsonResponse } from "@/server/aura/origin";
+import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
 import { defaultVoice, synthesizeSpeech, VOICE_OPTIONS, voiceConfigured, voiceLimits, voiceModel } from "@/server/voice";
 
 export const runtime = "nodejs";
@@ -10,36 +14,10 @@ export const dynamic = "force-dynamic";
  * GET  → configuration + liste des voix disponibles.
  * POST → { text, voice?, locale? } → audio/mpeg (une phrase ou deux par appel).
  *
- * Garde-fous : origine contrôlée, texte borné, débit limité par minute et
- * budget de caractères par jour (la voix consomme le crédit OpenAI).
+ * Mêmes garde-fous que l'analyse : origine, accès facultatif, corps borné,
+ * concurrence, débit par minute et budget journalier de caractères (la voix
+ * consomme le crédit OpenAI). Caractères rendus au budget si l'audio n'est pas produit.
  */
-
-type Budget = { day: string; chars: number; hits: number[] };
-
-const holder = globalThis as unknown as { __orbitalVoiceBudget?: Budget };
-const budget: Budget = (holder.__orbitalVoiceBudget ??= { day: "", chars: 0, hits: [] });
-
-function resetBudgetIfNeeded(today: string) {
-  if (budget.day !== today) {
-    budget.day = today;
-    budget.chars = 0;
-    budget.hits = [];
-  }
-}
-
-function pruneHits(hits: number[], now: number, windowMs: number) {
-  const threshold = now - windowMs;
-  let firstValid = 0;
-  while (firstValid < hits.length && hits[firstValid] < threshold) firstValid++;
-  if (firstValid > 0) hits.splice(0, firstValid);
-}
-
-function clientKey(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("cf-connecting-ip") || "local";
-}
-
-const clientHits = new Map<string, number[]>();
 
 export async function GET() {
   return jsonResponse(
@@ -54,23 +32,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const rejected = checkOrbitalOrigin(request);
+  const rejected = checkOrbitalOrigin(request) ?? checkAuraAccess(request);
   if (rejected) return rejected;
 
   const limits = voiceLimits();
-  const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-  if (contentType !== "application/json") {
-    return jsonResponse({ error: "Content-Type application/json requis" }, 415);
-  }
+  if (!isJsonContentType(request)) return jsonResponse({ error: "Content-Type application/json requis" }, 415);
 
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > limits.bodyBytes) {
-    return jsonResponse({ error: "corps trop volumineux" }, 413);
-  }
+  const body = await readBoundedText(request, limits.bodyBytes);
+  if (!body.ok) return jsonResponse({ error: body.error }, body.status);
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await request.text());
+    parsed = JSON.parse(body.text);
   } catch {
     return jsonResponse({ error: "JSON invalide" }, 400);
   }
@@ -84,47 +57,51 @@ export async function POST(request: Request) {
     return jsonResponse({ error: `texte trop long (max ${limits.maxChars} caractères)` }, 413);
   }
 
-  const now = Date.now();
-  const today = new Date(now).toISOString().slice(0, 10);
-  resetBudgetIfNeeded(today);
-
-  if (budget.chars + text.length > limits.maxCharsPerDay) {
-    return jsonResponse(
-      { error: "budget vocal journalier atteint : la voix du navigateur reste disponible", code: "daily_budget" },
-      429,
-    );
+  const admission = await admitVoiceRequest(clientKey(request), text.length, limits);
+  if (!admission.ok) {
+    const headers: Record<string, string> = admission.retryAfter ? { "Retry-After": String(admission.retryAfter) } : {};
+    return jsonResponse({ error: admission.error, code: admission.code }, admission.status, headers);
   }
 
-  pruneHits(budget.hits, now, 60_000);
-  if (budget.hits.length >= limits.perMinute) {
-    return jsonResponse({ error: "trop de segments vocaux par minute", code: "rate" }, 429, { "Retry-After": "5" });
+  let result: Awaited<ReturnType<typeof synthesizeSpeech>>;
+  try {
+    result = await synthesizeSpeech({
+      text,
+      voice: typeof voice === "string" ? voice : undefined,
+      locale: locale === "en" ? "en" : "fr",
+      signal: request.signal,
+    });
+  } catch {
+    result = { error: { code: "network", status: 502, message: "Service vocal OpenAI injoignable." } };
   }
-
-  const client = clientKey(request);
-  let bucket = clientHits.get(client);
-  if (!bucket) {
-    bucket = [];
-    clientHits.set(client, bucket);
-  }
-  pruneHits(bucket, now, 60_000);
-  if (bucket.length >= limits.perMinute) {
-    return jsonResponse({ error: "trop de segments vocaux par minute", code: "rate" }, 429, { "Retry-After": "5" });
-  }
-
-  const result = await synthesizeSpeech({
-    text,
-    voice: typeof voice === "string" ? voice : undefined,
-    locale: locale === "en" ? "en" : "fr",
-  });
   if ("error" in result) {
+    await admission.refund();
+    await admission.release();
     return jsonResponse({ error: result.error.message, code: result.error.code }, result.error.status);
   }
 
-  budget.chars += text.length;
-  budget.hits.push(now);
-  bucket.push(now);
+  // Le jeton de concurrence est rendu quand l'audio a fini de transiter (ou à l'annulation).
+  const reader = result.body.getReader();
+  const audio = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          await admission.release();
+        } else controller.enqueue(value);
+      } catch {
+        controller.error(new Error("flux vocal interrompu"));
+        await admission.release();
+      }
+    },
+    async cancel() {
+      await reader.cancel().catch(() => undefined);
+      await admission.release();
+    },
+  });
 
-  return new Response(result.body, {
+  return new Response(audio, {
     status: 200,
     headers: {
       "Content-Type": result.contentType,
