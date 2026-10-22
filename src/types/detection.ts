@@ -63,7 +63,7 @@ export interface ConfidenceBreakdown {
 
 export interface DetectionTimelineEntry {
   at: string;
-  type: "first_signal" | "evidence_added" | "evidence_updated" | "assessment_changed";
+  type: "first_signal" | "evidence_added" | "evidence_updated" | "evidence_removed" | "assessment_changed";
   signalId: string | null;
   confidenceScore: number;
   status: DetectionStatus;

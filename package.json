@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
-    "test:postgres": "vitest run tests/postgres-migrations.test.ts tests/detection-postgres.test.ts tests/detection-store-contract.test.ts tests/detection-migration-script.test.ts tests/detection-sqlite-migrations.test.ts tests/detection-backend.test.ts tests/detection-clustering-backends.test.ts",
+    "test:postgres": "vitest run tests/postgres-migrations.test.ts tests/detection-postgres.test.ts tests/detection-store-contract.test.ts tests/detection-migration-script.test.ts tests/detection-sqlite-migrations.test.ts tests/detection-backend.test.ts tests/detection-clustering-backends.test.ts tests/detection-revisions.test.ts tests/detection-postgres-deadlock.test.ts",
     "test:e2e": "playwright test",
     "test:mobile": "playwright test tests/mobile",
     "typecheck": "tsc --noEmit --incremental false",

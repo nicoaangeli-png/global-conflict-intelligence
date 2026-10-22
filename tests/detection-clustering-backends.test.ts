@@ -17,7 +17,7 @@ for (const backend of ["sqlite", "postgres"] as const) {
     async function setup() { context = backend === "sqlite" ? await sqliteContext() : await postgresContext(databaseUrl!); return context; }
     async function seed(signals: Signal[]) {
       const candidate = assess({ ...event("seed"), evidence: independence(signals.map((signal) => evidence(signal))) }, NOW);
-      await context.store.transaction(async (transaction) => { await transaction.lock([candidate.kind]); await transaction.put(candidate, matchingAnchor(candidate)); });
+      await context.store.transaction(async (transaction) => { await transaction.lock([candidate.kind]); await transaction.createEventExclusive(candidate, matchingAnchor(candidate)); });
       return candidate;
     }
     it("dix preuves et une preuve vieille de dix heures ne cachent pas le candidat", async () => {

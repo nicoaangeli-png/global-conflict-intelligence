@@ -13,9 +13,9 @@ import { MAX_CANDIDATES } from "./limits";
  *  - un verrou consultatif par catégorie de signal (`lock`), pris dans un ordre trié
  *    pour éviter les interblocages entre instances ;
  *  - les contraintes primaires de `detection_events` et `detection_signals` ;
- *  - des UPSERT idempotents ;
- *  - la garde `last_received` qui empêche un instantané ancien d'écraser une ingestion
- *    plus récente.
+ *  - des créations exclusives et des mises à jour qui n'insèrent jamais implicitement ;
+ *  - une comparaison du payload lu qui empêche un instantané ancien d'écraser ou de
+ *    ressusciter une ingestion révisée, y compris à `last_received` égal.
  *
  * Aucun verrou de table ni verrou global de base : les autres catégories et les autres
  * tables ORBITAL restent accessibles pendant une ingestion.
@@ -134,6 +134,18 @@ class PostgresDetectionTransaction implements DetectionTransaction {
   constructor(private client: PoolClient) {}
 
   /**
+   * Une révision doit découvrir son ancienne catégorie avant de prendre les verrous
+   * de catégorie. Le verrou par identifiant de signal sérialise cette découverte ;
+   * toutes les transactions prennent ensuite les catégories dans l'ordre trié.
+   */
+  async lockSignals(ids: readonly string[]) {
+    const unique = [...new Set(ids)].sort();
+    for (const id of unique) {
+      await this.client.query("SELECT pg_advisory_xact_lock(hashtext($1), 1)", [`orbital:detection:signal:${id}`]);
+    }
+  }
+
+  /**
    * Verrou transactionnel par catégorie, dans l'ordre lexicographique : toutes les
    * instances prennent les mêmes verrous dans le même ordre, donc pas de cycle.
    *
@@ -162,6 +174,11 @@ class PostgresDetectionTransaction implements DetectionTransaction {
     return row ? { event: row.payload, digest: String(row.digest) } : null;
   }
 
+  async eventById(id: string) {
+    const result = await this.client.query<{ payload: OrbitalEvent }>("SELECT payload FROM detection_events WHERE id = $1", [id]);
+    return result.rows[0]?.payload ?? null;
+  }
+
   async candidates(kind: SignalKind, time: number, window: number) {
     // Même stratégie que SQLite : les MAX_CANDIDATES plus proches avant et après,
     // puis tri exact par distance et identifiant. Une seule requête réseau.
@@ -187,22 +204,44 @@ class PostgresDetectionTransaction implements DetectionTransaction {
       .map((row) => row.payload);
   }
 
-  async put(event: OrbitalEvent, anchor: number) {
-    // La garde empêche un instantané calculé sur une version ancienne d'écraser une
-    // ingestion plus récente. À last_received égal, le dernier écrivain gagne : les
-    // deux états sont dérivés du même ensemble de preuves.
-    await this.client.query(
+  async createEventExclusive(event: OrbitalEvent, anchor: number) {
+    const result = await this.client.query(
       `INSERT INTO detection_events (id, kind, anchor, last_received, payload)
        VALUES ($1, $2, $3, $4::timestamptz, $5::jsonb)
-       ON CONFLICT (id) DO UPDATE SET
-         kind = EXCLUDED.kind,
-         anchor = EXCLUDED.anchor,
-         last_received = EXCLUDED.last_received,
-         payload = EXCLUDED.payload,
-         updated_at = now()
-       WHERE EXCLUDED.last_received >= detection_events.last_received`,
+       ON CONFLICT (id) DO NOTHING`,
       [event.id, event.kind, anchor, event.lastReceivedAt, JSON.stringify(event)],
     );
+    return result.rowCount === 1;
+  }
+
+  async updateEvent(event: OrbitalEvent, anchor: number) {
+    const result = await this.client.query(
+      `UPDATE detection_events
+          SET kind = $2, anchor = $3, last_received = $4::timestamptz,
+              payload = $5::jsonb, updated_at = now()
+        WHERE id = $1 AND last_received <= $4::timestamptz`,
+      [event.id, event.kind, anchor, event.lastReceivedAt, JSON.stringify(event)],
+    );
+    return result.rowCount === 1;
+  }
+
+  async updateEventIfExists(event: OrbitalEvent, anchor: number, expected: OrbitalEvent) {
+    const result = await this.client.query(
+      `UPDATE detection_events
+          SET kind = $2, anchor = $3, last_received = $4::timestamptz,
+              payload = $5::jsonb, updated_at = now()
+        WHERE id = $1 AND last_received = $6::timestamptz AND payload = $7::jsonb`,
+      [event.id, event.kind, anchor, event.lastReceivedAt, JSON.stringify(event), expected.lastReceivedAt, JSON.stringify(expected)],
+    );
+    return result.rowCount === 1;
+  }
+
+  async removeEvent(id: string) {
+    await this.client.query("DELETE FROM detection_events WHERE id = $1", [id]);
+  }
+
+  async forget(signalId: string) {
+    await this.client.query("DELETE FROM detection_signals WHERE id = $1", [signalId]);
   }
 
   async remember(signalId: string, eventId: string, digest: string) {
@@ -212,6 +251,11 @@ class PostgresDetectionTransaction implements DetectionTransaction {
        ON CONFLICT (id) DO UPDATE SET event_id = EXCLUDED.event_id, digest = EXCLUDED.digest`,
       [signalId, eventId, digest],
     );
+  }
+
+  async signalCountForEvent(eventId: string) {
+    const result = await this.client.query<{ count: string }>("SELECT COUNT(*) AS count FROM detection_signals WHERE event_id = $1", [eventId]);
+    return Number(result.rows[0]?.count ?? 0);
   }
 
   async recent(limit: number) {

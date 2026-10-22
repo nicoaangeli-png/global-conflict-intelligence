@@ -16,25 +16,26 @@ const url = process.env.ORBITAL_TEST_DATABASE_URL?.trim();
 
 const backends: Array<{ name: string; create: () => Promise<StoreContext> }> = [
   { name: "sqlite", create: sqliteContext },
-  ...(url ? [{ name: "postgres", create: () => postgresContext(url) }] : []),
+  { name: "postgres", create: () => postgresContext(url!) },
 ];
 
 for (const backend of backends) {
-  describe(`contrat DetectionStore — ${backend.name}`, () => {
+  describe.skipIf(backend.name === "postgres" && !url)(`contrat DetectionStore — ${backend.name}`, () => {
     let context: StoreContext;
 
     beforeEach(async () => { context = await backend.create(); });
     afterEach(async () => { await context.cleanup(); });
 
-    it("put, remember, bySignal, candidates, recent et purge", async () => {
+    it("création exclusive, mise à jour, remember, candidats, recent et purge", async () => {
       const store = context.store;
       const older = event("older", new Date(NOW - 40 * 60_000).toISOString());
       const nearest = event("nearest", new Date(NOW).toISOString());
       const newer = event("newer", new Date(NOW + 5 * 60_000).toISOString());
       await store.transaction(async (transaction) => {
-        await transaction.put(older, NOW - 40 * 60_000);
-        await transaction.put(nearest, NOW);
-        await transaction.put(newer, NOW + 5 * 60_000);
+        expect(await transaction.createEventExclusive(older, NOW - 40 * 60_000)).toBe(true);
+        expect(await transaction.createEventExclusive(nearest, NOW)).toBe(true);
+        expect(await transaction.createEventExclusive(newer, NOW + 5 * 60_000)).toBe(true);
+        expect(await transaction.createEventExclusive({ ...nearest, title: "collision" }, NOW)).toBe(false);
         await transaction.remember("signal-older", "older", "digest-older");
         await transaction.remember("signal-nearest", "nearest", "digest-nearest");
 
@@ -52,7 +53,7 @@ for (const backend of backends) {
     it("la purge supprime les signaux par cascade", async () => {
       const store = context.store;
       await store.transaction(async (transaction) => {
-        await transaction.put(event("old"), NOW - 8 * 86_400_000);
+        await transaction.createEventExclusive(event("old"), NOW - 8 * 86_400_000);
         await transaction.remember("old-signal", "old", "old-digest");
         await transaction.purge(NOW - RETENTION_MS);
         expect(await transaction.bySignal("old-signal")).toBeNull();
@@ -63,7 +64,7 @@ for (const backend of backends) {
     it("un rollback ne laisse ni événement ni signal", async () => {
       const store = context.store;
       await expect(store.transaction(async (transaction) => {
-        await transaction.put(event("rolled-back"), NOW);
+        await transaction.createEventExclusive(event("rolled-back"), NOW);
         await transaction.remember("rolled-back-signal", "rolled-back", "digest");
         throw new Error("rollback volontaire");
       })).rejects.toThrow("rollback volontaire");
@@ -73,10 +74,54 @@ for (const backend of backends) {
     it("une écriture plus ancienne n'écrase pas une écriture plus récente", async () => {
       const store = context.store;
       await store.transaction(async (transaction) => {
-        await transaction.put(event("guarded", new Date(NOW).toISOString(), "version récente"), NOW);
-        await transaction.put(event("guarded", new Date(NOW - 60_000).toISOString(), "version ancienne"), NOW);
+        await transaction.createEventExclusive(event("guarded", new Date(NOW).toISOString(), "version récente"), NOW);
+        expect(await transaction.updateEvent(event("guarded", new Date(NOW - 60_000).toISOString(), "version ancienne"), NOW)).toBe(false);
         const [current] = await transaction.recent(10);
         expect(current.title).toBe("version récente");
+      });
+    });
+
+    it("une mise à jour de snapshot ne crée jamais une ligne supprimée", async () => {
+      const store = context.store;
+      const original = event("snapshot-race", new Date(NOW).toISOString(), "version lue");
+      const assessed = { ...original, title: "version recalculée" };
+      await store.transaction(async (transaction) => {
+        expect(await transaction.createEventExclusive(original, NOW)).toBe(true);
+      });
+      await store.transaction((transaction) => transaction.removeEvent(original.id));
+      await store.transaction(async (transaction) => {
+        expect(await transaction.updateEventIfExists(assessed, NOW, original)).toBe(false);
+        expect(await transaction.eventById(original.id)).toBeNull();
+      });
+    });
+
+    it("une mise à jour de snapshot refuse un remplacement concurrent au même timestamp", async () => {
+      const store = context.store;
+      const original = event("snapshot-version", new Date(NOW).toISOString(), "version lue");
+      const replacement = event("snapshot-version", original.lastReceivedAt, "révision concurrente");
+      const assessed = { ...original, title: "snapshot périmé" };
+      await store.transaction(async (transaction) => {
+        expect(await transaction.createEventExclusive(original, NOW)).toBe(true);
+        expect(await transaction.updateEvent(replacement, NOW)).toBe(true);
+        expect(await transaction.updateEventIfExists(assessed, NOW, original)).toBe(false);
+        expect(await transaction.eventById(original.id)).toMatchObject({ title: "révision concurrente" });
+      });
+    });
+
+    it("removeEvent supprime exactement ses mappings par cascade", async () => {
+      const store = context.store;
+      await store.transaction(async (transaction) => {
+        expect(await transaction.createEventExclusive(event("cascade"), NOW)).toBe(true);
+        await transaction.remember("cascade-1", "cascade", "d1");
+        await transaction.remember("cascade-2", "cascade", "d2");
+        expect(await transaction.signalCountForEvent("cascade")).toBe(2);
+        await transaction.forget("cascade-2");
+        expect(await transaction.signalCountForEvent("cascade")).toBe(1);
+        expect(await transaction.bySignal("cascade-2")).toBeNull();
+        await transaction.removeEvent("cascade");
+        expect(await transaction.signalCountForEvent("cascade")).toBe(0);
+        expect(await transaction.bySignal("cascade-1")).toBeNull();
+        expect(await transaction.bySignal("cascade-2")).toBeNull();
       });
     });
 
@@ -160,7 +205,7 @@ for (const backend of backends) {
     it("purge et ingestion simultanées restent cohérentes", async () => {
       const secondStore = await context.reopen();
       await context.store.transaction(async (transaction) => {
-        await transaction.put(event("expired"), NOW - 8 * 86_400_000);
+        await transaction.createEventExclusive(event("expired"), NOW - 8 * 86_400_000);
         await transaction.remember("expired-signal", "expired", "digest");
       });
       const ingestEngine = new DetectionEngine(secondStore);

@@ -17,17 +17,26 @@ export const SQLITE_DETECTION_SCHEMA_VERSION = 1;
  * aller-retour réseau. Le moteur ne connaît que cette interface et ne duplique aucune
  * logique métier entre les deux implémentations.
  *
+ * La création exclusive, la mise à jour existante et la mise à jour optimiste d'un
+ * snapshot sont séparées : aucune collision ou course de suppression ne devient un UPSERT.
  * `lock` sérialise les écritures qui peuvent se disputer un même cluster. SQLite est
  * déjà sérialisé par `BEGIN IMMEDIATE` ; PostgreSQL prend un verrou consultatif par
  * catégorie de signal, dans un ordre global stable.
  */
 export interface DetectionTransaction {
   bySignal(id: string): Promise<{ event: OrbitalEvent; digest: string } | null>;
+  eventById(id: string): Promise<OrbitalEvent | null>;
   candidates(kind: SignalKind, time: number, window: number): Promise<OrbitalEvent[]>;
-  put(event: OrbitalEvent, anchor: number): Promise<void>;
+  createEventExclusive(event: OrbitalEvent, anchor: number): Promise<boolean>;
+  updateEvent(event: OrbitalEvent, anchor: number): Promise<boolean>;
+  updateEventIfExists(event: OrbitalEvent, anchor: number, expected: OrbitalEvent): Promise<boolean>;
+  removeEvent(id: string): Promise<void>;
+  forget(signalId: string): Promise<void>;
   remember(signalId: string, eventId: string, digest: string): Promise<void>;
+  signalCountForEvent(eventId: string): Promise<number>;
   recent(limit: number): Promise<OrbitalEvent[]>;
   purge(before: number): Promise<void>;
+  lockSignals(ids: readonly string[]): Promise<void>;
   lock(kinds: readonly SignalKind[]): Promise<void>;
 }
 
@@ -98,6 +107,9 @@ export class SqliteDetectionStore implements DetectionStore {
     database.exec("BEGIN IMMEDIATE");
     try {
       const transaction: DetectionTransaction = {
+        async lockSignals() {
+          // BEGIN IMMEDIATE sérialise déjà toutes les écritures du fichier.
+        },
         async lock() {
           // BEGIN IMMEDIATE a déjà le verrou d'écriture exclusif du fichier.
         },
@@ -107,6 +119,10 @@ export class SqliteDetectionStore implements DetectionStore {
             id,
           );
           return row ? { event: parse(row), digest: String(row.digest) } : null;
+        },
+        async eventById(id) {
+          const row = one<{ payload: string }>("SELECT payload FROM detection_events WHERE id = ?", id);
+          return row ? parse(row) : null;
         },
         async candidates(kind, time, window) {
           // Deux bornes indexées (avant/après) puis tri exact par distance : évite de
@@ -124,22 +140,42 @@ export class SqliteDetectionStore implements DetectionStore {
             .slice(0, MAX_CANDIDATES)
             .map(parse);
         },
-        async put(event, anchor) {
-          database.prepare(
-            `INSERT INTO detection_events (id, kind, anchor, last_received, payload) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-               kind = excluded.kind,
-               anchor = excluded.anchor,
-               last_received = excluded.last_received,
-               payload = excluded.payload
-             WHERE excluded.last_received >= detection_events.last_received`,
+        async createEventExclusive(event, anchor) {
+          const result = database.prepare(
+            "INSERT INTO detection_events (id, kind, anchor, last_received, payload) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
           ).run(event.id, event.kind, anchor, event.lastReceivedAt, JSON.stringify(event));
+          return result.changes === 1;
+        },
+        async updateEvent(event, anchor) {
+          const result = database.prepare(
+            `UPDATE detection_events
+                SET kind = ?, anchor = ?, last_received = ?, payload = ?
+              WHERE id = ? AND last_received <= ?`,
+          ).run(event.kind, anchor, event.lastReceivedAt, JSON.stringify(event), event.id, event.lastReceivedAt);
+          return result.changes === 1;
+        },
+        async updateEventIfExists(event, anchor, expected) {
+          const result = database.prepare(
+            `UPDATE detection_events
+                SET kind = ?, anchor = ?, last_received = ?, payload = ?
+              WHERE id = ? AND last_received = ? AND payload = ?`,
+          ).run(event.kind, anchor, event.lastReceivedAt, JSON.stringify(event), event.id, expected.lastReceivedAt, JSON.stringify(expected));
+          return result.changes === 1;
+        },
+        async removeEvent(id) {
+          database.prepare("DELETE FROM detection_events WHERE id = ?").run(id);
+        },
+        async forget(id) {
+          database.prepare("DELETE FROM detection_signals WHERE id = ?").run(id);
         },
         async remember(id, eventId, digest) {
           database.prepare(
             `INSERT INTO detection_signals (id, event_id, digest) VALUES (?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET event_id = excluded.event_id, digest = excluded.digest`,
           ).run(id, eventId, digest);
+        },
+        async signalCountForEvent(eventId) {
+          return Number(one<{ count: number }>("SELECT COUNT(*) AS count FROM detection_signals WHERE event_id = ?", eventId)?.count ?? 0);
         },
         async recent(limit) {
           return query<{ payload: string }>("SELECT payload FROM detection_events ORDER BY last_received DESC, id LIMIT ?", limit).map(parse);
