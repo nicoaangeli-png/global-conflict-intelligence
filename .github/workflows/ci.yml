@@ -163,7 +163,7 @@ jobs:
       - name: Installer les dépendances verrouillées
         run: pnpm install --frozen-lockfile
 
-      - name: Migrations, contrat SQLite/PostgreSQL et concurrence sur base réelle
+      - name: Migrations, détection et rate limiting AURA sur PostgreSQL réel
         run: pnpm test:postgres
         env:
           ORBITAL_TEST_DATABASE_URL: postgresql://orbital:orbital@localhost:5432/orbital_test

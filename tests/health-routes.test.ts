@@ -30,6 +30,6 @@ describe("routes de santé — lecture seule", () => {
     recordAttempt({ id: "feed:b", kind: "feed", name: "B", category: "health" }, { ok: false, startedAt: at, finishedAt: at, error: "x" });
     recordAttempt({ id: "feed:c", kind: "feed", name: "C", category: "health" }, { ok: false, startedAt: at, finishedAt: at, error: "y" });
     const body = await (await health()).json();
-    expect(body).toMatchObject({ status: "degraded", storage: { kind: "sqlite" }, aura: { configured: false, rateLimit: { store: "memory", distributed: false } } });
+    expect(body).toMatchObject({ status: "degraded", storage: { kind: "sqlite" }, aura: { configured: false, rateLimit: { backend: "memory", distributed: false, status: "healthy" } } });
   });
 });

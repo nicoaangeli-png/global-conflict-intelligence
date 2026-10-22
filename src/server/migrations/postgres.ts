@@ -83,6 +83,30 @@ CREATE TABLE IF NOT EXISTS detection_signals (
 CREATE INDEX IF NOT EXISTS detection_signals_event ON detection_signals (event_id);
 `;
 
+/**
+ * Compteurs et leases AURA. Seules des clés SHA-256 sont persistées : aucune IP,
+ * aucun prompt et aucun texte vocal ne figurent dans ces tables.
+ */
+export const AURA_RATE_LIMIT_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS aura_rate_limit_counters (
+  namespace  TEXT NOT NULL,
+  key_hash   TEXT NOT NULL,
+  value      BIGINT NOT NULL CHECK (value >= 0),
+  expires_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (namespace, key_hash)
+);
+CREATE INDEX IF NOT EXISTS aura_rate_limit_counters_expiry ON aura_rate_limit_counters (expires_at);
+CREATE TABLE IF NOT EXISTS aura_rate_limit_leases (
+  lease_id   TEXT PRIMARY KEY,
+  namespace  TEXT NOT NULL,
+  key_hash   TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS aura_rate_limit_leases_key ON aura_rate_limit_leases (namespace, key_hash, expires_at);
+CREATE INDEX IF NOT EXISTS aura_rate_limit_leases_expiry ON aura_rate_limit_leases (expires_at);
+`;
+
 export interface PostgresMigration {
   version: number;
   name: string;
@@ -110,6 +134,11 @@ CREATE INDEX IF NOT EXISTS conflict_events_country_iso3_idx ON conflict_events (
     version: 4,
     name: "moteur de détection : événements, signaux, candidats et rétention",
     sql: DETECTION_SCHEMA_SQL,
+  },
+  {
+    version: 5,
+    name: "limites et leases distribuées AURA",
+    sql: AURA_RATE_LIMIT_SCHEMA_SQL,
   },
 ];
 

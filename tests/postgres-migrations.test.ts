@@ -33,9 +33,9 @@ suite("migrations PostgreSQL (base réelle)", () => {
   it("base neuve : toutes les migrations, une fois ; démarrages simultanés sans double application", async () => {
     await reset();
     const reports = await Promise.all([migratePostgres(pool), migratePostgres(pool), migratePostgres(pool)]);
-    expect(reports.flatMap((report) => report.applied).sort()).toEqual([1, 2, 3, 4]);
+    expect(reports.flatMap((report) => report.applied).sort()).toEqual([1, 2, 3, 4, 5]);
     const rows = await pool.query("SELECT version FROM orbital_schema_migrations ORDER BY version");
-    expect(rows.rows.map((row) => row.version)).toEqual([1, 2, 3, 4]);
+    expect(rows.rows.map((row) => row.version)).toEqual([1, 2, 3, 4, 5]);
     expect(await migratePostgres(pool)).toEqual({ from: POSTGRES_SCHEMA_VERSION, to: POSTGRES_SCHEMA_VERSION, applied: [] });
   });
 
@@ -46,7 +46,7 @@ suite("migrations PostgreSQL (base réelle)", () => {
       `INSERT INTO conflict_events (id, source_dataset, latitude, longitude, country, event_type, confidence, event_date)
        VALUES ('ancien', 'ucdp', 1, 2, 'Sudan', 'Battles', 'VERIFIED', now() - interval '1 day')`,
     );
-    expect(await migratePostgres(pool)).toMatchObject({ from: 0, applied: [1, 2, 3, 4] });
+    expect(await migratePostgres(pool)).toMatchObject({ from: 0, applied: [1, 2, 3, 4, 5] });
     const repository = new PgRepository(url!);
     await repository.init();
     const events = await repository.query({ from: new Date(Date.now() - 7 * 86_400_000), to: new Date() });

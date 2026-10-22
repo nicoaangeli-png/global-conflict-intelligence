@@ -12,7 +12,8 @@ vi.mock("@/server/voice", () => ({
 }));
 
 import { POST } from "@/app/api/agent/voice/route";
-import { MemoryRateLimitStore, setRateLimitStore } from "@/server/aura/rateLimit";
+import { MemoryRateLimitStore, RateLimitBackendError, type RateLimitStore } from "@/server/aura/rateLimit";
+import { setRateLimitStore } from "@/server/aura/rateLimitStore";
 
 const headers = { Host: "localhost:3005", Origin: "http://localhost:3005", "Content-Type": "application/json", "X-Orbital-Client": "aura" };
 const speak = (text: string) => new Request("http://localhost:3005/api/agent/voice", { method: "POST", headers, body: JSON.stringify({ text }) });
@@ -33,6 +34,22 @@ describe("route vocale AURA — mêmes garde-fous que l'analyse", () => {
     const body = new ReadableStream<Uint8Array>({ pull: (controller) => (sent++ < 10 ? controller.enqueue(chunk) : controller.close()) });
     const response = await POST(new Request("http://localhost:3005/api/agent/voice", { method: "POST", headers, body, duplex: "half" } as RequestInit));
     expect(response.status).toBe(413);
+    expect(mocks.synthesizeSpeech).not.toHaveBeenCalled();
+  });
+
+  it("échoue fermé si le backend de quotas est indisponible", async () => {
+    const unavailable = new Proxy(new MemoryRateLimitStore(), {
+      get(target, property, receiver) {
+        if (property === "acquire") return async () => { throw new RateLimitBackendError("rate_limit_unavailable"); };
+        if (property === "kind") return "postgres";
+        if (property === "distributed") return true;
+        return Reflect.get(target, property, receiver);
+      },
+    }) as RateLimitStore;
+    setRateLimitStore(unavailable);
+    const response = await POST(speak("Texte de test assez long"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "protection de débit AURA temporairement indisponible", code: "rate_limit_unavailable" });
     expect(mocks.synthesizeSpeech).not.toHaveBeenCalled();
   });
 

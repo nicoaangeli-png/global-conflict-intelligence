@@ -43,14 +43,14 @@ suite("détection PostgreSQL (base réelle)", () => {
   it("schéma vierge : tables, index et version de migration", async () => {
     const schema = await createSchema(admin);
     const pool = await poolFor(schema);
-    expect(await migratePostgres(pool)).toMatchObject({ from: 0, to: POSTGRES_SCHEMA_VERSION, applied: [1, 2, 3, 4] });
+    expect(await migratePostgres(pool)).toMatchObject({ from: 0, to: POSTGRES_SCHEMA_VERSION, applied: [1, 2, 3, 4, 5] });
 
     const tables = await pool.query<{ table_name: string }>(
       "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name",
       [schema],
     );
     expect(tables.rows.map((row) => row.table_name)).toEqual([
-      "conflict_events", "detection_events", "detection_signals", "orbital_schema_migrations",
+      "aura_rate_limit_counters", "aura_rate_limit_leases", "conflict_events", "detection_events", "detection_signals", "orbital_schema_migrations",
     ]);
     const indexes = await pool.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE schemaname = $1", [schema]);
     const names = indexes.rows.map((row) => row.indexname);
@@ -69,7 +69,7 @@ suite("détection PostgreSQL (base réelle)", () => {
       `INSERT INTO conflict_events (id, source_dataset, latitude, longitude, country, event_type, confidence, event_date)
        VALUES ('conflit-ancien', 'ucdp', 15.5, 32.5, 'Sudan', 'Battles', 'VERIFIED', now() - interval '1 day')`,
     );
-    expect(await migratePostgres(pool)).toMatchObject({ from: 3, applied: [4] });
+    expect(await migratePostgres(pool)).toMatchObject({ from: 3, applied: [4, 5] });
     const conflict = await pool.query("SELECT country, event_type FROM conflict_events WHERE id = 'conflit-ancien'");
     expect(conflict.rows[0]).toMatchObject({ country: "Sudan", event_type: "Battles" });
     expect((await pool.query("SELECT to_regclass('detection_events') AS t")).rows[0].t).toBe("detection_events");
@@ -81,7 +81,7 @@ suite("détection PostgreSQL (base réelle)", () => {
     const second = await poolFor(schema);
     const third = await poolFor(schema);
     const reports = await Promise.all([migratePostgres(first), migratePostgres(second), migratePostgres(third)]);
-    expect(reports.flatMap((report) => report.applied)).toEqual([1, 2, 3, 4]);
+    expect(reports.flatMap((report) => report.applied)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("migration en échec : transaction intégralement annulée", async () => {
