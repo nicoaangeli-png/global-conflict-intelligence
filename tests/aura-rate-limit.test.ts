@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { admitAgentRequest } from "@/server/aura/budget";
+import { admitAgentRequest, admitVoiceRequest } from "@/server/aura/budget";
 import { MemoryRateLimitStore, utcDay } from "@/server/aura/rateLimit";
 import { rateLimitStore, resetRateLimitStore } from "@/server/aura/rateLimitStore";
 
@@ -100,7 +100,10 @@ describe("sélection explicite du backend", () => {
 });
 
 describe("finalisation conservatrice du budget tokens", () => {
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
 
   const limits = {
     maxConcurrent: 1,
@@ -145,5 +148,43 @@ describe("finalisation conservatrice du budget tokens", () => {
     await admitted.failedWithUnknownUsage();
     await admitted.completedWithUsage(0);
     expect(await store.peek(key, NOW)).toBe(5_000);
+  });
+
+  it("rapproche la journée d'admission après minuit UTC", async () => {
+    const beforeMidnight = Date.parse("2026-10-22T23:59:58Z");
+    const afterMidnight = Date.parse("2026-10-23T00:00:02Z");
+    vi.stubEnv("AURA_DAILY_TOKEN_BUDGET", "10000");
+    vi.stubEnv("AURA_MAX_TOKENS_PER_REQUEST", "5000");
+    vi.stubEnv("AURA_DUPLICATE_WINDOW_MS", "0");
+    const store = new MemoryRateLimitStore();
+    const admitted = await admitAgentRequest("client", "fingerprint", limits, store, beforeMidnight);
+    expect(admitted.ok).toBe(true);
+    if (!admitted.ok) throw new Error("admission attendue");
+    vi.useFakeTimers();
+    vi.setSystemTime(afterMidnight);
+    await admitted.completedWithUsage(1_200);
+    expect(await store.peek(`aura:tokens:${utcDay(beforeMidnight).day}`, beforeMidnight)).toBe(1_200);
+    expect(await store.peek(`aura:tokens:${utcDay(afterMidnight).day}`, afterMidnight)).toBe(0);
+  });
+});
+
+describe("remboursement TTS dans la journée d'admission", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("rembourse les caractères réservés même après minuit UTC", async () => {
+    const beforeMidnight = Date.parse("2026-10-22T23:59:58Z");
+    const afterMidnight = Date.parse("2026-10-23T00:00:02Z");
+    const store = new MemoryRateLimitStore();
+    const consume = vi.spyOn(store, "consume");
+    const admitted = await admitVoiceRequest("client", 80, { perMinute: 10, maxCharsPerDay: 100 }, store, beforeMidnight);
+    expect(admitted.ok).toBe(true);
+    if (!admitted.ok) throw new Error("admission attendue");
+    vi.useFakeTimers();
+    vi.setSystemTime(afterMidnight);
+    await admitted.refund();
+    await admitted.release();
+    expect(consume).toHaveBeenCalledWith(`voice:chars:${utcDay(beforeMidnight).day}`, -80, Infinity, 2_000, beforeMidnight);
+    expect(await store.peek(`voice:chars:${utcDay(beforeMidnight).day}`, beforeMidnight)).toBe(0);
+    expect(await store.peek(`voice:chars:${utcDay(afterMidnight).day}`, afterMidnight)).toBe(0);
   });
 });

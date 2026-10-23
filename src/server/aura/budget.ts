@@ -132,7 +132,7 @@ export async function admitAgentRequest(
           const actualTokens = Number.isFinite(usage.tokens) && usage.tokens >= 0 ? Math.ceil(usage.tokens) : tokens.perRequestTokens;
           const difference = actualTokens - tokens.perRequestTokens;
           if (difference !== 0) {
-            await quiet(async () => { await store.consume(`aura:tokens:${day}`, difference, Number.POSITIVE_INFINITY, remainingMs); });
+            await quiet(async () => { await store.consume(`aura:tokens:${day}`, difference, Number.POSITIVE_INFINITY, remainingMs, now); });
           }
         }
       } finally {
@@ -198,7 +198,7 @@ export async function admitVoiceRequest(
       const failed = checks[consumed.failedAt];
       return { ok: false, status: 429, code: failed.code, error: failed.error, retryAfter: retrySeconds(consumed.retryAfterMs || remainingMs) };
     }
-    const refund = once(() => quiet(async () => { await store.consume(`voice:chars:${day}`, -chars, Number.POSITIVE_INFINITY, remainingMs); }));
+    const refund = once(() => quiet(async () => { await store.consume(`voice:chars:${day}`, -chars, Number.POSITIVE_INFINITY, remainingMs, now); }));
     return { ok: true, release, refund };
   } catch (error) {
     await release();
