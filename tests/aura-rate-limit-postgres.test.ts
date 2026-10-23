@@ -18,6 +18,10 @@ describe.skipIf(!url)("PostgresRateLimitStore distribué", () => {
     await admin.query(`CREATE SCHEMA "${schema}"`);
     first = new PostgresRateLimitStore({ connectionString: url!, schema, max: 4 });
     second = new PostgresRateLimitStore({ connectionString: url!, schema, max: 4 });
+    await Promise.all([
+      first.peek("ready:first", NOW),
+      second.peek("ready:second", NOW),
+    ]);
   });
 
   afterEach(async () => {
