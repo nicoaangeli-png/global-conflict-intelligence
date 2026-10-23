@@ -226,10 +226,8 @@ async function* streamRound(body: ReadableStream<Uint8Array>, run: RunState, sig
       }
       break;
     } else if (event.type === "response.failed" || event.type === "error") {
-      const response = event.response as { error?: { code?: string } | null } | undefined;
-      const code = response?.error?.code ?? (typeof event.code === "string" ? event.code : "unknown");
       log("warn", "agent_stream_error", { subsystem: "aura", errorCode: "protocol" });
-      throw new AgentFailure(`upstream_${code}`, "upstream stream failed");
+      throw new AgentFailure("upstream_error", "upstream stream failed");
     }
   }
   if (!state.terminal) throw new AgentFailure("interrupted", "stream ended without terminal event");
@@ -325,7 +323,7 @@ function classifyFailure(error: unknown, deadlineHit: boolean, locale: AgentCont
     if (error.code === "interrupted" || error.code === "idle_timeout") {
       return { kind: "error", code: error.code, text: translate(locale, "Flux interrompu avant la fin : la réponse est incomplète et ne doit pas être considérée comme terminée.", "Stream interrupted before the end: the answer is incomplete.") };
     }
-    if (error.code.startsWith("upstream_") || error.code === "protocol") {
+    if (error.code === "upstream_error" || error.code === "protocol") {
       return { kind: "error", code: error.code, text: translate(locale, "L'analyse a échoué en cours de route.", "The analysis failed midway.") };
     }
     // Messages d'AgentFailure : textes rédigés ici (aucun détail interne ni secret).
@@ -355,7 +353,7 @@ export async function* runAgent(messages: AgentMessage[], context: AgentContext,
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     finalizeUsage({ kind: "known", tokens: 0 });
-    yield { t: "error", code: "not_configured", text: "Agente non configurée : OPENAI_API_KEY manquante dans .env.local." };
+    yield { t: "error", code: "not_configured", text: "Agente momentanément indisponible : configuration absente." };
     return;
   }
   const deadline = AbortSignal.timeout(agentLimits().deadlineMs);

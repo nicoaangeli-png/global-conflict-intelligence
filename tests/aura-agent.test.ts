@@ -116,6 +116,50 @@ describe("AURA — flux Responses et outils internes", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("échoue sans clé ni fuite de configuration ou de prompt", async () => {
+    script();
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const chunks = await collect();
+    expect(chunks.at(-1)).toMatchObject({ t: "error", code: "not_configured" });
+    expect(JSON.stringify(chunks)).not.toMatch(/OPENAI_API_KEY|\.env|Situation récente/);
+    expect(requests).toHaveLength(0);
+  });
+
+  it("classe fournisseur indisponible, rate limit et erreur réseau sans détail amont", async () => {
+    script({ status: 503, body: { error: { message: "secret fournisseur" } } });
+    const unavailable = await collect();
+    expect(unavailable.at(-1)).toMatchObject({ t: "error", code: "http_503" });
+    expect(JSON.stringify(unavailable)).not.toContain("secret fournisseur");
+
+    script({ status: 429, body: { error: { code: "rate_limit_exceeded", message: "secret fournisseur" } } });
+    const limited = await collect();
+    expect(limited.at(-1)).toMatchObject({ t: "error", code: "http_429" });
+    expect(JSON.stringify(limited)).not.toContain("secret fournisseur");
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNRESET /private/secret prompt brut"); }));
+    const network = await collect();
+    expect(network.at(-1)).toMatchObject({ t: "error", code: "network" });
+    expect(JSON.stringify(network)).not.toMatch(/ECONNRESET|private\/secret|prompt brut/);
+  });
+
+  it("borne les erreurs de protocole, réponses invalides, timeouts et annulation", async () => {
+    script([{ type: "response.failed", response: { error: { code: "SECRET_PROVIDER_INTERNAL" } } }]);
+    const failed = await collect();
+    expect(failed.at(-1)).toMatchObject({ t: "error", code: "upstream_error" });
+    expect(JSON.stringify(failed)).not.toContain("SECRET_PROVIDER_INTERNAL");
+
+    script([{ type: "response.completed", response: { id: "r", output: [] } }]);
+    expect((await collect()).at(-1)).toMatchObject({ t: "error", code: "empty_answer" });
+
+    vi.stubEnv("AURA_IDLE_MS", "500");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new ReadableStream(), { status: 200 })));
+    expect((await collect()).at(-1)).toMatchObject({ t: "error", code: "idle_timeout" });
+
+    const controller = new AbortController();
+    controller.abort();
+    expect(await collect({ signal: controller.signal })).toEqual([]);
+  });
+
   it("distingue usage final fiable et échec avant usage final", async () => {
     let finalUsage: unknown;
     script([completed("response_empty", [], 321)]);
