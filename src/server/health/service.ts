@@ -2,6 +2,7 @@ import "server-only";
 import { agentConfigured } from "@/server/agent";
 import { rateLimitStore } from "@/server/aura/rateLimitStore";
 import { healthInfo } from "@/server/intel";
+import { publicApiHealth } from "@/server/publicApi/limits";
 // Imports pour leurs effets : chaque famille déclare ses sources dans le registre.
 import "@/server/feeds";
 import "@/server/layers";
@@ -35,5 +36,6 @@ export function applicationHealth(now = Date.now()) {
     },
     sources: summary,
     aura: { configured: agentConfigured(), rateLimit },
+    publicApi: publicApiHealth(),
   } as const;
 }

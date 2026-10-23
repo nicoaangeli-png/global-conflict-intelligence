@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { queryClusters } from "@/server/intel";
 import { degreesFromSearchParams, filtersFromSearchParams } from "@/server/filters";
+import { guardPublicApi } from "@/server/publicApi/limits";
+import { validatePublicFilters } from "@/server/publicApi/parameters";
 
 /**
  * Identifiants d'événements envoyés par foyer : un échantillon suffit au client (il ne
@@ -29,6 +31,10 @@ function sampleEventIds(ids: string[], limit: number): string[] {
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  const invalid = validatePublicFilters(searchParams);
+  if (invalid) return invalid;
+  const limited = await guardPublicApi(request, "events");
+  if (limited) return limited;
   const filters = filtersFromSearchParams(searchParams);
   const degrees = degreesFromSearchParams(searchParams);
 

@@ -425,8 +425,13 @@ const SELECTION_CACHE_TTL_MS = 60_000;
 const SELECTION_CACHE_MAX = 8;
 const SELECTION_CACHE_MAX_EVENTS = 60_000;
 type SelectionResult = { events: ConflictEvent[]; thermal: ThermalSelection };
-const selectionRef = globalThis as unknown as { __orbitalSelectionCache?: Map<string, { at: number; version: number; result: SelectionResult }>; __orbitalStoreVersion?: number };
+const selectionRef = globalThis as unknown as {
+  __orbitalSelectionCache?: Map<string, { at: number; version: number; result: SelectionResult }>;
+  __orbitalSelectionInFlight?: Map<string, Promise<SelectionResult>>;
+  __orbitalStoreVersion?: number;
+};
 const selectionCache = (selectionRef.__orbitalSelectionCache ??= new Map());
+const selectionInFlight = (selectionRef.__orbitalSelectionInFlight ??= new Map());
 
 /** Signale une écriture dans la base : les sélections en cache sont périmées. */
 function bumpStoreVersion() {
@@ -441,7 +446,18 @@ async function selectEventsDetailed(filters: EventFilters, from: Date, to: Date)
   if (cached && cached.version === version && Date.now() - cached.at < SELECTION_CACHE_TTL_MS) {
     return { events: [...cached.result.events], thermal: cached.result.thermal };
   }
-  const result = await loadSelection(filters, from, to);
+  // Un cache expiré peut attirer simultanément plusieurs requêtes du globe :
+  // une seule lecture/agrégation par clé et version est alors nécessaire.
+  const flightKey = `${version}:${key}`;
+  let pending = selectionInFlight.get(flightKey);
+  if (!pending) {
+    pending = loadSelection(filters, from, to);
+    selectionInFlight.set(flightKey, pending);
+    void pending.finally(() => {
+      if (selectionInFlight.get(flightKey) === pending) selectionInFlight.delete(flightKey);
+    }).catch(() => undefined);
+  }
+  const result = await pending;
   if ((selectionRef.__orbitalStoreVersion ?? 0) === version) {
     selectionCache.set(key, { at: Date.now(), version, result });
     // Évince les plus anciennes entrées au-delà des bornes (une sélection peut peser plusieurs Mo).

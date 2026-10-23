@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { queryLatestEvents } from "@/server/intel";
 import { filtersFromSearchParams } from "@/server/filters";
+import { guardPublicApi } from "@/server/publicApi/limits";
+import { validatePublicFilters } from "@/server/publicApi/parameters";
 
 
 /**
@@ -9,6 +11,8 @@ import { filtersFromSearchParams } from "@/server/filters";
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  const invalid = validatePublicFilters(searchParams);
+  if (invalid) return invalid;
   const filters = filtersFromSearchParams(searchParams);
   const limit = Number(searchParams.get("limit") ?? 60);
   if (!Number.isInteger(limit) || limit < 1 || limit > 400) {
@@ -17,6 +21,8 @@ export async function GET(request: Request) {
       { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
+  const limited = await guardPublicApi(request, "latest");
+  if (limited) return limited;
   try {
     const events = await queryLatestEvents(filters, limit);
     return NextResponse.json(

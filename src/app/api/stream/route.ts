@@ -1,81 +1,93 @@
+import { clientKey } from "@/server/aura/clientIdentity";
+import { MINUTE_MS, minuteWindow } from "@/server/aura/rateLimit";
+import { rateLimitStore } from "@/server/aura/rateLimitStore";
 import { ensureReady, subscribe } from "@/server/intel";
+import { publicLimit, sseMetrics } from "@/server/publicApi/limits";
 
-const streamState = globalThis as unknown as { __orbitalStreamConnections?: number };
-const MAX_CONNECTIONS = 64;
+const HEARTBEAT_MS = 12_000;
+const MAX_LIFETIME_MS = 300_000;
+const LEASE_TTL_MS = MAX_LIFETIME_MS + 15_000;
 
-/**
- * GET /api/stream — flux temps réel (Server-Sent Events).
- *
- * Le serveur pousse uniquement des CHANGEMENTS : battement de cœur régulier,
- * et notification d'ingestion. Le client ne recharge jamais toute la base,
- * il réinterroge l'agrégat filtré à la demande.
- */
+function unavailable(status: 429 | 503, message: string) {
+  const metrics = sseMetrics();
+  metrics.__orbitalSseRejected = (metrics.__orbitalSseRejected ?? 0) + 1;
+  return Response.json({ error: message }, {
+    status, headers: { "Cache-Control": "no-store", "Retry-After": "10" },
+  });
+}
+
+/** Une lease globale et une lease client sont relâchées à toute fin de flux. */
 export async function GET(request: Request) {
   if (request.signal.aborted) return new Response(null, { status: 408 });
+  const store = rateLimitStore();
+  const held: string[] = [];
+  const release = async () => {
+    await Promise.allSettled(held.splice(0).map((id) => store.release(id)));
+  };
   try {
+    const now = Date.now();
+    const window = minuteWindow(now);
+    const identity = clientKey(request);
+    const burst = await store.consumeMany([
+      { key: `sse:reconnect:global:${window}`, cost: 1, limit: publicLimit("ORBITAL_SSE_GLOBAL_RECONNECTS_PER_MINUTE", 600), ttlMs: (window + 1) * MINUTE_MS - now },
+      ...(identity === "anonymous" ? [] : [{ key: `sse:reconnect:${identity}:${window}`, cost: 1, limit: publicLimit("ORBITAL_SSE_CLIENT_RECONNECTS_PER_MINUTE", 30), ttlMs: (window + 1) * MINUTE_MS - now }]),
+    ], now);
+    if (!burst.ok) return unavailable(429, "Reconnexions trop fréquentes.");
+    const global = await store.acquire("sse:active:global", publicLimit("ORBITAL_SSE_MAX_CONNECTIONS", 64), LEASE_TTL_MS);
+    if (!global) return unavailable(429, "Capacité du flux atteinte.");
+    held.push(global);
+    if (identity !== "anonymous") {
+      const client = await store.acquire(`sse:active:${identity}`, publicLimit("ORBITAL_SSE_MAX_PER_CLIENT", 3), LEASE_TTL_MS);
+      if (!client) { await release(); return unavailable(429, "Trop de flux pour ce client."); }
+      held.push(client);
+    }
+    if (request.signal.aborted) { await release(); return new Response(null, { status: 408 }); }
     await ensureReady();
+    if (request.signal.aborted) { await release(); return new Response(null, { status: 408 }); }
   } catch {
-    return Response.json({ error: "Flux temporairement indisponible." }, {
-      status: 503,
-      headers: { "Cache-Control": "no-store", "Retry-After": "10" },
-    });
+    await release();
+    return unavailable(503, "Flux temporairement indisponible.");
   }
-  if (request.signal.aborted) return new Response(null, { status: 408 });
-  if ((streamState.__orbitalStreamConnections ?? 0) >= MAX_CONNECTIONS) {
-    return Response.json({ error: "Capacité du flux atteinte." }, {
-      status: 503,
-      headers: { "Cache-Control": "no-store", "Retry-After": "10" },
-    });
-  }
-  streamState.__orbitalStreamConnections = (streamState.__orbitalStreamConnections ?? 0) + 1;
-  const encoder = new TextEncoder();
-  let cleanup = () => {};
 
+  const metrics = sseMetrics();
+  metrics.__orbitalSseActive = (metrics.__orbitalSseActive ?? 0) + 1;
+  const encoder = new TextEncoder();
+  let cleanup = async () => {};
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
       let unsubscribe = () => {};
       let heartbeat: ReturnType<typeof setInterval>;
       let lifetime: ReturnType<typeof setTimeout>;
-      cleanup = () => {
+      cleanup = async () => {
         if (closed) return;
         closed = true;
         clearInterval(heartbeat);
         clearTimeout(lifetime);
         unsubscribe();
-        request.signal.removeEventListener("abort", cleanup);
-        streamState.__orbitalStreamConnections = Math.max(0, (streamState.__orbitalStreamConnections ?? 1) - 1);
-        try {
-          controller.close();
-        } catch {}
+        request.signal.removeEventListener("abort", onAbort);
+        metrics.__orbitalSseActive = Math.max(0, (metrics.__orbitalSseActive ?? 1) - 1);
+        try { controller.close(); } catch { /* déjà annulé */ }
+        await release();
       };
+      const onAbort = () => { void cleanup(); };
       const send = (chunk: string) => {
         if (closed) return;
-        if ((controller.desiredSize ?? 0) < -16) {
-          cleanup();
-          return;
-        }
-        try {
-          controller.enqueue(encoder.encode(chunk));
-        } catch {
-          cleanup();
-        }
+        // Le flux ne garde jamais plus de quatre messages en attente ; le client
+        // lent se reconnectera et rechargera l'état courant plutôt que le backlog.
+        if (chunk.length > 32_768 || (controller.desiredSize ?? 0) <= 0) { void cleanup(); return; }
+        try { controller.enqueue(encoder.encode(chunk)); } catch { void cleanup(); }
       };
       unsubscribe = subscribe(send);
-      heartbeat = setInterval(() => {
-        send(`event: heartbeat\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
-      }, 12_000);
-      lifetime = setTimeout(() => cleanup(), 300_000);
-      request.signal.addEventListener("abort", cleanup, { once: true });
-      if (request.signal.aborted) {
-        cleanup();
-        return;
-      }
-      send(`retry: 4000\n\n`);
+      heartbeat = setInterval(() => send(`event: heartbeat\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`), HEARTBEAT_MS);
+      lifetime = setTimeout(() => { void cleanup(); }, MAX_LIFETIME_MS);
+      request.signal.addEventListener("abort", onAbort, { once: true });
+      if (request.signal.aborted) { void cleanup(); return; }
+      send("retry: 4000\n\n");
       send(`event: ready\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
     },
-    cancel() { cleanup(); },
-  });
+    cancel() { return cleanup(); },
+  }, { highWaterMark: 4, size: () => 1 });
 
   return new Response(stream, {
     headers: {
