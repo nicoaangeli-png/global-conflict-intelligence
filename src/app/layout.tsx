@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 
 // Icône inline (data:) : aucune ressource externe ni requête /favicon.ico en 404 (CSP stricte).
@@ -12,11 +13,13 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", interactiveWidget: "resizes-content", themeColor: "#010409" };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Les scripts inline de Next.js exigent un nonce propre à chaque réponse.
+  await headers();
   return (
     <html lang="fr" translate="no" className="dark bg-[#010409]">
       <body className="antialiased min-h-screen bg-[#010409] text-slate-100 overflow-hidden">

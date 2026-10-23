@@ -131,23 +131,43 @@ export function IntelApp() {
   useEffect(() => {
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
+    let stopped = false;
     const connect = () => {
+      if (stopped || document.hidden) return;
       setStreamStatus("connecting");
       source = new EventSource("/api/stream");
-      source.addEventListener("ready", () => setStreamStatus("open"));
-      source.addEventListener("heartbeat", () => setStreamStatus("open"));
+      source.addEventListener("ready", () => { failures = 0; setStreamStatus("open"); });
+      source.addEventListener("heartbeat", () => { failures = 0; setStreamStatus("open"); });
       source.addEventListener("ingest", () => {
+        failures = 0;
         setStreamStatus("open");
         void refresh();
       });
       source.onerror = () => {
         setStreamStatus("closed");
         source?.close();
-        retry = setTimeout(connect, 6000);
+        source = null;
+        if (stopped || document.hidden) return;
+        // Les refus 429/503 ne sont pas lisibles par EventSource : temporisation bornée.
+        const delay = Math.min(60_000, 6000 * 2 ** Math.min(failures++, 4));
+        retry = setTimeout(() => { retry = null; connect(); }, delay);
       };
     };
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (retry) clearTimeout(retry);
+        retry = null;
+        source?.close();
+        source = null;
+        setStreamStatus("closed");
+      } else if (!source && !retry) connect();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     connect();
     return () => {
+      stopped = true;
+      document.removeEventListener("visibilitychange", onVisibility);
       source?.close();
       if (retry) clearTimeout(retry);
     };

@@ -312,8 +312,8 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       if (!res.ok) throw new Error(res.status === 404 ? "service des calques absent (HTTP 404)" : `HTTP ${res.status}`);
       const items = parseLayerCatalog(await res.json());
       set({ layerCatalog: { status: "ready", items, error: null } });
-    } catch (err) {
-      set((s) => ({ layerCatalog: { ...s.layerCatalog, status: "error", error: err instanceof Error && err.message !== "Failed to fetch" ? err.message : "réseau indisponible" } }));
+    } catch {
+      set((s) => ({ layerCatalog: { ...s.layerCatalog, status: "error", error: "calques momentanément indisponibles" } }));
     }
   },
   toggleLayer: (id) => {
@@ -339,8 +339,8 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       const body: unknown = await res.json();
       if (!isLayerResponse(body, id)) throw new Error("réponse invalide");
       set((s) => ({ layers: { ...s.layers, [id]: { status: "ready", data: body, error: null, requestedAt } } }));
-    } catch (err) {
-      const error = err instanceof Error && err.message !== "Failed to fetch" ? err.message : "réseau indisponible";
+    } catch {
+      const error = "calque momentanément indisponible";
       set((s) => ({ layers: { ...s.layers, [id]: { status: "error", data: current?.data ?? null, error, requestedAt } } }));
     }
   },
@@ -473,7 +473,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       if (next) void get().loadClusterDetail(next);
     } catch (err) {
       if ((err as Error).name === "AbortError" || request !== refreshSequence) return;
-      set({ loading: false, error: err instanceof Error ? err.message : "erreur de chargement" });
+      set({ loading: false, error: "Données momentanément indisponibles. Réessayez." });
     }
   },
 
