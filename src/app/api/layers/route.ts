@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { isLayerId, listLayers, loadLayer } from "@/server/layers";
+import { guardPublicApi } from "@/server/publicApi/limits";
+import { validatePublicQuery } from "@/server/publicApi/parameters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +13,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
+  const invalid = validatePublicQuery(params);
+  if (invalid) return invalid;
   const id = params.get("id");
   const country = params.get("country");
   const headers = { "Cache-Control": "no-store" };
@@ -20,6 +24,8 @@ export async function GET(request: Request) {
   if (country !== null && (!id || !/^[A-Z]{3}$/.test(country))) {
     return NextResponse.json({ error: "country must be an ISO3 code, with id" }, { status: 400, headers });
   }
+  const limited = await guardPublicApi(request, "layers");
+  if (limited) return limited;
   try {
     if (!id) return NextResponse.json({ layers: await listLayers() }, { headers });
     const layer = await loadLayer(id);

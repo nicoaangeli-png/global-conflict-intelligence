@@ -1,16 +1,23 @@
 import { NextResponse } from "next/server";
 import { getCountryIndicators } from "@/server/countryIndicators";
 import { getCountryLeaders } from "@/server/leaders";
+import { guardPublicApi } from "@/server/publicApi/limits";
+import { validatePublicQuery } from "@/server/publicApi/parameters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const iso = new URL(request.url).searchParams.get("iso");
+  const params = new URL(request.url).searchParams;
+  const invalid = validatePublicQuery(params);
+  if (invalid) return invalid;
+  const iso = params.get("iso");
   const headers = { "Cache-Control": "no-store" };
   if (!iso || !/^[A-Z]{3}$/.test(iso)) {
     return NextResponse.json({ error: "iso must be an uppercase ISO alpha-3 code" }, { status: 400, headers });
   }
+  const limited = await guardPublicApi(request, "country");
+  if (limited) return limited;
   try {
     const [indicators, leaders] = await Promise.all([getCountryIndicators(iso), getCountryLeaders(iso)]);
     if (!indicators) {

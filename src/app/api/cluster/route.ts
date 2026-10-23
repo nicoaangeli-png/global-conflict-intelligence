@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { queryClusterEvents } from "@/server/intel";
 import { filtersFromSearchParams } from "@/server/filters";
 import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
+import { guardPublicApi } from "@/server/publicApi/limits";
+import { validatePublicFilters } from "@/server/publicApi/parameters";
 
 /** Bornes du corps : le détail d'un foyer tient en quelques centaines d'octets. */
 const CLUSTER_BODY_BYTES = 16 * 1024;
@@ -40,6 +42,8 @@ export async function POST(request: Request) {
   }
 
   const params = new URLSearchParams(body.filters ?? {});
+  const invalid = validatePublicFilters(params);
+  if (invalid) return invalid;
   const filters = filtersFromSearchParams(params);
   const rawDegrees = Number(body.degrees ?? 2.4);
   const degrees = Math.min(30, Math.max(0.25, rawDegrees));
@@ -53,6 +57,8 @@ export async function POST(request: Request) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 300) {
     return NextResponse.json({ error: "limite invalide" }, { status: 400 });
   }
+  const limited = await guardPublicApi(request, "cluster");
+  if (limited) return limited;
   const data = await queryClusterEvents(filters, degrees, lat, lon, limit, body.clusterId);
   return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
 }

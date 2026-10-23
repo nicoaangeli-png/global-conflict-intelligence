@@ -1,6 +1,7 @@
 import { getBriefing, regenerateBriefing } from "@/server/briefing";
 import { checkOrbitalOrigin, jsonResponse as json } from "@/server/aura/origin";
 import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
+import { guardPublicApi } from "@/server/publicApi/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,9 @@ export const maxDuration = 120;
  */
 
 /** Bilan du jour (UTC) : généré à la première demande, puis servi depuis le cache. */
-export async function GET() {
+export async function GET(request: Request) {
+  const limited = await guardPublicApi(request, "briefing");
+  if (limited) return limited;
   try {
     return json(await getBriefing(), 200);
   } catch {
@@ -31,6 +34,8 @@ export async function POST(request: Request) {
   // transmis par morceaux ne peut pas faire lire davantage que 1 Ko au serveur.
   const body = await readBoundedText(request, 1024);
   if (!body.ok) return json({ error: body.error }, body.status);
+  const limited = await guardPublicApi(request, "briefing-write");
+  if (limited) return limited;
   try {
     const result = await regenerateBriefing();
     if (!result.ok) return json({ error: "Régénération limitée à une fois toutes les 10 minutes." }, 429, { "Retry-After": String(result.retryAfterSec) });

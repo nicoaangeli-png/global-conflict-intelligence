@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { countryCoverageCells, coverageFor, type CoverageQuery } from "@/server/coverage";
 import { loadWorldIndex } from "@/server/world";
+import { guardPublicApi } from "@/server/publicApi/limits";
+import { validatePublicQuery } from "@/server/publicApi/parameters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +16,8 @@ const headers = { "Cache-Control": "no-store" };
  */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
+  const invalid = validatePublicQuery(params);
+  if (invalid) return invalid;
   const country = params.get("country")?.trim().toUpperCase() ?? "";
   const latRaw = params.get("lat");
   const lonRaw = params.get("lon");
@@ -27,8 +31,10 @@ export async function GET(request: NextRequest) {
     point = { lat, lon };
   }
   let query: CoverageQuery = point ? { kind: "point", ...point } : { kind: "global" };
+  if (country && !/^[A-Z]{3}$/.test(country)) return NextResponse.json({ error: "Code pays ISO alpha-3 attendu." }, { status: 400, headers });
+  const limited = await guardPublicApi(request, "coverage");
+  if (limited) return limited;
   if (country) {
-    if (!/^[A-Z]{3}$/.test(country)) return NextResponse.json({ error: "Code pays ISO alpha-3 attendu." }, { status: 400, headers });
     const cells = countryCoverageCells(await loadWorldIndex(), country);
     // Pays trop petit pour le fond de carte (Singapour…) : voisinage de son centre, si fourni.
     if (cells) query = { kind: "country", iso: country, cells };

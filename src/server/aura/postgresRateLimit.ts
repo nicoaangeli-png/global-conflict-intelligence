@@ -274,13 +274,13 @@ export class PostgresRateLimitStore implements RateLimitStore {
   private async sweep(now: number) {
     await this.pool.query(
       `DELETE FROM aura_rate_limit_counters WHERE ctid IN (
-         SELECT ctid FROM aura_rate_limit_counters WHERE expires_at <= $1 LIMIT 1000
+         SELECT ctid FROM aura_rate_limit_counters WHERE expires_at <= $1 LIMIT 1000 FOR UPDATE SKIP LOCKED
        )`,
       [asDate(now)],
     );
     await this.pool.query(
       `DELETE FROM aura_rate_limit_leases WHERE ctid IN (
-         SELECT ctid FROM aura_rate_limit_leases WHERE expires_at <= $1 LIMIT 1000
+         SELECT ctid FROM aura_rate_limit_leases WHERE expires_at <= $1 LIMIT 1000 FOR UPDATE SKIP LOCKED
        )`,
       [asDate(now)],
     );
