@@ -1,13 +1,18 @@
 # Déploiement d'ORBITAL sur un serveur Linux (systemd)
 
-ORBITAL s'exécute comme un processus Node persistant (`next start`) : les connecteurs
-interrogent leurs sources à intervalles réguliers et SQLite vit dans `data/`.
+ORBITAL s'exécute comme un processus Node persistant (`next start`). La cible
+officielle de production multi-instance est **PostgreSQL 17** pour les événements,
+la détection et les limites distribuées. SQLite reste pris en charge en local ou
+pour une installation mono-instance existante. Une installation SQLite avec des
+données ne doit jamais recevoir `DATABASE_URL` sans la reprise contrôlée décrite
+dans [la procédure SQLite → PostgreSQL](sqlite-to-postgres-production-migration.md).
 
 ## Prérequis serveur
 
 - Node.js LTS : **24** recommandé (`.nvmrc`), **22.13 ou plus** accepté
   (`node:sqlite` sans option expérimentale). Pas de version impaire (25…).
 - pnpm 11 ou plus récent.
+- PostgreSQL **17**, base et rôle ORBITAL dédiés, accès local et sauvegardes restaurables.
 - Un proxy HTTPS en frontal (Caddy, nginx) vers `127.0.0.1:<port>`.
 
 Unité systemd type :
@@ -27,10 +32,16 @@ RestartSec=5
 ## Ce qui ne doit jamais être écrasé
 
 - `.env.local` : secrets et réglages propres au serveur ;
-- `data/` : base SQLite (`intel-events.sqlite` + `-wal` + `-shm`), imports,
-  calques en cache, trajets des mobiles.
+- `data/` : bases SQLite historiques (`intel-events.sqlite`, `detection.sqlite`
+  et leurs WAL), imports, calques en cache, trajets des mobiles. Une bascule
+  PostgreSQL ne rend pas immédiatement ces fichiers supprimables : ils sont
+  nécessaires au rollback.
 
-## Procédure (sans coupure longue)
+## Remplacement de code sur une installation déjà configurée
+
+Les étapes ci-dessous ne migrent **aucune donnée**. Pour le premier passage de
+SQLite à PostgreSQL, utiliser d'abord la procédure dédiée liée ci-dessus ; elle
+impose un arrêt contrôlé, des snapshots finaux et une validation de contenu.
 
 1. **Sauvegarde** de l'installation courante, données comprises :
    `tar czf ~/orbital-backups/orbital-<date>.tar.gz --exclude=orbital/node_modules -C ~ orbital`
