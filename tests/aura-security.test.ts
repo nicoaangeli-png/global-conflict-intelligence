@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkAuraAccess } from "@/server/aura/access";
-import { admitAgentRequest, admitVoiceRequest, recordAgentTokens } from "@/server/aura/budget";
+import { admitAgentRequest, admitVoiceRequest } from "@/server/aura/budget";
 import { clientKey } from "@/server/aura/clientIdentity";
 import { allowedOrigins, checkOrbitalOrigin } from "@/server/aura/origin";
-import { MemoryRateLimitStore, setRateLimitStore } from "@/server/aura/rateLimit";
+import { MemoryRateLimitStore } from "@/server/aura/rateLimit";
+import { setRateLimitStore } from "@/server/aura/rateLimitStore";
 import { readBoundedText } from "@/server/aura/requestBody";
 import { cleanPlaceLabel, redactSecrets, safeHttpUrl } from "@/server/aura/sanitize";
 
@@ -115,8 +116,8 @@ describe("admission AURA — concurrence, débit, doublons, budget de tokens", (
     expect(first.ok).toBe(true);
     expect((await admitAgentRequest("ip:a", "q2", limits)).ok).toBe(false);
     if (first.ok) {
-      await first.release();
-      await first.release();
+      await first.completedWithUsage(100);
+      await first.completedWithUsage(100);
     }
     const second = await admitAgentRequest("ip:b", "q3", limits);
     const third = await admitAgentRequest("ip:c", "q4", limits);
@@ -127,21 +128,27 @@ describe("admission AURA — concurrence, débit, doublons, budget de tokens", (
   it("refuse une requête identique répétée et applique la limite par minute du client", async () => {
     const run = async (fingerprint: string) => {
       const admission = await admitAgentRequest("ip:a", fingerprint, limits);
-      if (admission.ok) await admission.release();
+      if (admission.ok) await admission.completedWithUsage(100);
       return admission;
     };
     expect((await run("même")).ok).toBe(true);
     expect(await run("même")).toMatchObject({ ok: false, code: "duplicate" });
     expect((await run("autre-1")).ok).toBe(true);
-    expect(await run("autre-2")).toMatchObject({ ok: false, code: "client_rate" });
+    expect((await run("autre-2")).ok).toBe(true);
+    expect(await run("autre-3")).toMatchObject({ ok: false, code: "client_rate" });
   });
 
   it("bloque toute nouvelle requête une fois le budget journalier de tokens consommé", async () => {
     vi.stubEnv("AURA_DAILY_TOKEN_BUDGET", "10000");
-    await recordAgentTokens(9_999);
-    expect((await admitAgentRequest("ip:a", "q", limits)).ok).toBe(true);
-    await recordAgentTokens(5);
-    expect(await admitAgentRequest("ip:b", "q", limits)).toMatchObject({ ok: false, code: "daily_token_budget" });
+    vi.stubEnv("AURA_MAX_TOKENS_PER_REQUEST", "5000");
+    for (const [client, fingerprint] of [["ip:a", "q1"], ["ip:b", "q2"]]) {
+      const admitted = await admitAgentRequest(client, fingerprint, limits);
+      expect(admitted.ok).toBe(true);
+      if (admitted.ok) {
+        await admitted.completedWithUsage(5_000);
+      }
+    }
+    expect(await admitAgentRequest("ip:c", "q3", limits)).toMatchObject({ ok: false, code: "daily_token_budget" });
   });
 
   it("voix : budget de caractères réservé puis rendu si l'audio n'est pas produit", async () => {

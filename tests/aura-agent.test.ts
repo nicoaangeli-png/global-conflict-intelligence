@@ -22,7 +22,7 @@ vi.mock("@/server/airspace", () => ({ getAirspaceActivity: vi.fn(async () => ({ 
 vi.mock("@/server/world", () => ({ loadWorldIndex: vi.fn(async () => null) }));
 vi.mock("@/server/feeds", () => ({ getFeeds: vi.fn() }));
 
-import { normalizeContext, runAgent } from "@/server/agent";
+import { normalizeContext, runAgent, type RunAgentOptions } from "@/server/agent";
 
 const encoder = new TextEncoder();
 let requests: Array<{ body: Record<string, unknown>; signal: AbortSignal }> = [];
@@ -43,8 +43,8 @@ function script(...next: Array<unknown[] | { status: number; body?: unknown }>) 
   requests = [];
 }
 
-function completed(id = "response_1", output: unknown[] = []) {
-  return { type: "response.completed", response: { id, output } };
+function completed(id = "response_1", output: unknown[] = [], tokens = 100) {
+  return { type: "response.completed", response: { id, output, usage: { total_tokens: tokens } } };
 }
 
 function delta(text: string) {
@@ -55,9 +55,9 @@ function functionCall(name: string, args: Record<string, unknown>, callId = "cal
   return { type: "response.output_item.done", output_index: 0, item: { type: "function_call", call_id: callId, name, arguments: JSON.stringify(args) } };
 }
 
-async function collect() {
+async function collect(options: RunAgentOptions = {}) {
   const chunks = [];
-  for await (const chunk of runAgent([{ role: "user", content: "Situation récente ?" }], { locale: "fr" })) chunks.push(chunk);
+  for await (const chunk of runAgent([{ role: "user", content: "Situation récente ?" }], { locale: "fr" }, options)) chunks.push(chunk);
   return chunks;
 }
 
@@ -114,6 +114,17 @@ describe("AURA — flux Responses et outils internes", () => {
     expect(chunks.at(-1)).toMatchObject({ t: "error", code: "quota_exhausted" });
     expect(JSON.stringify(chunks)).not.toContain("secret amont");
     expect(requests).toHaveLength(1);
+  });
+
+  it("distingue usage final fiable et échec avant usage final", async () => {
+    let finalUsage: unknown;
+    script([completed("response_empty", [], 321)]);
+    expect((await collect({ onUsageFinal: (usage) => { finalUsage = usage; } })).at(-1)).toMatchObject({ t: "error", code: "empty_answer" });
+    expect(finalUsage).toEqual({ kind: "known", tokens: 321 });
+
+    script([delta("partiel"), { type: "response.failed", response: { error: { code: "stream_failed" } } }]);
+    await collect({ onUsageFinal: (usage) => { finalUsage = usage; } });
+    expect(finalUsage).toEqual({ kind: "unknown" });
   });
 
   it("envoie le modèle, les bornes et les consignes de provenance", async () => {

@@ -1,6 +1,6 @@
 import "server-only";
 import { agentConfigured } from "@/server/agent";
-import { rateLimitStore } from "@/server/aura/rateLimit";
+import { rateLimitStore } from "@/server/aura/rateLimitStore";
 import { healthInfo } from "@/server/intel";
 // Imports pour leurs effets : chaque famille déclare ses sources dans le registre.
 import "@/server/feeds";
@@ -20,10 +20,11 @@ export function applicationHealth(now = Date.now()) {
   const attempted = sources.filter((source) => source.status !== "pending" && source.status !== "unconfigured");
   const failing = attempted.filter((source) => source.status === "unavailable" || source.status === "stale").length;
   const store = rateLimitStore();
+  const rateLimit = store.health();
   const intel = healthInfo();
   return {
     // Le processus répond : « ok ». Plus de la moitié des sources interrogées en échec : « degraded ».
-    status: (attempted.length && failing * 2 > attempted.length) || (intel.schema?.integrity && intel.schema.integrity !== "ok") ? "degraded" : "ok",
+    status: (attempted.length && failing * 2 > attempted.length) || (intel.schema?.integrity && intel.schema.integrity !== "ok") || rateLimit.status !== "healthy" ? "degraded" : "ok",
     generatedAt: new Date(now).toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
     storage: {
@@ -33,6 +34,6 @@ export function applicationHealth(now = Date.now()) {
       integrity: intel.schema?.integrity ?? null,
     },
     sources: summary,
-    aura: { configured: agentConfigured(), rateLimit: { store: store.kind, distributed: store.distributed } },
+    aura: { configured: agentConfigured(), rateLimit },
   } as const;
 }

@@ -1,6 +1,6 @@
-import { agentConfigured, agentLimits, normalizeContext, runAgent, type AgentMessage } from "@/server/agent";
+import { agentConfigured, agentLimits, normalizeContext, runAgent, type AgentMessage, type AgentUsageFinal } from "@/server/agent";
 import { checkAuraAccess } from "@/server/aura/access";
-import { admitAgentRequest, recordAgentTokens, requestFingerprint } from "@/server/aura/budget";
+import { admitAgentRequest, requestFingerprint } from "@/server/aura/budget";
 import { clientKey } from "@/server/aura/clientIdentity";
 import { checkOrbitalOrigin, jsonResponse as json } from "@/server/aura/origin";
 import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
@@ -93,13 +93,17 @@ export async function POST(request: Request) {
 
   const encoder = new TextEncoder();
   let finished = false;
+  let finalUsage: AgentUsageFinal = { kind: "unknown" };
+  const finalizeAdmission = () => finalUsage.kind === "known"
+    ? admission.completedWithUsage(finalUsage.tokens)
+    : admission.failedWithUnknownUsage();
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
         for await (const chunk of runAgent(cleanMessages, normContext, {
           signal: abort.signal,
-          onUsage: (tokens) => void recordAgentTokens(tokens),
+          onUsageFinal: (usage) => { finalUsage = usage; },
         })) {
           controller.enqueue(encoder.encode(`${JSON.stringify(chunk)}\n`));
           if (chunk.t === "done" || chunk.t === "incomplete" || chunk.t === "error") {
@@ -125,7 +129,7 @@ export async function POST(request: Request) {
         }
       } finally {
         request.signal.removeEventListener("abort", onClientGone);
-        await admission.release();
+        await finalizeAdmission();
         try {
           controller.close();
         } catch {
@@ -135,7 +139,7 @@ export async function POST(request: Request) {
     },
     async cancel() {
       abort.abort();
-      await admission.release();
+      await finalizeAdmission();
     },
   });
 

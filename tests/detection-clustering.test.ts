@@ -54,7 +54,7 @@ describe("clustering prudent et robuste", async () => {
   it("retrouve un cluster existant malgré son ancrage ancien", async () => {
     const event = await cluster([signal(0, -120), signal(1, -10), signal(2, -5)]);
     const { store, engine } = setup();
-    await store.transaction(async (transaction) => await transaction.put(event, NOW - 120 * 60_000));
+    await store.transaction(async (transaction) => { await transaction.createEventExclusive(event, NOW - 120 * 60_000); });
     await engine.ingest([signal(3)], NOW);
     expect((await engine.snapshot(NOW)).events).toHaveLength(1);
   });
@@ -211,7 +211,7 @@ describe("clustering prudent et robuste", async () => {
     const event = await cluster([signal(0)]);
     const { store } = setup();
     await store.transaction(async (transaction) => {
-      for (let index = 0; index < MAX_CANDIDATES * 4; index++) await transaction.put({ ...event, id: `candidate-${index}` }, NOW + (index - MAX_CANDIDATES * 2) * 1000);
+      for (let index = 0; index < MAX_CANDIDATES * 4; index++) await transaction.createEventExclusive({ ...event, id: `candidate-${index}` }, NOW + (index - MAX_CANDIDATES * 2) * 1000);
       const candidates = await transaction.candidates("explosion", NOW, CANDIDATE_WINDOW_MS);
       expect(candidates).toHaveLength(MAX_CANDIDATES);
       expect(candidates[0].id).toBe(`candidate-${MAX_CANDIDATES * 2}`);
@@ -224,8 +224,8 @@ describe("clustering prudent et robuste", async () => {
     const first = await cluster([signal(0)]);
     const { store, engine } = setup();
     await store.transaction(async (transaction) => {
-      await transaction.put(first, NOW);
-      await transaction.put({ ...first, id: "second-event" }, NOW);
+      await transaction.createEventExclusive(first, NOW);
+      await transaction.createEventExclusive({ ...first, id: "second-event" }, NOW);
     });
     await engine.ingest([signal(3)], NOW);
     const events = (await engine.snapshot(NOW)).events;

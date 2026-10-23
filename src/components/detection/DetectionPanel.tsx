@@ -109,7 +109,8 @@ function EventDetail({ event, locale, onFocus }: { event: OrbitalEvent; locale: 
   };
   const timelineLabels = {
     first_signal: tr(locale, "Premier signal", "First signal"), evidence_added: tr(locale, "Élément ajouté", "Evidence added"),
-    evidence_updated: tr(locale, "Élément actualisé", "Evidence updated"), assessment_changed: tr(locale, "Évaluation modifiée", "Assessment changed"),
+    evidence_updated: tr(locale, "Élément actualisé", "Evidence updated"), evidence_removed: tr(locale, "Élément détaché", "Evidence detached"),
+    assessment_changed: tr(locale, "Évaluation modifiée", "Assessment changed"),
   };
   return <article className="detection-event">
     <h3>{event.title}</h3>

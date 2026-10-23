@@ -12,8 +12,8 @@ navigateur ; les écritures coûteuses sont en plus protégées.
 
 | Route | Contrôles en place | Reste |
 |---|---|---|
-| `POST /api/agent` | origine stricte, jeton facultatif, `Content-Type`, corps borné, validation, budget requêtes/tokens, débit, concurrence, doublons | limitation en mémoire (1 processus) |
-| `POST /api/agent/voice` | mêmes contrôles + quota de caractères réservé/rendu | idem |
+| `POST /api/agent` | origine stricte, jeton facultatif, `Content-Type`, corps borné, validation, budget requêtes/tokens, débit, concurrence, doublons | PostgreSQL distribué en production avec `DATABASE_URL` |
+| `POST /api/agent/voice` | mêmes contrôles + quota de caractères réservé/rendu | mêmes compteurs et leases distribués |
 | `POST /api/briefing` | **origine stricte partagée avec AURA**, client `aura`, JSON, corps borné, cooldown 10 min | pas de budget OpenAI dédié (génération mise en cache) |
 | `GET /api/briefing` | lecture publique du bilan en cache ; génération au premier accès | un cache manquant déclenche une génération (coût borné par jour) |
 | `POST /api/cluster` | **JSON obligatoire, corps borné à 16 Ko**, validation des nombres | pas de limite par IP |
@@ -96,9 +96,8 @@ navigateur ; les écritures coûteuses sont en plus protégées.
   rendu React (pas de `dangerouslySetInnerHTML`) et l'assainissement d'AURA, mais une CSP
   à nonce serait plus forte.
 - **AURA sans jeton** reste ouverte à un script dans la limite des budgets ; c'est le
-  compromis d'un site public sans comptes. La limitation est **en mémoire, par
-  processus** : plusieurs instances exigent un `RateLimitStore` partagé (Redis/
-  PostgreSQL), comme décrit en phase 2.
+  compromis d'un site public sans comptes. Les limites sont partagées par PostgreSQL
+  en production ; le backend mémoire reste un choix mono-instance explicite.
 - **Pas de limitation par IP sur les lectures** (`events`, `stats`, `latest`, `cluster`).
   Le corps est borné, les filtres sont bornés et la sélection est mise en cache 60 s,
   mais un proxy/WAF doit fournir le débit global si le site devient réellement exposé.
@@ -146,7 +145,7 @@ Les sept phases sont terminées et documentées :
 2. Ajouter un lint ESLint explicite (règles ciblées) et le brancher à la CI.
 3. Extraire la sélection de `intel.ts` et ajouter des tests de charge (filtres, zooms,
    plusieurs clients SSE).
-4. Si plusieurs instances : `RateLimitStore` partagé + cache de sélection partagé ou
-   désactivé, et limite de débit au niveau du proxy.
+4. Si plusieurs instances : partager ou désactiver le cache de sélection et ajouter une
+   limite de débit au niveau du proxy ; `RateLimitStore` est déjà distribué.
 5. CSP à nonce et test de régression visuelle du globe.
 6. Exercice de restauration SQLite/PostgreSQL (sauvegarde → restauration → health).

@@ -41,7 +41,8 @@ type RunState = {
   functionCalls: number;
   /** Tokens OpenAI consommés par cette requête (entrée + sortie, tous tours confondus). */
   tokens: number;
-  onUsage?: (tokens: number) => void;
+  usageReports: number;
+  usageReliable: boolean;
 };
 
 function addProvenance(run: RunState, item: ProvenanceItem) {
@@ -211,10 +212,10 @@ async function* streamRound(body: ReadableStream<Uint8Array>, run: RunState, sig
         | undefined;
       state.responseId = response?.id;
       const used = response?.usage?.total_tokens;
-      if (typeof used === "number" && Number.isFinite(used) && used > 0) {
+      if (typeof used === "number" && Number.isFinite(used) && used >= 0) {
         run.tokens += used;
-        run.onUsage?.(used);
-      }
+        run.usageReports++;
+      } else run.usageReliable = false;
       for (const item of response?.output ?? []) addCall(readFunctionCall(item));
       if (event.type === "response.incomplete") {
         state.terminal = "incomplete";
@@ -333,32 +334,52 @@ function classifyFailure(error: unknown, deadlineHit: boolean, locale: AgentCont
   return { kind: "error", code: "network", text: translate(locale, "Service d'analyse indisponible.", "Analysis service unavailable.") };
 }
 
+export type AgentUsageFinal = { kind: "known"; tokens: number } | { kind: "unknown" };
+
 export type RunAgentOptions = {
-  /** Annule l'appel OpenAI (déconnexion du client) : plus aucun token consommé. */
+  /** Annule l'appel OpenAI ; l'usage reste inconnu sans événement final du fournisseur. */
   signal?: AbortSignal;
-  /** Appelé à chaque tour avec les tokens consommés (budget journalier). */
-  onUsage?: (tokens: number) => void;
+  /** Appelé une fois avec l'usage final fiable, ou explicitement avec un usage inconnu. */
+  onUsageFinal?: (usage: AgentUsageFinal) => void;
 };
 
 export async function* runAgent(messages: AgentMessage[], context: AgentContext, options: RunAgentOptions = {}): AsyncGenerator<AgentChunk> {
-  const { signal, onUsage } = options;
+  const { signal, onUsageFinal } = options;
+  let usageFinalized = false;
+  const finalizeUsage = (usage: AgentUsageFinal) => {
+    if (usageFinalized) return;
+    usageFinalized = true;
+    onUsageFinal?.(usage);
+  };
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
+    finalizeUsage({ kind: "known", tokens: 0 });
     yield { t: "error", code: "not_configured", text: "Agente non configurée : OPENAI_API_KEY manquante dans .env.local." };
     return;
   }
   const deadline = AbortSignal.timeout(agentLimits().deadlineMs);
   const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
-  const run: RunState = { emitted: 0, sources: new Map(), provenance: [], functionCalls: 0, tokens: 0, onUsage };
+  const run: RunState = { emitted: 0, sources: new Map(), provenance: [], functionCalls: 0, tokens: 0, usageReports: 0, usageReliable: true };
 
   let outcome: Outcome;
+  let failedWithUnknownUsage = false;
   try {
     outcome = yield* orchestrate(messages, context, key, combined, run);
   } catch (error) {
-    if (signal?.aborted) return;
+    failedWithUnknownUsage = true;
+    if (signal?.aborted) {
+      finalizeUsage({ kind: "unknown" });
+      return;
+    }
     outcome = classifyFailure(error, deadline.aborted, context.locale);
   }
-  if (signal?.aborted) return;
+  if (signal?.aborted) {
+    finalizeUsage({ kind: "unknown" });
+    return;
+  }
+
+  if (failedWithUnknownUsage || !run.usageReliable || run.usageReports === 0) finalizeUsage({ kind: "unknown" });
+  else finalizeUsage({ kind: "known", tokens: run.tokens });
 
   if (run.sources.size) yield { t: "sources", items: [...run.sources.entries()].slice(0, MAX_SOURCES).map(([url, title]) => ({ url, title })) };
   if (run.provenance.length) yield { t: "provenance", items: run.provenance };

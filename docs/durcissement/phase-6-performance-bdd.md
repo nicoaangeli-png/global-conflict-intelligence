@@ -107,7 +107,8 @@ l'arrêt brutal, puis mesures avant optimisation (API, cache, bundle, calques).
   d'identifiants ne représentait que ~16 % de la réponse sur ce jeu.
 - Le cache de sélection est **par processus** (60 s) : plusieurs instances ne le partagent
   pas. Ce n'est pas un cache distribué, seulement une économie de décodage locale.
-- La limitation de débit d'AURA reste en mémoire (non distribuée) : documentée en phase 2.
+- La limitation de débit d'AURA utilise PostgreSQL en mode distribué ; la mémoire reste
+  disponible uniquement comme backend mono-instance explicite.
 - Pas de linter reproductible : le script `pnpm lint` (déprécié, échouait) a été retiré.
   `typecheck` + tests + build + audit couvrent la CI ; un lint pourra être ajouté avec une
   configuration explicite.

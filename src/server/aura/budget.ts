@@ -1,19 +1,16 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { MINUTE_MS, minuteWindow, rateLimitStore, utcDay, type RateLimitStore } from "./rateLimit";
-
-/**
- * Admission des requêtes payantes d'AURA (analyse OpenAI et voix), séparée du
- * contrôle d'origine et de l'authentification.
- *
- * Analyse : budget journalier de requêtes et de tokens, concurrence globale et par
- * client, débit par minute global et par client, refus des doublons rapprochés.
- * Voix : budget journalier de caractères, concurrence et débit par minute.
- * Les compteurs vivent dans le `RateLimitStore` (mémoire par défaut, non distribué).
- */
+import { MINUTE_MS, RateLimitBackendError, minuteWindow, utcDay, type Consumption, type RateLimitStore } from "./rateLimit";
+import { rateLimitStore } from "./rateLimitStore";
 
 export type Rejection = { ok: false; status: 429 | 503; code: string; error: string; retryAfter?: number };
-export type Admission = { ok: true; release: () => Promise<void> } | Rejection;
+export type Admission = {
+  ok: true;
+  /** Rapproche une seule fois la réservation avec un usage OpenAI final fiable. */
+  completedWithUsage: (actualTokens: number) => Promise<void>;
+  /** Conserve la réservation quand OpenAI n'a pas fourni d'usage final fiable. */
+  failedWithUnknownUsage: () => Promise<void>;
+} | Rejection;
 
 function bounded(name: string, fallback: number, min: number, max: number) {
   const parsed = Number(process.env[name]);
@@ -26,9 +23,9 @@ export type AgentAdmissionLimits = {
   perClientPerMinute: number;
   globalPerMinute: number;
   dailyRequests: number;
+  deadlineMs?: number;
 };
 
-/** Budgets de tokens OpenAI (entrée + sortie, d'après `usage` des réponses). */
 export function tokenLimits() {
   return {
     dailyTokens: bounded("AURA_DAILY_TOKEN_BUDGET", 2_000_000, 10_000, 100_000_000),
@@ -38,13 +35,14 @@ export function tokenLimits() {
 }
 
 const retrySeconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
+const agentLeaseTtl = (limits: AgentAdmissionLimits) => Math.max(30_000, (limits.deadlineMs ?? 90_000) + 30_000);
+const voiceLeaseTtl = () => bounded("AURA_TTS_LEASE_TTL_MS", 90_000, 50_000, 600_000);
 
-/** Empreinte d'une requête (pour refuser un envoi identique répété). */
+/** Empreinte SHA-256 tronquée ; le prompt n'est jamais confié au store. */
 export function requestFingerprint(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("base64url").slice(0, 22);
 }
 
-/** Libère une seule fois, quel que soit le nombre d'appels (fin du flux + annulation). */
 function once(work: () => Promise<void>): () => Promise<void> {
   let done = false;
   return async () => {
@@ -54,69 +52,102 @@ function once(work: () => Promise<void>): () => Promise<void> {
   };
 }
 
+function backendFailure(error: unknown): Rejection {
+  const configuration = error instanceof RateLimitBackendError && error.code === "rate_limit_config";
+  console.warn(`[aura] rate-limit ${configuration ? "configuration incorrecte" : "indisponible"}`);
+  return {
+    ok: false,
+    status: 503,
+    code: configuration ? "rate_limit_config" : "rate_limit_unavailable",
+    error: configuration
+      ? "protection de débit AURA mal configurée"
+      : "protection de débit AURA temporairement indisponible",
+    retryAfter: configuration ? undefined : 5,
+  };
+}
+
+async function quiet(work: () => Promise<void>) {
+  try {
+    await work();
+  } catch {
+    console.warn("[aura] libération du budget différée jusqu'à expiration de la lease");
+  }
+}
+
 export async function admitAgentRequest(
   client: string,
   fingerprint: string,
   limits: AgentAdmissionLimits,
-  store: RateLimitStore = rateLimitStore(),
+  providedStore?: RateLimitStore,
   now = Date.now(),
 ): Promise<Admission> {
+  const store = providedStore ?? rateLimitStore();
   const { day, remainingMs } = utcDay(now);
   const tokens = tokenLimits();
+  const leaseTtl = agentLeaseTtl(limits);
+  let globalLease: string | null = null;
+  let clientLease: string | null = null;
 
-  if ((await store.peek(`aura:tokens:${day}`, now)) >= tokens.dailyTokens) {
-    return { ok: false, status: 429, code: "daily_token_budget", error: "budget journalier de tokens AURA épuisé", retryAfter: retrySeconds(remainingMs) };
-  }
-  if ((await store.peek(`aura:requests:${day}`, now)) >= limits.dailyRequests) {
-    return { ok: false, status: 429, code: "daily_quota", error: "quota journalier AURA épuisé", retryAfter: retrySeconds(remainingMs) };
-  }
-
-  if (!(await store.acquire("aura:inflight", limits.maxConcurrent))) {
-    return { ok: false, status: 503, code: "saturated", error: "service d'analyse saturé, réessayez dans quelques instants", retryAfter: 2 };
-  }
-  if (!(await store.acquire(`aura:inflight:${client}`, limits.perClientConcurrent))) {
-    await store.release("aura:inflight");
-    return { ok: false, status: 429, code: "client_concurrency", error: "une seule requête concurrente par client", retryAfter: 1 };
-  }
-  const release = once(async () => {
-    await store.release(`aura:inflight:${client}`);
-    await store.release("aura:inflight");
+  const releaseLeases = once(async () => {
+    if (clientLease) await quiet(() => store.release(clientLease!));
+    if (globalLease) await quiet(() => store.release(globalLease!));
   });
 
-  const minute = minuteWindow(now);
-  const checks: [string, number, string, string][] = [
-    [`aura:minute:${minute}`, limits.globalPerMinute, "global_rate", "limite globale par minute atteinte"],
-    [`aura:minute:${minute}:${client}`, limits.perClientPerMinute, "client_rate", "limite de requêtes par minute atteinte"],
-  ];
-  for (const [key, limit, code, error] of checks) {
-    const result = await store.consume(key, 1, limit, MINUTE_MS, now);
-    if (!result.ok) {
-      await release();
-      return { ok: false, status: 429, code, error, retryAfter: retrySeconds(result.retryAfterMs) };
+  try {
+    globalLease = await store.acquire("aura:inflight", limits.maxConcurrent, leaseTtl, now);
+    if (!globalLease) {
+      return { ok: false, status: 503, code: "saturated", error: "service d'analyse saturé, réessayez dans quelques instants", retryAfter: 2 };
     }
-  }
-
-  if (tokens.duplicateWindowMs > 0) {
-    const duplicate = await store.consume(`aura:dup:${client}:${fingerprint}`, 1, 1, tokens.duplicateWindowMs, now);
-    if (!duplicate.ok) {
-      await release();
-      return { ok: false, status: 429, code: "duplicate", error: "requête identique déjà reçue, patientez avant de la renvoyer", retryAfter: retrySeconds(duplicate.retryAfterMs) };
+    clientLease = await store.acquire(`aura:inflight:${client}`, limits.perClientConcurrent, leaseTtl, now);
+    if (!clientLease) {
+      await releaseLeases();
+      return { ok: false, status: 429, code: "client_concurrency", error: "une seule requête concurrente par client", retryAfter: 1 };
     }
-  }
 
-  const daily = await store.consume(`aura:requests:${day}`, 1, limits.dailyRequests, remainingMs, now);
-  if (!daily.ok) {
-    await release();
-    return { ok: false, status: 429, code: "daily_quota", error: "quota journalier AURA épuisé", retryAfter: retrySeconds(remainingMs) };
-  }
-  return { ok: true, release };
-}
+    const minute = minuteWindow(now);
+    const checks: Array<Consumption & { code: string; error: string }> = [
+      { key: `aura:minute:${minute}`, cost: 1, limit: limits.globalPerMinute, ttlMs: MINUTE_MS, code: "global_rate", error: "limite globale par minute atteinte" },
+      { key: `aura:minute:${minute}:${client}`, cost: 1, limit: limits.perClientPerMinute, ttlMs: MINUTE_MS, code: "client_rate", error: "limite de requêtes par minute atteinte" },
+    ];
+    if (tokens.duplicateWindowMs > 0) {
+      checks.push({ key: `aura:dup:${client}:${fingerprint}`, cost: 1, limit: 1, ttlMs: tokens.duplicateWindowMs, code: "duplicate", error: "requête identique déjà reçue, patientez avant de la renvoyer" });
+    }
+    checks.push(
+      { key: `aura:requests:${day}`, cost: 1, limit: limits.dailyRequests, ttlMs: remainingMs, code: "daily_quota", error: "quota journalier AURA épuisé" },
+      { key: `aura:tokens:${day}`, cost: tokens.perRequestTokens, limit: tokens.dailyTokens, ttlMs: remainingMs, code: "daily_token_budget", error: "budget journalier de tokens AURA épuisé" },
+    );
+    const consumed = await store.consumeMany(checks, now);
+    if (!consumed.ok) {
+      await releaseLeases();
+      const failed = checks[consumed.failedAt];
+      return { ok: false, status: 429, code: failed.code, error: failed.error, retryAfter: retrySeconds(consumed.retryAfterMs || remainingMs) };
+    }
 
-/** Enregistre les tokens consommés (cumul journalier, partagé par toutes les requêtes). */
-export async function recordAgentTokens(tokens: number, store: RateLimitStore = rateLimitStore(), now = Date.now()) {
-  if (!Number.isFinite(tokens) || tokens <= 0) return;
-  const { day, remainingMs } = utcDay(now);
-  await store.consume(`aura:tokens:${day}`, Math.ceil(tokens), Number.POSITIVE_INFINITY, remainingMs, now);
+    let finalized = false;
+    const finalize = async (usage: { kind: "known"; tokens: number } | { kind: "unknown" }) => {
+      if (finalized) return;
+      finalized = true;
+      try {
+        if (usage.kind === "known") {
+          const actualTokens = Number.isFinite(usage.tokens) && usage.tokens >= 0 ? Math.ceil(usage.tokens) : tokens.perRequestTokens;
+          const difference = actualTokens - tokens.perRequestTokens;
+          if (difference !== 0) {
+            await quiet(async () => { await store.consume(`aura:tokens:${day}`, difference, Number.POSITIVE_INFINITY, remainingMs, now); });
+          }
+        }
+      } finally {
+        await releaseLeases();
+      }
+    };
+    return {
+      ok: true,
+      completedWithUsage: (actualTokens) => finalize({ kind: "known", tokens: actualTokens }),
+      failedWithUnknownUsage: () => finalize({ kind: "unknown" }),
+    };
+  } catch (error) {
+    await releaseLeases();
+    return backendFailure(error);
+  }
 }
 
 export type VoiceAdmissionLimits = { perMinute: number; maxCharsPerDay: number };
@@ -128,49 +159,49 @@ export function voiceConcurrency() {
   };
 }
 
-/**
- * Admission d'un segment vocal. Les caractères sont réservés à l'admission ;
- * `refund` les rend si OpenAI n'a pas produit l'audio (aucun coût engagé).
- */
 export async function admitVoiceRequest(
   client: string,
   chars: number,
   limits: VoiceAdmissionLimits,
-  store: RateLimitStore = rateLimitStore(),
+  providedStore?: RateLimitStore,
   now = Date.now(),
-): Promise<(Admission & { ok: true; refund: () => Promise<void> }) | Rejection> {
+): Promise<{ ok: true; release: () => Promise<void>; refund: () => Promise<void> } | Rejection> {
+  const store = providedStore ?? rateLimitStore();
   const { day, remainingMs } = utcDay(now);
   const concurrency = voiceConcurrency();
-
-  if (!(await store.acquire("voice:inflight", concurrency.maxConcurrent))) {
-    return { ok: false, status: 503, code: "saturated", error: "synthèse vocale saturée", retryAfter: 2 };
-  }
-  if (!(await store.acquire(`voice:inflight:${client}`, concurrency.perClientConcurrent))) {
-    await store.release("voice:inflight");
-    return { ok: false, status: 429, code: "client_concurrency", error: "trop de segments vocaux simultanés", retryAfter: 1 };
-  }
+  const leaseTtl = voiceLeaseTtl();
+  let globalLease: string | null = null;
+  let clientLease: string | null = null;
   const release = once(async () => {
-    await store.release(`voice:inflight:${client}`);
-    await store.release("voice:inflight");
+    if (clientLease) await quiet(() => store.release(clientLease!));
+    if (globalLease) await quiet(() => store.release(globalLease!));
   });
 
-  const minute = minuteWindow(now);
-  for (const key of [`voice:minute:${minute}`, `voice:minute:${minute}:${client}`]) {
-    const result = await store.consume(key, 1, limits.perMinute, MINUTE_MS, now);
-    if (!result.ok) {
+  try {
+    globalLease = await store.acquire("voice:inflight", concurrency.maxConcurrent, leaseTtl, now);
+    if (!globalLease) return { ok: false, status: 503, code: "saturated", error: "synthèse vocale saturée", retryAfter: 2 };
+    clientLease = await store.acquire(`voice:inflight:${client}`, concurrency.perClientConcurrent, leaseTtl, now);
+    if (!clientLease) {
       await release();
-      return { ok: false, status: 429, code: "rate", error: "trop de segments vocaux par minute", retryAfter: retrySeconds(result.retryAfterMs) };
+      return { ok: false, status: 429, code: "client_concurrency", error: "trop de segments vocaux simultanés", retryAfter: 1 };
     }
-  }
 
-  const charsKey = `voice:chars:${day}`;
-  const reserved = await store.consume(charsKey, chars, limits.maxCharsPerDay, remainingMs, now);
-  if (!reserved.ok) {
+    const minute = minuteWindow(now);
+    const checks: Array<Consumption & { code: string; error: string }> = [
+      { key: `voice:minute:${minute}`, cost: 1, limit: limits.perMinute, ttlMs: MINUTE_MS, code: "rate", error: "trop de segments vocaux par minute" },
+      { key: `voice:minute:${minute}:${client}`, cost: 1, limit: limits.perMinute, ttlMs: MINUTE_MS, code: "rate", error: "trop de segments vocaux par minute" },
+      { key: `voice:chars:${day}`, cost: chars, limit: limits.maxCharsPerDay, ttlMs: remainingMs, code: "daily_budget", error: "budget vocal journalier atteint : la voix du navigateur reste disponible" },
+    ];
+    const consumed = await store.consumeMany(checks, now);
+    if (!consumed.ok) {
+      await release();
+      const failed = checks[consumed.failedAt];
+      return { ok: false, status: 429, code: failed.code, error: failed.error, retryAfter: retrySeconds(consumed.retryAfterMs || remainingMs) };
+    }
+    const refund = once(() => quiet(async () => { await store.consume(`voice:chars:${day}`, -chars, Number.POSITIVE_INFINITY, remainingMs, now); }));
+    return { ok: true, release, refund };
+  } catch (error) {
     await release();
-    return { ok: false, status: 429, code: "daily_budget", error: "budget vocal journalier atteint : la voix du navigateur reste disponible" };
+    return backendFailure(error);
   }
-  const refund = once(async () => {
-    await store.consume(charsKey, -chars, Number.POSITIVE_INFINITY, remainingMs);
-  });
-  return { ok: true, release, refund };
 }
