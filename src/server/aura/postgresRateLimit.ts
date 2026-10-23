@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/server/observability/logger";
 import { createHash, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { migratePostgres } from "@/server/migrations/postgres";
@@ -265,7 +266,7 @@ export class PostgresRateLimitStore implements RateLimitStore {
     const sweep = this.sweep(now)
       .catch(() => {
         this.state = "degraded";
-        console.warn("[aura] nettoyage opportuniste du rate-limit différé");
+        log("warn", "sweep_deferred", { subsystem: "rate_limit" });
       })
       .finally(() => this.sweeps.delete(sweep));
     this.sweeps.add(sweep);

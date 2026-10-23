@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/server/observability/logger";
 import type { ConflictEvent } from "@/types/conflict";
 import { chmod, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -183,7 +184,7 @@ export class SqliteRepository implements Repository {
       // Contrôle rapide d'intégrité (page, index) : signalé par la santé, sans bloquer la lecture.
       const check = database.prepare("PRAGMA quick_check").get() as { quick_check?: string } | undefined;
       this.integrity = check?.quick_check === "ok" ? "ok" : (check?.quick_check ?? "inconnue");
-      if (this.integrity !== "ok") console.error(`[sqlite] contrôle d'intégrité en échec : ${this.integrity}`);
+      if (this.integrity !== "ok") log("error", "sqlite_integrity_error", { subsystem: "storage" });
       this.database = database;
       await this.importInitialJson(database);
       if (this.filename !== ":memory:") await secureSqliteFiles(this.filename);
@@ -196,6 +197,10 @@ export class SqliteRepository implements Repository {
   }
 
   /** Version du schéma, migrations appliquées à l'ouverture et résultat du contrôle d'intégrité. */
+  async probe(): Promise<boolean> {
+    try { this.db.prepare("SELECT 1").get(); return this.integrity === "ok"; } catch { return false; }
+  }
+
   diagnostics(): { schemaVersion: number | null; appliedMigrations: number[]; integrity: string | null } {
     return { schemaVersion: this.migration?.to ?? null, appliedMigrations: this.migration?.applied ?? [], integrity: this.integrity };
   }
@@ -367,7 +372,7 @@ export class SqliteRepository implements Repository {
       this.database.exec("PRAGMA optimize;");
       this.database.exec("PRAGMA wal_checkpoint(TRUNCATE);");
     } catch (error) {
-      console.warn("[sqlite] checkpoint à l'arrêt impossible", error instanceof Error ? error.message : "raison inconnue");
+      log("warn", "sqlite_checkpoint_failed", { subsystem: "storage" });
     }
     this.database.close();
     this.database = null;

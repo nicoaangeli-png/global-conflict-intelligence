@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse } from "next/server";
 import { isLayerId, listLayers, loadLayer } from "@/server/layers";
 import { guardPublicApi } from "@/server/publicApi/limits";
@@ -11,7 +12,8 @@ export const dynamic = "force-dynamic";
  * `country` ne renvoie que les éléments rattachés à ce pays (fiche pays) : le calque
  * complet (jusqu'à ~750 Ko) n'est chargé par le navigateur que s'il est affiché.
  */
-export async function GET(request: Request) {
+export const GET = instrumentRoute("/api/layers", GETHandler);
+async function GETHandler(request: Request) {
   const params = new URL(request.url).searchParams;
   const invalid = validatePublicQuery(params);
   if (invalid) return invalid;

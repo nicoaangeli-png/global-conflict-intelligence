@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/server/observability/logger";
 
 /**
  * Voix d'AURA — synthèse neurale OpenAI (`/v1/audio/speech`).
@@ -126,9 +127,8 @@ export async function synthesizeSpeech({
   }
 
   if (!response.ok || !response.body) {
-    // Le détail d'OpenAI reste dans le journal serveur, jamais renvoyé au navigateur.
-    const detail = (await response.text().catch(() => "")).slice(0, 200);
-    console.warn("[voice] OpenAI", response.status, detail.replace(/\s+/g, " "));
+    // Le corps fournisseur peut répliquer l'entrée utilisateur : ne jamais le journaliser.
+    log("warn", "voice_upstream_error", { subsystem: "voice", status: response.status });
     if (response.status === 401) {
       return { error: { code: "http_401", status: 502, message: "Clé OpenAI refusée pour la synthèse vocale." } };
     }

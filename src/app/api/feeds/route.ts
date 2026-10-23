@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse, type NextRequest } from "next/server";
 import { getFeeds } from "@/server/feeds";
 import { guardPublicApi } from "@/server/publicApi/limits";
@@ -7,7 +8,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** GET /api/feeds?category=&country=&limit= — flux mondiaux en direct (hors conflits armés). */
-export async function GET(request: NextRequest) {
+export const GET = instrumentRoute("/api/feeds", GETHandler);
+async function GETHandler(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const invalid = validatePublicQuery(params);
   if (invalid) return invalid;

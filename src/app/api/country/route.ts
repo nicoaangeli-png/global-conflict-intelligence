@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse } from "next/server";
 import { getCountryIndicators } from "@/server/countryIndicators";
 import { getCountryLeaders } from "@/server/leaders";
@@ -7,7 +8,8 @@ import { validatePublicQuery } from "@/server/publicApi/parameters";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export const GET = instrumentRoute("/api/country", GETHandler);
+async function GETHandler(request: Request) {
   const params = new URL(request.url).searchParams;
   const invalid = validatePublicQuery(params);
   if (invalid) return invalid;

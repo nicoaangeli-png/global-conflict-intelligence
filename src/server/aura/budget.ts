@@ -1,4 +1,6 @@
 import "server-only";
+import { increment } from "@/server/observability/metrics";
+import { log } from "@/server/observability/logger";
 import { createHash } from "node:crypto";
 import { MINUTE_MS, RateLimitBackendError, minuteWindow, utcDay, type Consumption, type RateLimitStore } from "./rateLimit";
 import { rateLimitStore } from "./rateLimitStore";
@@ -54,7 +56,7 @@ function once(work: () => Promise<void>): () => Promise<void> {
 
 function backendFailure(error: unknown): Rejection {
   const configuration = error instanceof RateLimitBackendError && error.code === "rate_limit_config";
-  console.warn(`[aura] rate-limit ${configuration ? "configuration incorrecte" : "indisponible"}`);
+  log("warn", "rate_limit_backend_error", { subsystem: "rate_limit", errorCode: configuration ? "rate_limit_config" : "rate_limit_unavailable" });
   return {
     ok: false,
     status: 503,
@@ -70,7 +72,7 @@ async function quiet(work: () => Promise<void>) {
   try {
     await work();
   } catch {
-    console.warn("[aura] libération du budget différée jusqu'à expiration de la lease");
+    log("warn", "lease_release_deferred", { subsystem: "rate_limit" });
   }
 }
 
@@ -130,11 +132,12 @@ export async function admitAgentRequest(
       try {
         if (usage.kind === "known") {
           const actualTokens = Number.isFinite(usage.tokens) && usage.tokens >= 0 ? Math.ceil(usage.tokens) : tokens.perRequestTokens;
+          increment("aura_tokens_total", { usage: "known" }, actualTokens);
           const difference = actualTokens - tokens.perRequestTokens;
           if (difference !== 0) {
             await quiet(async () => { await store.consume(`aura:tokens:${day}`, difference, Number.POSITIVE_INFINITY, remainingMs, now); });
           }
-        }
+        } else increment("aura_tokens_total", { usage: "reserved_unknown" }, tokens.perRequestTokens);
       } finally {
         await releaseLeases();
       }

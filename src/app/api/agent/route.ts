@@ -1,9 +1,12 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { agentConfigured, agentLimits, normalizeContext, runAgent, type AgentMessage, type AgentUsageFinal } from "@/server/agent";
 import { checkAuraAccess } from "@/server/aura/access";
 import { admitAgentRequest, requestFingerprint } from "@/server/aura/budget";
 import { clientKey } from "@/server/aura/clientIdentity";
 import { checkOrbitalOrigin, jsonResponse as json } from "@/server/aura/origin";
 import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
+import { increment, observe } from "@/server/observability/metrics";
+import { log } from "@/server/observability/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +17,8 @@ export const dynamic = "force-dynamic";
  * validation → admission (budgets, débit, concurrence, doublons) → exécution.
  */
 
-export async function GET() {
+export const GET = instrumentRoute("/api/agent", GETHandler);
+async function GETHandler() {
   const limits = agentLimits();
   return json(
     {
@@ -29,7 +33,8 @@ export async function GET() {
   );
 }
 
-export async function POST(request: Request) {
+export const POST = instrumentRoute("/api/agent", POSTHandler);
+async function POSTHandler(request: Request) {
   const rejected = checkOrbitalOrigin(request) ?? checkAuraAccess(request);
   if (rejected) return rejected;
 
@@ -81,6 +86,7 @@ export async function POST(request: Request) {
   const normContext = normalizeContext(context);
   const admission = await admitAgentRequest(clientKey(request), requestFingerprint([cleanMessages, normContext]), limits);
   if (!admission.ok) {
+    increment("aura_admission_rejections_total", { mode: "text", reason: admission.code });
     const headers: Record<string, string> = admission.retryAfter ? { "Retry-After": String(admission.retryAfter) } : {};
     return json({ error: admission.error, code: admission.code }, admission.status, headers);
   }
@@ -94,6 +100,15 @@ export async function POST(request: Request) {
   const encoder = new TextEncoder();
   let finished = false;
   let finalUsage: AgentUsageFinal = { kind: "unknown" };
+  const started = performance.now();
+  let result: "success" | "incomplete" | "error" | "aborted" | "timeout" = "error";
+  let recorded = false;
+  const recordRun = () => {
+    if (recorded) return;
+    recorded = true;
+    increment("aura_runs_total", { mode: "text", result: abort.signal.aborted && result !== "success" ? "aborted" : result });
+    observe("aura_duration_seconds", { mode: "text" }, (performance.now() - started) / 1000);
+  };
   const finalizeAdmission = () => finalUsage.kind === "known"
     ? admission.completedWithUsage(finalUsage.tokens)
     : admission.failedWithUnknownUsage();
@@ -108,6 +123,7 @@ export async function POST(request: Request) {
           controller.enqueue(encoder.encode(`${JSON.stringify(chunk)}\n`));
           if (chunk.t === "done" || chunk.t === "incomplete" || chunk.t === "error") {
             finished = true;
+            result = chunk.t === "done" ? "success" : chunk.t === "incomplete" ? "incomplete" : chunk.code === "deadline" || chunk.code === "idle_timeout" ? "timeout" : "error";
           }
         }
         if (!finished && !abort.signal.aborted) {
@@ -123,13 +139,14 @@ export async function POST(request: Request) {
         }
       } catch (err) {
         // Jamais le message interne : il peut contenir des détails d'infrastructure.
-        console.warn("[agent] échec du flux", err instanceof Error ? err.name : "unknown");
+        log("warn", "agent_stream_error", { subsystem: "aura" });
         if (!finished && !abort.signal.aborted) {
           controller.enqueue(encoder.encode(`${JSON.stringify({ t: "error", text: "Erreur interne de l'agente.", code: "server_error" })}\n`));
         }
       } finally {
         request.signal.removeEventListener("abort", onClientGone);
         await finalizeAdmission();
+        recordRun();
         try {
           controller.close();
         } catch {
@@ -140,6 +157,7 @@ export async function POST(request: Request) {
     async cancel() {
       abort.abort();
       await finalizeAdmission();
+      recordRun();
     },
   });
 

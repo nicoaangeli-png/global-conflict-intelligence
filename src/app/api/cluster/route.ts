@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse } from "next/server";
 import { queryClusterEvents } from "@/server/intel";
 import { filtersFromSearchParams } from "@/server/filters";
@@ -15,7 +16,8 @@ const CLUSTER_BODY_BYTES = 16 * 1024;
  * Corps borné (16 Ko) et lû sans dépasser la mémoire : une requête ne doit jamais
  * pouvoir forcer le serveur à lire un corps arbitrairement grand.
  */
-export async function POST(request: Request) {
+export const POST = instrumentRoute("/api/cluster", POSTHandler);
+async function POSTHandler(request: Request) {
   if (!isJsonContentType(request)) {
     return NextResponse.json({ error: "Content-Type application/json requis" }, { status: 415 });
   }

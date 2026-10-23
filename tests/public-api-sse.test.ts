@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRateLimitStore } from "@/server/aura/rateLimit";
 import { setRateLimitStore } from "@/server/aura/rateLimitStore";
 import { sseMetrics } from "@/server/publicApi/limits";
+import { renderMetrics, resetMetrics } from "@/server/observability/metrics";
 
 const subscribers = new Set<(chunk: string) => void>();
 vi.mock("@/server/intel", () => ({
@@ -15,6 +16,7 @@ function connect(ip: string, controller = new AbortController()) {
 }
 
 beforeEach(() => {
+  resetMetrics();
   vi.stubEnv("ORBITAL_TRUST_PROXY", "1");
   vi.stubEnv("ORBITAL_SSE_MAX_CONNECTIONS", "2");
   vi.stubEnv("ORBITAL_SSE_MAX_PER_CLIENT", "1");
@@ -39,6 +41,8 @@ describe("SSE", () => {
     await Promise.all([second.body!.cancel(), replacement.body!.cancel()]);
     expect(subscribers.size).toBe(0);
     expect(sseMetrics().__orbitalSseActive).toBe(0);
+    expect(renderMetrics()).toContain('orbital_sse_events_total{event="accepted"} 3');
+    expect(renderMetrics()).toContain('orbital_sse_events_total{event="refused"} 2');
   });
 
   it("AbortSignal ferme le flux et permet la reconnexion", async () => {
@@ -58,6 +62,7 @@ describe("SSE", () => {
     for (let i = 0; i < 10; i++) for (const send of [...subscribers]) send(`event: ingest\ndata: ${i}\n\n`);
     await vi.waitFor(() => expect(subscribers.size).toBe(0));
     expect(sseMetrics().__orbitalSseActive).toBe(0);
+    expect(renderMetrics()).toContain('orbital_sse_events_total{event="backpressure"} 1');
     await response.body!.cancel();
   });
 

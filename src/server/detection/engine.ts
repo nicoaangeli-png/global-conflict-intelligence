@@ -1,4 +1,5 @@
 import type { DetectionResponse, MatchDecision, OrbitalEvent, Signal } from "@/types/detection";
+import { increment, observe } from "@/server/observability/metrics";
 import { CANDIDATE_WINDOW_MS, consensusPosition, matchDecision, matchingAnchor, signalTime } from "./cluster";
 import { confidence, contradictions } from "./confidence";
 import { evidence, hash, independence } from "./fingerprint";
@@ -68,12 +69,16 @@ export class DetectionEngine {
   constructor(private store: DetectionStore) {}
 
   async ingest(signals: Signal[], now = Date.now()): Promise<{ accepted: number; skipped: number }> {
+    const started = performance.now();
+    let created = 0;
+    let revised = 0;
+    try {
     if (signals.length > 500) throw new Error("Detection batch exceeds 500 signals");
     // La rétention écrit potentiellement plusieurs catégories. Une transaction courte
     // dédiée évite de conserver ses verrous de lignes pendant le protocole métier
     // signal → catégories → événements.
     await this.store.transaction((transaction) => transaction.purge(now - RETENTION_MS));
-    return this.store.transaction(async (transaction) => {
+    const result = await this.store.transaction(async (transaction) => {
       const acceptedInputs = signals.filter((signal) => valid(signal, now));
       // Ordre global : identifiants de signaux, puis catégories. Le premier verrou
       // stabilise bySignal afin de découvrir sans course l'ancienne catégorie d'une
@@ -170,6 +175,7 @@ export class DetectionEngine {
             const proposed = freshEvent(event.id, signal, now, inherited);
             attached = attach(proposed, true, matching);
             if (await transaction.createEventExclusive(proposed, anchor(proposed))) {
+              if (!reusableEventId) created++;
               event = proposed;
               break;
             }
@@ -200,10 +206,22 @@ export class DetectionEngine {
         }
         if (!attached) { skipped++; continue; }
         await transaction.remember(signal.id, event.id, digest);
+        if (previous) revised++;
         accepted++;
       }
       return { accepted, skipped };
     });
+    increment("detection_signals_total", { result: "accepted" }, result.accepted);
+    increment("detection_signals_total", { result: "skipped" }, result.skipped);
+    increment("detection_changes_total", { operation: "event_created" }, created);
+    increment("detection_changes_total", { operation: "signal_revised" }, revised);
+    return result;
+    } catch (error) {
+      increment("detection_errors_total");
+      throw error;
+    } finally {
+      observe("detection_duration_seconds", {}, (performance.now() - started) / 1000);
+    }
   }
 
   async snapshot(now = Date.now()): Promise<DetectionResponse> {

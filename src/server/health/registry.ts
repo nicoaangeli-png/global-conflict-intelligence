@@ -1,6 +1,7 @@
 import "server-only";
 import { SOURCE_HEALTH_STATUSES, type SourceHealth, type SourceHealthStatus, type SourceKind, type SourcesStatusResponse } from "@/types/health";
 import { redactSecrets } from "@/server/security/redact";
+import { increment, observe, registerMetricSource } from "@/server/observability/metrics";
 
 /**
  * Registre de santé des sources, alimenté par chaque famille au fil de ses tentatives
@@ -44,6 +45,7 @@ const holder = globalThis as unknown as { __orbitalSourceHealth?: Map<string, En
 const entries = () => (holder.__orbitalSourceHealth ??= new Map<string, Entry>());
 
 function entryFor(descriptor: SourceDescriptor): Entry {
+  registerMetricSource(descriptor.id);
   const map = entries();
   let entry = map.get(descriptor.id);
   if (!entry) {
@@ -72,6 +74,8 @@ const cleanError = (message: string) => redactSecrets(message.replace(/\s+/g, " 
 /** Enregistre le résultat d'une tentative d'interrogation. */
 export function recordAttempt(descriptor: SourceDescriptor, outcome: AttemptOutcome): void {
   const entry = entryFor(descriptor);
+  increment("source_attempts_total", { source: descriptor.id, result: outcome.ok ? outcome.cached ? "cached" : "success" : "error" });
+  if (!(outcome.ok && outcome.cached)) observe("source_duration_seconds", { source: descriptor.id }, Math.max(0, outcome.finishedAt - outcome.startedAt) / 1000);
   entry.lastAttemptAt = outcome.finishedAt;
   entry.latencyMs = outcome.ok && outcome.cached ? null : Math.max(0, outcome.finishedAt - outcome.startedAt);
   if (outcome.ok) {

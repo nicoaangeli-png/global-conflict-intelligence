@@ -1,9 +1,11 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { checkAuraAccess } from "@/server/aura/access";
 import { admitVoiceRequest } from "@/server/aura/budget";
 import { clientKey } from "@/server/aura/clientIdentity";
 import { checkOrbitalOrigin, jsonResponse } from "@/server/aura/origin";
 import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
 import { defaultVoice, synthesizeSpeech, VOICE_OPTIONS, voiceConfigured, voiceLimits, voiceModel } from "@/server/voice";
+import { increment, observe } from "@/server/observability/metrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +21,8 @@ export const dynamic = "force-dynamic";
  * consomme le crédit OpenAI). Caractères rendus au budget si l'audio n'est pas produit.
  */
 
-export async function GET() {
+export const GET = instrumentRoute("/api/agent/voice", GETHandler);
+async function GETHandler() {
   return jsonResponse(
     {
       configured: voiceConfigured(),
@@ -31,7 +34,8 @@ export async function GET() {
   );
 }
 
-export async function POST(request: Request) {
+export const POST = instrumentRoute("/api/agent/voice", POSTHandler);
+async function POSTHandler(request: Request) {
   const rejected = checkOrbitalOrigin(request) ?? checkAuraAccess(request);
   if (rejected) return rejected;
 
@@ -59,9 +63,19 @@ export async function POST(request: Request) {
 
   const admission = await admitVoiceRequest(clientKey(request), text.length, limits);
   if (!admission.ok) {
+    increment("aura_admission_rejections_total", { mode: "voice", reason: admission.code });
     const headers: Record<string, string> = admission.retryAfter ? { "Retry-After": String(admission.retryAfter) } : {};
     return jsonResponse({ error: admission.error, code: admission.code }, admission.status, headers);
   }
+
+  const started = performance.now();
+  let recorded = false;
+  const recordRun = (result: "success" | "error" | "aborted" | "timeout") => {
+    if (recorded) return;
+    recorded = true;
+    increment("aura_runs_total", { mode: "voice", result });
+    observe("aura_duration_seconds", { mode: "voice" }, (performance.now() - started) / 1000);
+  };
 
   let result: Awaited<ReturnType<typeof synthesizeSpeech>>;
   try {
@@ -77,6 +91,7 @@ export async function POST(request: Request) {
   if ("error" in result) {
     await admission.refund();
     await admission.release();
+    recordRun(request.signal.aborted ? "aborted" : "error");
     return jsonResponse({ error: result.error.message, code: result.error.code }, result.error.status);
   }
 
@@ -89,15 +104,18 @@ export async function POST(request: Request) {
         if (done) {
           controller.close();
           await admission.release();
+          recordRun("success");
         } else controller.enqueue(value);
       } catch {
         controller.error(new Error("flux vocal interrompu"));
         await admission.release();
+        recordRun(request.signal.aborted ? "aborted" : "error");
       }
     },
     async cancel() {
       await reader.cancel().catch(() => undefined);
       await admission.release();
+      recordRun("aborted");
     },
   });
 

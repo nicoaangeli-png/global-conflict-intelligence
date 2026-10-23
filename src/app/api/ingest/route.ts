@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse } from "next/server";
 import { healthInfo, runIngest } from "@/server/intel";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -24,7 +25,8 @@ function authorized(request: Request): "disabled" | "unauthorized" | "ok" {
  * même jeton que POST (les états publics sont déjà dans /api/health et
  * /api/sources/status, sans notes internes ni rapport d'ingestion).
  */
-export async function POST(request: Request) {
+export const POST = instrumentRoute("/api/ingest", POSTHandler);
+async function POSTHandler(request: Request) {
   const headers = { "Cache-Control": "no-store" };
   const access = authorized(request);
   if (access === "disabled") return NextResponse.json({ error: "Ingestion disabled" }, { status: 503, headers });
@@ -52,7 +54,8 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+export const GET = instrumentRoute("/api/ingest", GETHandler);
+async function GETHandler(request: Request) {
   const headers = { "Cache-Control": "no-store" };
   const access = authorized(request);
   if (access === "disabled") return NextResponse.json({ error: "Ingestion disabled" }, { status: 503, headers });
