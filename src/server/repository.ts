@@ -208,6 +208,10 @@ export class PgRepository implements Repository {
   }
 
   constructor(private connectionString: string) {}
+  async close() {
+    await this.pool?.end();
+    this.pool = null;
+  }
   async probe() {
     try { await this.db.query("SELECT 1"); return true; } catch { return false; }
   }
