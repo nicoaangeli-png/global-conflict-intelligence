@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse } from "next/server";
 import { queryLatestEvents } from "@/server/intel";
 import { filtersFromSearchParams } from "@/server/filters";
@@ -9,7 +10,8 @@ import { validatePublicFilters } from "@/server/publicApi/parameters";
  * GET /api/latest — derniers événements (vue « LIVE EVENTS »).
  * Les événements sont renvoyés normalisés, triés du plus récent au plus ancien.
  */
-export async function GET(request: Request) {
+export const GET = instrumentRoute("/api/latest", GETHandler);
+async function GETHandler(request: Request) {
   const { searchParams } = new URL(request.url);
   const invalid = validatePublicFilters(searchParams);
   if (invalid) return invalid;

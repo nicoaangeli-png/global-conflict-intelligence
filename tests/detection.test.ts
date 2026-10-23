@@ -7,6 +7,7 @@ import { DetectionEngine, MAX_EVIDENCE } from "@/server/detection/engine";
 import { canonicalUrl } from "@/server/detection/fingerprint";
 import { fromConflict, fromFeed } from "@/server/detection/normalize";
 import { RETENTION_MS, SqliteDetectionStore } from "@/server/detection/store";
+import { renderMetrics, resetMetrics } from "@/server/observability/metrics";
 
 const NOW = Date.parse("2026-10-20T08:43:00Z");
 function signal(overrides: Partial<Signal> = {}): Signal {
@@ -22,6 +23,21 @@ function distinct(index: number, overrides: Partial<Signal> = {}): Signal {
 }
 
 describe("détection incrémentale ORBITAL", () => {
+  it("mesure les signaux commités, les révisions, les skips et la durée sans ID de signal", async () => {
+    resetMetrics();
+    const { engine, store } = setup();
+    expect(await engine.ingest([signal()], NOW)).toEqual({ accepted: 1, skipped: 0 });
+    expect(await engine.ingest([signal()], NOW)).toEqual({ accepted: 0, skipped: 1 });
+    expect(await engine.ingest([signal({ title: "Explosion signalée à Odessa près du port, terminal Neptune, détail nouveau" })], NOW)).toEqual({ accepted: 1, skipped: 0 });
+    const metrics = renderMetrics();
+    expect(metrics).toContain('orbital_detection_signals_total{result="accepted"} 2');
+    expect(metrics).toContain('orbital_detection_signals_total{result="skipped"} 1');
+    expect(metrics).toContain('orbital_detection_changes_total{operation="event_created"} 1');
+    expect(metrics).toContain('orbital_detection_changes_total{operation="signal_revised"} 1');
+    expect(metrics).toContain("orbital_detection_duration_seconds_count 3");
+    expect(metrics).not.toContain("first");
+    await store.close();
+  });
   it("A : dix copies, même article canonique et dépêche = une source indépendante", async () => {
     const { engine, store } = setup();
     await engine.ingest(Array.from({ length: 10 }, (_, index) => distinct(index, { title: "Explosion signalée à Odessa près du port", url: `https://wire.example/story?utm_source=${index}`, upstreamAgency: "reuters" })), NOW);

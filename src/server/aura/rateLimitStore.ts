@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/server/observability/logger";
 import { PostgresRateLimitStore } from "./postgresRateLimit";
 import {
   MemoryRateLimitStore,
@@ -61,9 +62,22 @@ export function rateLimitStore(): RateLimitStore {
   const store = (holder.__orbitalRateLimitStore ??= createStore());
   if (!store.distributed && process.env.NODE_ENV === "production" && !holder.__orbitalRateLimitWarned) {
     holder.__orbitalRateLimitWarned = true;
-    console.warn("[aura] backend rate-limit memory explicitement sélectionné : protection mono-instance.");
+    log("warn", "memory_backend_explicit", { subsystem: "rate_limit" });
   }
   return store;
+}
+
+/** Vue passive : une lecture de santé/metrics ne démarre ni pool ni migration. */
+export function rateLimitHealth(): RateLimitHealth {
+  if (holder.__orbitalRateLimitStore) return holder.__orbitalRateLimitStore.health();
+  const config = (process.env.AURA_RATE_LIMIT_BACKEND ?? "auto").trim().toLowerCase();
+  const hasUrl = Boolean(process.env.DATABASE_URL?.trim());
+  const valid = ["auto", "memory", "postgres"].includes(config);
+  const postgres = !valid || config === "postgres" || (config === "auto" && (hasUrl || process.env.NODE_ENV === "production"));
+  return {
+    backend: postgres ? "postgres" : "memory", distributed: postgres,
+    status: !valid || (postgres && !hasUrl) ? "unavailable" : postgres ? "degraded" : "healthy",
+  };
 }
 
 /** Injection réservée aux tests. */

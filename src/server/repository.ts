@@ -1,6 +1,7 @@
 import "server-only";
 import type { Confidence, ConflictEvent, EventType } from "@/types/conflict";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { access, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { constants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertRealSourceRecords } from "./dataPolicy";
@@ -35,6 +36,8 @@ export interface EventQuery {
 export interface Repository {
   readonly kind: "memory" | "local" | "sqlite" | "postgres";
   init(): Promise<void>;
+  /** Sonde légère de disponibilité, sans lecture des événements. */
+  probe?(): Promise<boolean>;
   upsert(events: ConflictEvent[]): Promise<{ inserted: number; updated: number }>;
   query(q: EventQuery): Promise<ConflictEvent[]>;
   byIds(ids: string[]): Promise<ConflictEvent[]>;
@@ -72,6 +75,7 @@ export class MemoryRepository implements Repository {
   private lastUpdated: string | null = null;
 
   async init() {}
+  async probe() { return true; }
 
   async upsert(events: ConflictEvent[]) {
     let inserted = 0;
@@ -115,6 +119,9 @@ export class LocalRepository implements Repository {
   readonly kind = "local" as const;
 
   constructor(private filename = process.env.INTEL_STORE_PATH ?? path.join(process.cwd(), "data", "intel-events.json")) {}
+  async probe() {
+    try { await access(path.dirname(this.filename), constants.R_OK | constants.W_OK); return true; } catch { return false; }
+  }
 
   async init() {
     await mkdir(path.dirname(this.filename), { recursive: true, mode: 0o700 });
@@ -201,6 +208,9 @@ export class PgRepository implements Repository {
   }
 
   constructor(private connectionString: string) {}
+  async probe() {
+    try { await this.db.query("SELECT 1"); return true; } catch { return false; }
+  }
 
   async init() {
     const { Pool } = await import("pg");

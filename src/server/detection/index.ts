@@ -4,6 +4,8 @@ import { setImmediate } from "node:timers/promises";
 import type { ConflictEvent } from "@/types/conflict";
 import type { LiveItem } from "@/types/feeds";
 import type { DetectionResponse, Signal } from "@/types/detection";
+import { increment } from "@/server/observability/metrics";
+import { log } from "@/server/observability/logger";
 import { DetectionEngine } from "./engine";
 import { fromConflict, fromFeed } from "./normalize";
 import { PostgresDetectionStore } from "./postgresStore";
@@ -58,7 +60,7 @@ async function ingest(signals: Signal[]) {
   } catch {
     // Jamais de détail de connexion ni d'URL dans les logs ou la réponse HTTP.
     state.error = true;
-    console.warn("[detection] Traitement indisponible ; les flux d'origine restent accessibles.");
+    log("warn", "detection_failed", { subsystem: "detection" });
   }
 }
 
@@ -76,6 +78,8 @@ export async function getDetectionSnapshot(): Promise<DetectionResponse> {
     const snapshot = await engine().snapshot();
     return state.error ? { ...snapshot, status: "unavailable", live: [] } : snapshot;
   } catch {
+    increment("detection_errors_total");
+    log("warn", "detection_failed", { subsystem: "detection" });
     return { generatedAt: new Date().toISOString(), events: [], live: [], status: "unavailable" };
   }
 }

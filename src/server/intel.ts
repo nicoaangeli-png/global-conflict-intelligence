@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/server/observability/logger";
 import { ingestConflictSignals } from "@/server/detection";
 import { aggregateClusters, dedupe } from "@/lib/clustering/cluster";
 import {
@@ -26,6 +27,8 @@ import { isRealSourceRecord } from "./dataPolicy";
 import { createRepository, LocalRepository, type Repository } from "./repository";
 import { ConnectorError } from "./connectors/types";
 import { markUnconfigured, newestDate, recordAttempt, registerSource, type SourceDescriptor } from "./health/registry";
+import { POSTGRES_SCHEMA_VERSION } from "./migrations/postgres";
+import { SQLITE_SCHEMA_VERSION } from "./migrations/sqlite";
 
 /**
  * Service d'ingestion et d'interrogation.
@@ -65,6 +68,7 @@ function connectorDescriptor(connector: Connector): SourceDescriptor {
 interface IntelState {
   repository: Repository;
   ready: Promise<void> | null;
+  storageReady?: Promise<void> | null;
   lastIngestAt: string | null;
   /** Dernière ingestion ayant ramené des données de source réelle. */
   lastRealIngestAt: number | null;
@@ -133,18 +137,38 @@ function broadcast(type: string, data: Record<string, unknown>) {
   }
 }
 
-export async function ensureReady(): Promise<void> {
-  if (state.ready) return state.ready;
-  state.ready = (async () => {
+async function ensureStorageReady(): Promise<void> {
+  if (state.storageReady) return state.storageReady;
+  state.storageReady = (async () => {
     try {
       await state.repository.init();
     } catch {
       if (state.repository.kind !== "postgres") throw new Error("Local persistence unavailable");
-      console.warn("[intel] PostgreSQL indisponible, bascule sur le dépôt local durable");
+      log("warn", "storage_fallback", { subsystem: "storage" });
       state.repository = new LocalRepository();
       await state.repository.init();
     }
 
+  })().catch((error) => { state.storageReady = null; throw error; });
+  return state.storageReady;
+}
+
+/** Readiness : stockage uniquement, aucun connecteur ni timer d'ingestion démarré. */
+export async function probeStorage(): Promise<boolean> {
+  try {
+    await ensureStorageReady();
+    if (process.env.DATABASE_URL?.trim() && state.repository.kind !== "postgres") return false;
+    const diagnostics = state.repository.diagnostics?.();
+    if (state.repository.kind === "postgres" && diagnostics?.schemaVersion !== POSTGRES_SCHEMA_VERSION) return false;
+    if (state.repository.kind === "sqlite" && (diagnostics?.schemaVersion !== SQLITE_SCHEMA_VERSION || diagnostics.integrity !== "ok")) return false;
+    return state.repository.probe ? await state.repository.probe() : true;
+  } catch { return false; }
+}
+
+export async function ensureReady(): Promise<void> {
+  if (state.ready) return state.ready;
+  state.ready = (async () => {
+    await ensureStorageReady();
     await refreshStatuses();
     startAutoRefresh();
   })().catch((error) => {
@@ -177,9 +201,9 @@ function startAutoRefresh() {
     if (Date.now() - (state.lastRealIngestAt ?? 0) < AUTO_REFRESH_MS - 5_000) return;
     try {
       await runIngest();
-      console.log("[intel] ingestion automatique :", state.ingestReport);
+      log("info", "ingest_completed", { subsystem: "ingest" });
     } catch {
-      console.warn("[intel] ingestion automatique impossible");
+      log("warn", "ingest_failed", { subsystem: "ingest" });
     }
   };
 

@@ -1,7 +1,8 @@
 import "server-only";
 import { clientKey } from "@/server/aura/clientIdentity";
 import { MINUTE_MS, minuteWindow, type RateLimitHealth } from "@/server/aura/rateLimit";
-import { rateLimitStore } from "@/server/aura/rateLimitStore";
+import { rateLimitHealth, rateLimitStore } from "@/server/aura/rateLimitStore";
+import { increment } from "@/server/observability/metrics";
 
 export type PublicRoute = "events" | "latest" | "stats" | "feeds" | "cluster" | "briefing" | "briefing-write" | "coverage" | "country" | "layers" | "detection";
 const cost: Record<PublicRoute, number> = {
@@ -18,7 +19,8 @@ function configuredPositive(name: string, fallback: number): number {
   return value;
 }
 
-function reject(status: 429 | 503, retryAfter = 10): Response {
+function reject(route: PublicRoute, status: 429 | 503, retryAfter = 10): Response {
+  increment("public_api_rejections_total", { route: route === "briefing-write" ? "/api/briefing" : `/api/${route}`, reason: status === 429 ? "quota" : "backend" });
   if (status === 429) metrics.__orbitalPublicRejected = (metrics.__orbitalPublicRejected ?? 0) + 1;
   return Response.json({ error: status === 429 ? "Trop de requêtes. Réessayez plus tard." : "Protection temporairement indisponible." }, {
     status, headers: { "Cache-Control": "no-store", "Retry-After": String(retryAfter) },
@@ -54,15 +56,15 @@ export async function guardPublicApi(request: Request, route: PublicRoute): Prom
       { key: `public:all:${identity}:${window}`, cost: units, limit: configuredPositive("ORBITAL_PUBLIC_API_TOTAL_CLIENT_UNITS_PER_MINUTE", 300), ttlMs },
     );
     const result = await store.consumeMany(items, now);
-    return result.ok ? null : reject(429, Math.max(1, Math.ceil(result.retryAfterMs / 1000)));
+    return result.ok ? null : reject(route, 429, Math.max(1, Math.ceil(result.retryAfterMs / 1000)));
   } catch {
-    return reject(503);
+    return reject(route, 503);
   }
 }
 
 export function publicApiHealth(): { rateLimit: RateLimitHealth; sse: { active: number; rejected: number }; rejected429: number } {
   return {
-    rateLimit: rateLimitStore().health(),
+    rateLimit: rateLimitHealth(),
     sse: { active: metrics.__orbitalSseActive ?? 0, rejected: metrics.__orbitalSseRejected ?? 0 },
     rejected429: metrics.__orbitalPublicRejected ?? 0,
   };

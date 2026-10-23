@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse, type NextRequest } from "next/server";
 import { countryCoverageCells, coverageFor, type CoverageQuery } from "@/server/coverage";
 import { loadWorldIndex } from "@/server/world";
@@ -14,7 +15,8 @@ const headers = { "Cache-Control": "no-store" };
  * et AIS (monde entier, zone d'un pays ou voisinage d'un point). Lecture mémoire seulement :
  * aucun appel aux fournisseurs. Ce n'est pas une mesure de l'activité.
  */
-export async function GET(request: NextRequest) {
+export const GET = instrumentRoute("/api/coverage", GETHandler);
+async function GETHandler(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const invalid = validatePublicQuery(params);
   if (invalid) return invalid;

@@ -12,6 +12,7 @@ vi.mock("@/server/agent", () => ({
 import { GET, POST } from "@/app/api/agent/route";
 import { MemoryRateLimitStore, RateLimitBackendError, utcDay, type RateLimitStore } from "@/server/aura/rateLimit";
 import { setRateLimitStore } from "@/server/aura/rateLimitStore";
+import { renderMetrics, resetMetrics } from "@/server/observability/metrics";
 
 const headers = { Host: "localhost:3005", Origin: "http://localhost:3005", "Content-Type": "application/json", "X-Orbital-Client": "aura" };
 const body = (messages = [{ role: "user", content: "Question ?" }]) => JSON.stringify({ messages, context: { locale: "fr" } });
@@ -22,6 +23,7 @@ function request(overrides: Record<string, string> = {}, raw = body()) {
 }
 
 beforeEach(() => {
+  resetMetrics();
   vi.stubEnv("AURA_MAX_TOKENS_PER_REQUEST", "5000");
   vi.stubEnv("AURA_DAILY_TOKEN_BUDGET", "100000");
   store = new MemoryRateLimitStore();
@@ -40,7 +42,7 @@ afterEach(() => {
 
 describe("route AURA — portage Vitest sans fournisseur", () => {
   it("expose les bornes publiques sans secret", async () => {
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/agent"));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ configured: true, limits: { maxMessages: 12, maxUserChars: 2000 } });
   });
@@ -73,6 +75,7 @@ describe("route AURA — portage Vitest sans fournisseur", () => {
     expect(payload).toEqual({ error: "protection de débit AURA temporairement indisponible", code: "rate_limit_unavailable" });
     expect(JSON.stringify(payload)).not.toMatch(/postgres|database_url|select|sql/i);
     expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(renderMetrics()).toContain('orbital_aura_admission_rejections_total{mode="text",reason="rate_limit_unavailable"} 1');
   });
 
   it("produit du NDJSON avec le terminal de l'agent", async () => {
@@ -81,6 +84,8 @@ describe("route AURA — portage Vitest sans fournisseur", () => {
     const chunks = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
     expect(chunks).toEqual([{ t: "delta", text: "Réponse." }, { t: "done" }]);
     expect(mocks.runAgent).toHaveBeenCalledOnce();
+    expect(renderMetrics()).toContain('orbital_aura_runs_total{mode="text",result="success"} 1');
+    expect(renderMetrics()).toContain('orbital_aura_tokens_total{usage="known"} 100');
   });
 
   it("valide le format et garantit un terminal lorsqu'un générateur s'arrête sans état", async () => {
@@ -106,6 +111,7 @@ describe("route AURA — portage Vitest sans fournisseur", () => {
     expect(text).not.toContain("/home/");
     expect(text.trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ t: "error", code: "server_error" });
     expect(await store.peek(`aura:tokens:${utcDay().day}`)).toBe(5_000);
+    expect(renderMetrics()).toContain('orbital_aura_tokens_total{usage="reserved_unknown"} 5000');
   });
 
   it("rapproche un usage final fiable même si le terminal public est une erreur", async () => {

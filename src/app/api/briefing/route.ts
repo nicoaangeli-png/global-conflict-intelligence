@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { getBriefing, regenerateBriefing } from "@/server/briefing";
 import { checkOrbitalOrigin, jsonResponse as json } from "@/server/aura/origin";
 import { isJsonContentType, readBoundedText } from "@/server/aura/requestBody";
@@ -15,7 +16,8 @@ export const maxDuration = 120;
  */
 
 /** Bilan du jour (UTC) : généré à la première demande, puis servi depuis le cache. */
-export async function GET(request: Request) {
+export const GET = instrumentRoute("/api/briefing", GETHandler);
+async function GETHandler(request: Request) {
   const limited = await guardPublicApi(request, "briefing");
   if (limited) return limited;
   try {
@@ -26,7 +28,8 @@ export async function GET(request: Request) {
 }
 
 /** Régénération manuelle protégée, limitée à 1 / 10 min. */
-export async function POST(request: Request) {
+export const POST = instrumentRoute("/api/briefing", POSTHandler);
+async function POSTHandler(request: Request) {
   const rejected = checkOrbitalOrigin(request);
   if (rejected) return rejected;
   if (!isJsonContentType(request)) return json({ error: "Content-Type application/json requis" }, 415);

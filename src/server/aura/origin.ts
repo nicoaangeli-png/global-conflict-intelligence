@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/server/observability/logger";
 import { trustsProxy } from "./clientIdentity";
 
 /**
@@ -33,7 +34,7 @@ const warned = new Set<string>();
 function warnOnce(message: string) {
   if (warned.has(message)) return;
   warned.add(message);
-  console.warn(`[aura] ${message}`);
+  log("warn", "origin_configuration", { subsystem: "aura" });
 }
 
 /** Origines explicitement autorisées (`AURA_ALLOWED_ORIGINS`, séparées par des virgules). */

@@ -14,11 +14,12 @@ vi.mock("@/server/voice", () => ({
 import { POST } from "@/app/api/agent/voice/route";
 import { MemoryRateLimitStore, RateLimitBackendError, type RateLimitStore } from "@/server/aura/rateLimit";
 import { setRateLimitStore } from "@/server/aura/rateLimitStore";
+import { renderMetrics, resetMetrics } from "@/server/observability/metrics";
 
 const headers = { Host: "localhost:3005", Origin: "http://localhost:3005", "Content-Type": "application/json", "X-Orbital-Client": "aura" };
 const speak = (text: string) => new Request("http://localhost:3005/api/agent/voice", { method: "POST", headers, body: JSON.stringify({ text }) });
 
-beforeEach(() => setRateLimitStore(new MemoryRateLimitStore()));
+beforeEach(() => { resetMetrics(); setRateLimitStore(new MemoryRateLimitStore()); });
 afterEach(() => vi.clearAllMocks());
 
 describe("route vocale AURA — mêmes garde-fous que l'analyse", () => {
@@ -51,6 +52,7 @@ describe("route vocale AURA — mêmes garde-fous que l'analyse", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "protection de débit AURA temporairement indisponible", code: "rate_limit_unavailable" });
     expect(mocks.synthesizeSpeech).not.toHaveBeenCalled();
+    expect(renderMetrics()).toContain('orbital_aura_admission_rejections_total{mode="voice",reason="rate_limit_unavailable"} 1');
   });
 
   it("rend les caractères au budget quand OpenAI échoue, sans renvoyer son détail", async () => {
@@ -63,5 +65,7 @@ describe("route vocale AURA — mêmes garde-fous que l'analyse", () => {
     expect(await ok.text()).toBe("mp3");
     // Budget de 100 caractères : 80 consommés, 30 de plus dépassent.
     expect((await POST(speak("z".repeat(30)))).status).toBe(429);
+    expect(renderMetrics()).toContain('orbital_aura_runs_total{mode="voice",result="error"} 1');
+    expect(renderMetrics()).toContain('orbital_aura_runs_total{mode="voice",result="success"} 1');
   });
 });

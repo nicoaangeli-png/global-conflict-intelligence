@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/server/observability/logger";
 import { agentLimits, API_URL, DEFAULT_MODEL, MAX_PROVENANCE, MAX_SOURCES, MAX_SPANS_PER_PART, MAX_TOOL_OUTPUT_CHARS } from "./aura/config";
 import { tokenLimits } from "./aura/budget";
 import { AgentFailure, withTimeout } from "./aura/errors";
@@ -227,7 +228,7 @@ async function* streamRound(body: ReadableStream<Uint8Array>, run: RunState, sig
     } else if (event.type === "response.failed" || event.type === "error") {
       const response = event.response as { error?: { code?: string } | null } | undefined;
       const code = response?.error?.code ?? (typeof event.code === "string" ? event.code : "unknown");
-      console.warn("[agent] flux en erreur", code);
+      log("warn", "agent_stream_error", { subsystem: "aura", errorCode: "protocol" });
       throw new AgentFailure(`upstream_${code}`, "upstream stream failed");
     }
   }
@@ -280,7 +281,7 @@ async function* orchestrate(
     if (!response.ok || !response.body) {
       const detail = (await response.json().catch(() => null)) as { error?: { code?: string; type?: string } } | null;
       const code = detail?.error?.code ?? detail?.error?.type ?? "";
-      console.warn("[agent] OpenAI", response.status, code);
+      log("warn", "agent_upstream_error", { subsystem: "aura", status: response.status });
       throw httpFailure(response.status, code, context.locale);
     }
 
@@ -330,7 +331,7 @@ function classifyFailure(error: unknown, deadlineHit: boolean, locale: AgentCont
     // Messages d'AgentFailure : textes rédigés ici (aucun détail interne ni secret).
     return { kind: "error", code: error.code, text: error.message };
   }
-  console.warn("[agent] échec", error instanceof Error ? error.name : "unknown");
+  log("warn", "agent_failed", { subsystem: "aura", errorCode: "network" });
   return { kind: "error", code: "network", text: translate(locale, "Service d'analyse indisponible.", "Analysis service unavailable.") };
 }
 

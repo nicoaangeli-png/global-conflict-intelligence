@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse } from "next/server";
 import { queryStats } from "@/server/intel";
 import { degreesFromSearchParams, filtersFromSearchParams } from "@/server/filters";
@@ -6,7 +7,8 @@ import { validatePublicFilters } from "@/server/publicApi/parameters";
 
 
 /** GET /api/stats — indicateurs du panneau « GLOBAL SITUATION ». */
-export async function GET(request: Request) {
+export const GET = instrumentRoute("/api/stats", GETHandler);
+async function GETHandler(request: Request) {
   const { searchParams } = new URL(request.url);
   const invalid = validatePublicFilters(searchParams);
   if (invalid) return invalid;

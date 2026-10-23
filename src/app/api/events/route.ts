@@ -1,3 +1,4 @@
+import { instrumentRoute } from "@/server/observability/http";
 import { NextResponse } from "next/server";
 import { queryClusters } from "@/server/intel";
 import { degreesFromSearchParams, filtersFromSearchParams } from "@/server/filters";
@@ -29,7 +30,8 @@ function sampleEventIds(ids: string[], limit: number): string[] {
  * et les filtres demandés. `degrees` contrôle le rayon de regroupement en
  * fonction du niveau de zoom de la caméra.
  */
-export async function GET(request: Request) {
+export const GET = instrumentRoute("/api/events", GETHandler);
+async function GETHandler(request: Request) {
   const { searchParams } = new URL(request.url);
   const invalid = validatePublicFilters(searchParams);
   if (invalid) return invalid;
