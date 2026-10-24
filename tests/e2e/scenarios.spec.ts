@@ -117,16 +117,39 @@ test.describe("modes dégradés", () => {
   });
 
   test("une source externe tombe : signalée, les autres continuent", async ({ page }) => {
+    const lastAttemptAt = new Date().toISOString();
     await mockApis(page, {
       sourceStates: [
         ...SOURCE_STATES,
         { sourceId: "gdacs", sourceName: "GDACS (fixture)", category: "disaster", status: "error", health: "unavailable", message: "gdacs.org est injoignable.", fetchedAt: null, itemCount: 0, homepage: "https://example.org/", license: null },
       ],
+      override: async (route, url) => {
+        if (url.pathname !== "/api/sources/status") return false;
+        await route.fulfill({ json: { generatedAt: lastAttemptAt, summary: {}, sources: [{ id: "feed:gdacs", kind: "feed", name: "GDACS (fixture)", category: "disaster", status: "unavailable", lastAttemptAt, lastSuccessAt: SOURCE_STATES[0].lastSuccessAt, newestDataAt: null, dataAgeMs: null, latencyMs: null, itemCount: 0, lastError: "Échec de la dernière collecte.", provenance: { homepage: "https://example.org/", license: null, nature: null }, quota: null }] } });
+      },
     });
     await page.goto("/");
-    const feed = page.locator(".left-column");
-    await expect(feed).toContainText("Source indisponible : GDACS (fixture)");
+    const feed = page.locator(".left-column .feed-panel");
+    const indicator = feed.getByRole("button", { name: /Sources · 1 indisponible/ });
+    await expect(indicator).toBeVisible();
+    await expect(indicator.locator(".status-dot")).toHaveAttribute("data-tone", "warn");
+    await expect(feed.locator(".error-note")).toHaveCount(0);
+    await expect(feed).not.toContainText("gdacs.org est injoignable.");
     await expect(feed).toContainText("Séisme de test M5.1");
+    await indicator.click();
+    const dialog = page.getByRole("dialog", { name: "Sources de données" });
+    const source = dialog.locator(".source-row").filter({ hasText: "GDACS (fixture)" });
+    await expect(source).toContainText("État : Indisponible");
+    await expect(source).toContainText("Dernier succès :");
+    await expect(source.getByText(/^Dernier succès :/)).not.toContainText("inconnu");
+    await expect(source).toContainText("Dernière erreur : Échec de la dernière collecte.");
+    await expect(source).toContainText("Message : gdacs.org est injoignable.");
+    await expect(source).toContainText("Dernière tentative :");
+    await expect(source.getByText(/^Dernière tentative :/)).not.toContainText("inconnue");
+    await expect(source.locator(".status-dot")).toHaveAttribute("data-tone", "warn");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(indicator).toBeFocused();
   });
 
   test("source en retard : signalée avec la date de son dernier succès", async ({ page }) => {
@@ -135,7 +158,10 @@ test.describe("modes dégradés", () => {
       sourceStates: [{ ...SOURCE_STATES[0], health: "stale", lastSuccessAt: twoHoursAgo }, SOURCE_STATES[1]],
     });
     await page.goto("/");
-    await expect(page.locator(".left-column")).toContainText(/Source en retard : USGS \(fixture\) — dernière actualisation réussie/);
+    const indicator = page.locator(".left-column .feed-panel").getByRole("button", { name: /Sources · 1 en retard/ });
+    await expect(indicator).toBeVisible();
+    await indicator.click();
+    await expect(page.getByRole("dialog", { name: "Sources de données" }).locator(".source-row").filter({ hasText: "USGS (fixture)" })).toContainText("Dernier succès :");
   });
 
   test("base de conflits vide (SQLite sans enregistrement) : aucun chiffre inventé", async ({ page }) => {
@@ -157,7 +183,9 @@ test.describe("modes dégradés", () => {
       },
     });
     await page.goto("/");
-    await expect(page.locator(".left-column")).toContainText(/Service des flux indisponible/);
+    const feed = page.locator(".left-column .feed-panel");
+    await expect(feed.getByRole("button", { name: /Sources · .*service.*indisponible/ })).toBeVisible();
+    await expect(feed.locator(".error-note")).toHaveCount(0);
     await expect(page.locator(".stage > .relative canvas")).toBeVisible();
     expect(errors).toEqual([]);
   });
@@ -182,8 +210,35 @@ test.describe("modes dégradés", () => {
     });
     await page.goto("/");
     await page.getByRole("tab", { name: /^Militaire/ }).click();
-    await expect(page.locator(".left-column")).toContainText("Source indisponible : adsb.lol (fixture)");
+    await expect(page.locator(".left-column .feed-panel").getByRole("button", { name: /Sources · 2 indisponibles/ })).toBeVisible();
+    await expect(page.locator(".left-column .feed-panel .error-note")).toHaveCount(0);
     await expect(page.locator(".stage > .relative canvas")).toBeVisible();
     expect(errors).toEqual([]);
+  });
+
+  test("mobile : le détail des sources reste accessible depuis le fil", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockApis(page, {
+      sourceStates: [
+        ...SOURCE_STATES,
+        { sourceId: "gdacs", sourceName: "GDACS (fixture)", category: "disaster", status: "error", health: "unavailable", message: "Collecte temporairement indisponible.", fetchedAt: null, itemCount: 0, homepage: "https://example.org/", license: null },
+      ],
+    });
+    await page.goto("/");
+    await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Flux" }).click();
+    const feed = page.locator(".mobile-sheet .feed-panel");
+    const indicator = feed.getByRole("button", { name: /Sources · 1 indisponible/ });
+    await expect(indicator).toBeVisible();
+    await indicator.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "Sources de données" });
+    await expect(dialog).toBeVisible();
+    await expect(indicator).toHaveAttribute("aria-expanded", "true");
+    await expect(dialog.locator(".source-row").filter({ hasText: "GDACS (fixture)" })).toContainText("Message : Collecte temporairement indisponible.");
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+    await page.keyboard.press("Escape");
+    await expect(indicator).toBeFocused();
   });
 });
