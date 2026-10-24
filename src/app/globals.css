@@ -472,6 +472,37 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .source-row { display: flex; gap: 8px; align-items: flex-start; }
 .source-row .status-dot { margin-top: 5px; }
+.source-summary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 179, 71, 0.24);
+  color: #ffd49a;
+  background: rgba(255, 179, 71, 0.06);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.source-summary-button:hover,
+.source-summary-button:focus-visible { border-color: rgba(255, 179, 71, 0.7); }
+.feed-sources-popover {
+  position: fixed;
+  top: max(72px, 10vh);
+  left: max(8px, var(--gutter));
+  right: auto;
+  max-height: min(76vh, 720px);
+  z-index: 80;
+}
+.source-warning {
+  padding: 4px 8px;
+  border-left: 2px solid #ffb347;
+  color: #ffd49a;
+  background: rgba(255, 179, 71, 0.06);
+  font-size: 11px;
+  line-height: 1.45;
+}
 
 /* --------------------------------------------------- barre des thèmes ---*/
 .theme-bar {
@@ -934,6 +965,7 @@ input[type="range"]::-webkit-slider-thumb {
   .mobile-tools > summary { list-style: none; display: grid; place-items: center; width: 44px; height: 44px; cursor: pointer; font-size: 24px; }
   .mobile-tools-content { position: absolute; top: var(--content-top); left: 8px; right: 8px; z-index: 45; padding: 12px; display: flex; flex-wrap: wrap; gap: 12px; }
   .mobile-tools .sources-popover { position: fixed; top: calc(var(--content-top) + 70px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--content-top) - var(--mobile-nav-h) - 80px); }
+  .feed-sources-popover { top: calc(var(--content-top) + 8px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--content-top) - var(--mobile-nav-h) - 16px); }
   /* Taille liée à la largeur : les polices système Linux/Android, plus larges, chevauchaient le menu « ⋯ ». */
   .app-header .brand { font-size: clamp(15px, 4.6vw, 20px); letter-spacing: clamp(.04em, calc((100vw - 330px) * .002), .12em); min-width: 0; overflow: hidden; white-space: nowrap; }
   .app-header .header-button, .lang-switch button { min-width: 44px; min-height: 44px; }

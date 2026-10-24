@@ -6,6 +6,7 @@ import { tr, type Locale } from "@/lib/i18n";
 import { useIntelStore } from "@/store/useIntelStore";
 import type { LiveItem } from "@/types/feeds";
 import { FeedItemRow } from "./FeedItem";
+import { SourcesButton } from "./SourcesPopover";
 import { vehicleOf, type VehicleKind } from "./vehicleModel";
 import { ConflictsPanel } from "./ConflictsPanel";
 import {
@@ -29,7 +30,7 @@ import { useNow } from "./useNow";
 
 /**
  * Panneau « FIL MONDIAL » : liste chronologique des éléments du thème actif,
- * avec état réel de chaque source (chargement, erreur par source, vide honnête).
+ * avec une synthèse discrète des sources et un état vide honnête.
  */
 
 const THEME_SUBTITLES: Partial<Record<ThemeKey, { fr: string; en: string }>> = {
@@ -89,8 +90,8 @@ function UapNotice({ locale }: { locale: Locale }) {
         <p className="meta mt-2">
           {tr(
             locale,
-            "AARO (Pentagone, États-Unis) publie ses rapports sur aaro.mil ; son état de collecte figure ci-dessous et dans « Sources ».",
-            "AARO (Pentagon, USA) publishes its reports on aaro.mil; its collection status appears below and in “Sources”.",
+            "AARO (Pentagone, États-Unis) publie ses rapports sur aaro.mil ; son état de collecte figure dans « Sources ».",
+            "AARO (Pentagon, USA) publishes its reports on aaro.mil; its collection status appears in “Sources”.",
           )}
         </p>
       </details>
@@ -283,20 +284,13 @@ export function WorldFeedPanel() {
           ) : null}
 
           {failedRequests.length || failing.length ? (
-            <ul className="mx-4 mt-2 space-y-1" aria-live="polite">
-              {failedRequests.map((f) => (
-                <li key={`req-${f.category}`} className="error-note">
-                  {tr(locale, "Service des flux indisponible", "Feed service unavailable")} ({label(THEME_LABELS[f.category], locale)}) : {f.error}
-                </li>
-              ))}
-              {failing.map((s) => (
-                <li key={s.sourceId} className="error-note">
-                  {s.status === "stale" || s.health === "stale" ? tr(locale, "Source en retard", "Stale source") : tr(locale, "Source indisponible", "Source unavailable")} : {s.sourceName}
-                  {s.message ? ` — ${s.message}` : ""}
-                  {!s.message && s.health === "stale" && s.lastSuccessAt ? ` — ${tr(locale, "dernière actualisation réussie", "last successful refresh")} ${relativeTime(s.lastSuccessAt, locale, now)}` : ""}
-                </li>
-              ))}
-            </ul>
+            <div className="mx-4 mt-2" role="status" aria-live="polite">
+              <SourcesButton issueCounts={{
+                unavailable: failing.filter((source) => source.status !== "stale" && source.health !== "stale").length,
+                stale: failing.filter((source) => source.status === "stale" || source.health === "stale").length,
+                services: failedRequests.length,
+              }} />
+            </div>
           ) : null}
 
           <ul className="scroll-thin mt-2 min-h-0 flex-1 overflow-y-auto pb-2" aria-live="polite" aria-busy={busy}>
