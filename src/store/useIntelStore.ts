@@ -15,6 +15,7 @@ import { REAL_DATASETS } from "@/types/conflict";
 import type { FeedCategory, FeedSourceState, FeedsResponse, LiveItem } from "@/types/feeds";
 import { FETCH_CATEGORIES, inAllFeed, mergeCategoryResults, themeCovers, type CategoryResult, type ThemeKey } from "@/components/feeds/feedModel";
 import type { LayerFeature, LayerId } from "@/types/layers";
+import type { Camera, CameraCatalogResponse } from "@/types/cameras";
 import { featureAnchor, isLayerResponse, parseLayerCatalog, type LayerLoad, type LayerSummary } from "@/components/layers/layerModel";
 
 /**
@@ -83,6 +84,16 @@ interface IntelStore {
   selectLayerFeature: (selection: LayerSelection) => void;
   hoveredLayerFeature: LayerSelection;
   hoverLayerFeature: (selection: LayerSelection) => void;
+
+  camerasOn: boolean;
+  cameras: Camera[];
+  camerasTotal: number;
+  camerasStatus: "idle" | "loading" | "ok" | "stale" | "error";
+  camerasMessage: string | null;
+  toggleCameras: () => void;
+  loadCameras: (force?: boolean) => Promise<void>;
+  selectedCamera: Camera | null;
+  selectCamera: (camera: Camera | null) => void;
 
   /** Élément de flux inspecté (clic sur un point du globe ou dans le fil). */
   selectedFeedItem: LiveItem | null;
@@ -352,7 +363,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
     }
     detailSequence++;
     // Sélection unique : un élément de calque remplace fiche pays, foyer et élément de flux.
-    set({ selectedLayerFeature: selection, country: null, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null });
+    set({ selectedLayerFeature: selection, country: null, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null, selectedCamera: null });
     const anchor = featureAnchor(selection.feature);
     if (anchor) get().focus(anchor.lat, anchor.lon);
   },
@@ -362,11 +373,42 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
     if ((prev?.feature.id ?? null) !== (selection?.feature.id ?? null)) set({ hoveredLayerFeature: selection });
   },
 
+  camerasOn: false,
+  cameras: [],
+  camerasTotal: 0,
+  camerasStatus: "idle",
+  camerasMessage: null,
+  toggleCameras: () => {
+    const on = !get().camerasOn;
+    set({ camerasOn: on, ...(on ? {} : { selectedCamera: null }) });
+    if (on) void get().loadCameras();
+  },
+  loadCameras: async (force = false) => {
+    if (get().camerasStatus === "loading" || (!force && get().camerasStatus === "ok")) return;
+    set({ camerasStatus: "loading" });
+    try {
+      const response = await fetch("/api/cameras?provider=fintraffic&country=FI&limit=2500", { cache: "no-store" });
+      const body = await response.json() as CameraCatalogResponse;
+      if (!response.ok && body.status !== "error") throw new Error("Catalogue indisponible");
+      if (!Array.isArray(body.cameras) || !["ok", "stale", "error"].includes(body.status)) throw new Error("Réponse caméra invalide");
+      set({ cameras: body.cameras, camerasTotal: body.total, camerasStatus: body.status, camerasMessage: body.message });
+    } catch {
+      set({ camerasStatus: "error", camerasMessage: "Catalogue Fintraffic momentanément indisponible" });
+    }
+  },
+  selectedCamera: null,
+  selectCamera: (camera) => {
+    if (!camera) { set({ selectedCamera: null }); return; }
+    detailSequence++;
+    set({ selectedCamera: camera, country: null, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null, selectedLayerFeature: null });
+    get().focus(camera.latitude, camera.longitude);
+  },
+
   selectedFeedItem: null,
   selectFeedItem: (item) => {
     detailSequence++;
     // Sélection unique : inspecter un élément ferme la fiche pays, le foyer et l'élément de calque.
-    set(item ? { selectedFeedItem: item, country: null, selected: null, selectedEvents: [], selecting: false, selectedLayerFeature: null } : { selectedFeedItem: null });
+    set(item ? { selectedFeedItem: item, country: null, selected: null, selectedEvents: [], selecting: false, selectedLayerFeature: null, selectedCamera: null } : { selectedFeedItem: null });
     if (item && item.lat !== null && item.lon !== null) get().focus(item.lat, item.lon);
   },
   hoveredFeedId: null,
@@ -484,7 +526,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
       return;
     }
     // Sélection unique : un foyer ferme la fiche pays et l'élément (flux ou calque) inspecté.
-    set({ selected: cluster, selecting: true, selectedEvents: [], country: null, selectedFeedItem: null, selectedLayerFeature: null });
+    set({ selected: cluster, selecting: true, selectedEvents: [], country: null, selectedFeedItem: null, selectedLayerFeature: null, selectedCamera: null });
     get().focus(cluster.latitude, cluster.longitude);
     await get().loadClusterDetail(cluster);
   },
@@ -522,7 +564,7 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
     }
     // Sélection unique : la fiche pays remplace foyer et élément inspectés.
     detailSequence++;
-    set({ country, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null, selectedLayerFeature: null });
+    set({ country, selected: null, selectedEvents: [], selecting: false, selectedFeedItem: null, selectedLayerFeature: null, selectedCamera: null });
   },
   setHoveredCountry: (hoveredCountry) => set({ hoveredCountry }),
   setStreamStatus: (streamStatus) => set({ streamStatus }),

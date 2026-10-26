@@ -23,6 +23,7 @@ import { itemsForTheme, type ThemeKey } from '../feeds/feedModel';
 import { isPointPrecise } from '../feeds/conflictModel';
 import { GlobeGesture, globeFieldOfView, globeFrameDelta, globeMarkerBudget, globeQuality } from '@/lib/globeQuality';
 import { GlobeCameraController } from './GlobeCamera';
+import { CameraLayer } from './CameraLayer';
 
 /**
  * Points de flux visibles pour un thème (« conflict » : aucun, « all » : l'actualité).
@@ -43,6 +44,7 @@ export function GlobeScene() {
   const feedLayerRef = useRef<FeedLayer | null>(null);
   const referenceLayersRef = useRef<ReferenceLayers | null>(null);
   const mobileLayerRef = useRef<MobileLayer | null>(null);
+  const cameraLayerRef = useRef<CameraLayer | null>(null);
 
   const clusters = useIntelStore((s) => s.clusters);
   const selected = useIntelStore((s) => s.selected);
@@ -64,6 +66,10 @@ export function GlobeScene() {
   const layers = useIntelStore((s) => s.layers);
   const selectedLayer = useIntelStore((s) => s.selectedLayerFeature);
   const hoveredLayer = useIntelStore((s) => s.hoveredLayerFeature);
+  const camerasOn = useIntelStore((s) => s.camerasOn);
+  const cameras = useIntelStore((s) => s.cameras);
+  const selectedCameraId = useIntelStore((s) => s.selectedCamera?.id ?? null);
+  const degrees = useIntelStore((s) => s.degrees);
   const budgetSelectedId = Number.isFinite(quality.markerLimit) ? selected?.id : null;
   const budgetHoveredId = Number.isFinite(quality.markerLimit) ? hoveredId : null;
   const budgetSelectedFeedId = Number.isFinite(quality.markerLimit) ? selectedFeedId : null;
@@ -137,6 +143,10 @@ export function GlobeScene() {
     globeGroup.add(referenceLayers.group);
     referenceLayersRef.current = referenceLayers;
 
+    const cameraLayer = new CameraLayer(GLOBE.radius);
+    globeGroup.add(cameraLayer.group);
+    cameraLayerRef.current = cameraLayer;
+
     // Calque des flux mondiaux : au-dessus des foyers, sans toucher au rendu de la Terre.
     const feedLayer = new FeedLayer(GLOBE.radius);
     globeGroup.add(feedLayer.group);
@@ -152,6 +162,7 @@ export function GlobeScene() {
       qualityRef.current = next;
       setQuality(next);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, next.maxDpr));
+      cameraLayer.setPixelRatio(renderer.getPixelRatio());
       orbitLayer.group.visible = next.effects;
       starfield.group.traverse((object) => {
         if (!(object instanceof THREE.Points)) return;
@@ -183,6 +194,7 @@ export function GlobeScene() {
       mobileLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? feedLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? null;
     /** Élément d'un calque de référence allumé (~20 000 segments de câbles : ~1 ms par test). */
     const layerHit = (rect: DOMRect) => referenceLayersRef.current?.hitTest(camera, mouse, rect.width, rect.height, true) ?? null;
+    const cameraHit = (rect: DOMRect) => cameraLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height, globeGroup.matrixWorld, camera.position) ?? null;
 
     // Raycasting & picking analytique exact sur la sphère terrestre
     const raycaster = new THREE.Raycaster();
@@ -265,10 +277,11 @@ export function GlobeScene() {
         raycaster.setFromCamera(mouse, camera);
         const hit = conflictHit(rect);
         const itemHit = hit ? null : feedHit(rect);
-        const refHit = hit || itemHit ? null : layerHit(rect);
+        const camHit = hit || itemHit ? null : cameraHit(rect);
+        const refHit = hit || itemHit || camHit ? null : layerHit(rect);
         useIntelStore.getState().hoverFeed(itemHit?.id ?? null);
         useIntelStore.getState().hoverLayerFeature(refHit);
-        if (hit || itemHit || refHit) {
+        if (hit || itemHit || refHit || camHit) {
           container.style.cursor = 'pointer';
           hover(hit?.id ?? null);
           setHoveredCountry(null);
@@ -314,11 +327,14 @@ export function GlobeScene() {
       raycaster.setFromCamera(mouse, camera);
       const hit = conflictHit(rect);
       const itemHit = hit ? null : feedHit(rect);
-      const refHit = hit || itemHit ? null : layerHit(rect);
+      const camHit = hit || itemHit ? null : cameraHit(rect);
+      const refHit = hit || itemHit || camHit ? null : layerHit(rect);
       if (hit) {
         void select(hit);
       } else if (itemHit) {
         useIntelStore.getState().selectFeedItem(itemHit);
+      } else if (camHit) {
+        useIntelStore.getState().selectCamera(camHit);
       } else if (refHit) {
         useIntelStore.getState().selectLayerFeature(refHit);
       } else {
@@ -468,6 +484,7 @@ export function GlobeScene() {
       conflictLayer.dispose();
       feedLayer.dispose();
       referenceLayers.dispose();
+      cameraLayer.dispose();
       mobileLayer.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
@@ -503,6 +520,13 @@ export function GlobeScene() {
     if (!ref) return;
     for (const id of LAYER_ORDER) ref.setVisible(id, layersOn[id] && Boolean(layers[id]?.data?.features.length));
   }, [layersOn, layers]);
+
+  useEffect(() => {
+    const layer = cameraLayerRef.current;
+    if (!layer) return;
+    layer.group.visible = camerasOn;
+    if (camerasOn) layer.setCameras(cameras, degrees, selectedCameraId);
+  }, [camerasOn, cameras, degrees, selectedCameraId]);
 
   const nuclearData = layers.nuclear_plants?.data ?? null;
   const basesData = layers.military_bases?.data ?? null;

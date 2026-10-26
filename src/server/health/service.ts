@@ -6,6 +6,7 @@ import { publicApiHealth } from "@/server/publicApi/limits";
 // Imports pour leurs effets : chaque famille déclare ses sources dans le registre.
 import "@/server/feeds";
 import "@/server/layers";
+import "@/server/cameras";
 import { listSourceHealth, sourcesStatus, summarize } from "./registry";
 import { log } from "@/server/observability/logger";
 

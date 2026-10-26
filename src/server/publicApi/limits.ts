@@ -4,10 +4,10 @@ import { MINUTE_MS, minuteWindow, type RateLimitHealth } from "@/server/aura/rat
 import { rateLimitHealth, rateLimitStore } from "@/server/aura/rateLimitStore";
 import { increment } from "@/server/observability/metrics";
 
-export type PublicRoute = "events" | "latest" | "stats" | "feeds" | "cluster" | "briefing" | "briefing-write" | "coverage" | "country" | "layers" | "detection";
+export type PublicRoute = "events" | "latest" | "stats" | "feeds" | "cluster" | "briefing" | "briefing-write" | "coverage" | "country" | "layers" | "detection" | "cameras" | "camera-frame";
 const cost: Record<PublicRoute, number> = {
   events: 2, latest: 1, stats: 2, feeds: 2, cluster: 4,
-  briefing: 2, "briefing-write": 1, coverage: 1, country: 2, layers: 2, detection: 2,
+  briefing: 2, "briefing-write": 1, coverage: 1, country: 2, layers: 2, detection: 2, cameras: 2, "camera-frame": 4,
 };
 const metrics = globalThis as unknown as { __orbitalPublicRejected?: number; __orbitalSseActive?: number; __orbitalSseRejected?: number };
 

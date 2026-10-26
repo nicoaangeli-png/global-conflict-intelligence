@@ -179,7 +179,14 @@ export function LayersMenu({ embedded = false }: { embedded?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const mobilesOn = useIntelStore((s) => s.mobilesOn);
-  const active = LAYER_ORDER.filter((id) => layersOn[id]).length + Number(mobilesOn.aircraft) + Number(mobilesOn.vessel) + Number(mobilesOn.merchant);
+  const camerasOn = useIntelStore((s) => s.camerasOn);
+  const toggleCameras = useIntelStore((s) => s.toggleCameras);
+  const loadCameras = useIntelStore((s) => s.loadCameras);
+  const camerasStatus = useIntelStore((s) => s.camerasStatus);
+  const camerasMessage = useIntelStore((s) => s.camerasMessage);
+  const camerasCount = useIntelStore((s) => s.cameras.length);
+  const camerasTotal = useIntelStore((s) => s.camerasTotal);
+  const active = LAYER_ORDER.filter((id) => layersOn[id]).length + Number(mobilesOn.aircraft) + Number(mobilesOn.vessel) + Number(mobilesOn.merchant) + Number(camerasOn);
 
   // Catalogue (source, date, nombre d'éléments) demandé à chaque ouverture s'il manque :
   // dépendance volontaire à `open` seul, pour ne pas boucler sur un échec.
@@ -232,6 +239,12 @@ export function LayersMenu({ embedded = false }: { embedded?: boolean }) {
             <MobileRow kind="vessel" locale={locale} />
             <MobileRow kind="merchant" locale={locale} />
           </ul>
+          <h3 className="section-title mt-3 border-t border-[rgba(127,212,255,0.12)] pt-3">{tr(locale, "Caméras publiques", "Public cameras")}</h3>
+          <ul className="mt-2"><li className="layer-row" data-on={camerasOn}>
+            <label className="layer-toggle"><input type="checkbox" checked={camerasOn} onChange={toggleCameras} /><span className="layer-glyph" data-glyph="square" style={{ background: "#8be8ff" }} aria-hidden /><span className="layer-name">CAMÉRAS</span><span className="layer-state" data-tone={camerasStatus === "error" ? "error" : camerasStatus === "stale" ? "warn" : camerasOn ? "ok" : "off"}>{camerasStatus === "loading" ? tr(locale, "chargement…", "loading…") : camerasOn ? `${int(camerasCount)} / ${int(camerasTotal)}` : tr(locale, "désactivé", "off")}</span></label>
+            <p className="meta layer-meta">Fintraffic / Digitraffic · Finlande · {tr(locale, "images périodiques ~10 min, pas de vidéo directe", "periodic images ~10 min, no live video")} · CC BY 4.0</p>
+            {camerasOn && camerasMessage ? <p className={camerasStatus === "error" ? "error-note mt-1" : "meta mt-1"}>{camerasMessage} <button type="button" className="link-button ml-2" onClick={() => void loadCameras(true)}>{tr(locale, "Réessayer", "Retry")}</button></p> : null}
+          </li></ul>
           <h3 className="section-title mt-3 border-t border-[rgba(127,212,255,0.12)] pt-3">{tr(locale, "Calques de référence", "Reference layers")}</h3>
           <p className="meta mt-0.5">{tr(locale, "Ce qui existe (installations, câbles, listes officielles) — pas des événements.", "What exists (facilities, cables, official lists) — not events.")}</p>
           {catalogStatus === "error" ? <p className="error-note mt-2">{tr(locale, "Catalogue des calques indisponible", "Layer catalog unavailable")} : {catalogError}</p> : null}
