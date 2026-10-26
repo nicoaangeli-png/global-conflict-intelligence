@@ -174,6 +174,7 @@ et la stratégie de concurrence sont décrites dans `docs/postgres-detection.md`
 - `GET /api/latest` : événements récents filtrés.
 - `GET /api/country?iso=IRN` : indicateurs Banque mondiale ; ISO alpha-3 requis.
 - `GET /api/feeds` : flux mondiaux thématiques et état de chaque source.
+- `GET /api/cameras` : caméras routières Fintraffic en Finlande, métadonnées bornées ; images JPEG à la sélection via `/api/cameras/{id}/frame`. Voir [fournisseur, fraîcheur, cache et licence](docs/cameras-fintraffic.md).
 - `GET /api/stream` : notifications SSE, sans promesse d'exhaustivité temps réel.
 
 Les séries utilisent des cases horaires sur 24 h, journalières sur les fenêtres
