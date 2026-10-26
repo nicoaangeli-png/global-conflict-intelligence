@@ -1,6 +1,6 @@
 import "server-only";
 
-export const ROUTES = ["/api/events", "/api/latest", "/api/stats", "/api/feeds", "/api/cluster", "/api/briefing", "/api/coverage", "/api/country", "/api/layers", "/api/detection", "/api/stream", "/api/agent", "/api/agent/voice", "/api/ingest", "/api/health", "/api/health/live", "/api/health/ready", "/api/metrics", "/api/sources/status", "other"] as const;
+export const ROUTES = ["/api/events", "/api/latest", "/api/stats", "/api/feeds", "/api/cluster", "/api/briefing", "/api/coverage", "/api/country", "/api/layers", "/api/cameras", "/api/cameras/detail", "/api/cameras/frame", "/api/detection", "/api/stream", "/api/agent", "/api/agent/voice", "/api/ingest", "/api/health", "/api/health/live", "/api/health/ready", "/api/metrics", "/api/sources/status", "other"] as const;
 export type Route = typeof ROUTES[number];
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "OTHER"];
 const STATUSES = [200, 201, 202, 204, 206, 301, 302, 304, 307, 308, 400, 401, 403, 404, 405, 408, 409, 410, 413, 415, 422, 429, 499, 500, 502, 503, 504].map(String);
@@ -41,7 +41,7 @@ export function normalizedMethod(method: string): string { return METHODS.includ
 
 /** Les IDs proviennent du registre serveur, jamais d'une URL client. Plafond dur de 128. */
 export function registerMetricSource(source: string): void {
-  try { if (/^(feed|connector|layer):[a-z0-9_-]{1,48}$/.test(source) && state().sources.size < 128) state().sources.add(source); } catch { /* observation facultative */ }
+  try { if (/^(feed|connector|layer|camera):[a-z0-9_-]{1,48}$/.test(source) && state().sources.size < 128) state().sources.add(source); } catch { /* observation facultative */ }
 }
 
 function series(name: Metric, labels: Record<string, string>): Series | null {

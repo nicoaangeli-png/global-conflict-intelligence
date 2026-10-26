@@ -13,7 +13,7 @@
 export const SOURCE_HEALTH_STATUSES = ["healthy", "degraded", "stale", "unavailable", "unconfigured", "pending"] as const;
 export type SourceHealthStatus = (typeof SOURCE_HEALTH_STATUSES)[number];
 
-export type SourceKind = "feed" | "connector" | "layer";
+export type SourceKind = "feed" | "connector" | "layer" | "camera";
 
 export interface SourceHealth {
   /** Identifiant stable, préfixé par la famille (`feed:usgs`, `connector:ucdp`, `layer:sanctions`). */
