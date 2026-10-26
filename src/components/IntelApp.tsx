@@ -118,6 +118,7 @@ export function IntelApp() {
     void state.select(null);
     state.selectFeedItem(null);
     state.selectLayerFeature(null);
+    state.selectCamera(null);
   };
 
   const openPane = (pane: MobilePane) => {
@@ -197,6 +198,7 @@ export function IntelApp() {
       }
       if (s.selectedFeedItem) return s.selectFeedItem(null);
       if (s.selectedLayerFeature) return s.selectLayerFeature(null);
+      if (s.selectedCamera) return s.selectCamera(null);
       if (s.selected) return void s.select(null);
       if (s.country) return s.setCountry(null);
     };

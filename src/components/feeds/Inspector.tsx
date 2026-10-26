@@ -5,6 +5,7 @@ import { ClusterDetail } from "./ClusterDetail";
 import { CountryPanel } from "./CountryPanel";
 import { FeedItemDetail } from "./FeedItem";
 import { LayerFeatureDetail } from "@/components/layers/LayerFeatureDetail";
+import { CameraDetail } from "@/components/cameras/CameraDetail";
 import { useNow } from "./useNow";
 
 /**
@@ -17,8 +18,10 @@ export function Inspector() {
   const selected = useIntelStore((s) => s.selected);
   const item = useIntelStore((s) => s.selectedFeedItem);
   const layerItem = useIntelStore((s) => s.selectedLayerFeature);
+  const camera = useIntelStore((s) => s.selectedCamera);
   const locale = useIntelStore((s) => s.locale);
   const now = useNow();
+  if (camera) return <CameraDetail key={camera.id} camera={camera} locale={locale} now={now} />;
   if (item) return <FeedItemDetail item={item} locale={locale} now={now} />;
   if (layerItem) return <LayerFeatureDetail key={layerItem.feature.id} layerId={layerItem.layerId} feature={layerItem.feature} locale={locale} />;
   if (selected) return <ClusterDetail />;
@@ -26,6 +29,6 @@ export function Inspector() {
   return null;
 }
 
-export function hasInspection(state: { country: unknown; selected: unknown; selectedFeedItem: unknown; selectedLayerFeature: unknown }) {
-  return Boolean(state.country || state.selected || state.selectedFeedItem || state.selectedLayerFeature);
+export function hasInspection(state: { country: unknown; selected: unknown; selectedFeedItem: unknown; selectedLayerFeature: unknown; selectedCamera?: unknown }) {
+  return Boolean(state.country || state.selected || state.selectedFeedItem || state.selectedLayerFeature || state.selectedCamera);
 }
