@@ -68,6 +68,7 @@ export function GlobeScene() {
   const hoveredLayer = useIntelStore((s) => s.hoveredLayerFeature);
   const camerasOn = useIntelStore((s) => s.camerasOn);
   const cameras = useIntelStore((s) => s.cameras);
+  const cameraFilter = useIntelStore((s) => s.cameraFilter);
   const selectedCameraId = useIntelStore((s) => s.selectedCamera?.id ?? null);
   const degrees = useIntelStore((s) => s.degrees);
   const budgetSelectedId = Number.isFinite(quality.markerLimit) ? selected?.id : null;
@@ -525,8 +526,16 @@ export function GlobeScene() {
     const layer = cameraLayerRef.current;
     if (!layer) return;
     layer.group.visible = camerasOn;
-    if (camerasOn) layer.setCameras(cameras, degrees, selectedCameraId);
-  }, [camerasOn, cameras, degrees, selectedCameraId]);
+    if (camerasOn) {
+      const now = Date.now();
+      const filtered = cameras.filter((item) => cameraFilter === "all" ||
+        cameraFilter === "live" && item.mediaType === "live_video" ||
+        cameraFilter === "snapshots" && item.mediaType === "periodic_snapshot" ||
+        cameraFilter === "one_minute" && item.capturedAt !== null && now - Date.parse(item.capturedAt) <= 60_000 ||
+        cameraFilter === "five_minutes" && item.capturedAt !== null && now - Date.parse(item.capturedAt) <= 300_000);
+      layer.setCameras(filtered, degrees, selectedCameraId);
+    }
+  }, [camerasOn, cameras, cameraFilter, degrees, selectedCameraId]);
 
   const nuclearData = layers.nuclear_plants?.data ?? null;
   const basesData = layers.military_bases?.data ?? null;

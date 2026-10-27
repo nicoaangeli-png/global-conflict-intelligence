@@ -185,7 +185,13 @@ export function LayersMenu({ embedded = false }: { embedded?: boolean }) {
   const camerasStatus = useIntelStore((s) => s.camerasStatus);
   const camerasMessage = useIntelStore((s) => s.camerasMessage);
   const camerasCount = useIntelStore((s) => s.cameras.length);
+  const cameras = useIntelStore((s) => s.cameras);
   const camerasTotal = useIntelStore((s) => s.camerasTotal);
+  const cameraCounts = useIntelStore((s) => s.cameraCounts);
+  const cameraFilter = useIntelStore((s) => s.cameraFilter);
+  const setCameraFilter = useIntelStore((s) => s.setCameraFilter);
+  const selectCamera = useIntelStore((s) => s.selectCamera);
+  const featuredCameras = cameras.filter((camera) => cameraFilter === "all" || cameraFilter === "live" && camera.mediaType === "live_video" || cameraFilter === "snapshots" && camera.mediaType === "periodic_snapshot" || cameraFilter === "one_minute" && camera.capturedAt !== null && Date.now() - Date.parse(camera.capturedAt) <= 60_000 || cameraFilter === "five_minutes" && camera.capturedAt !== null && Date.now() - Date.parse(camera.capturedAt) <= 300_000).slice(0, 3);
   const active = LAYER_ORDER.filter((id) => layersOn[id]).length + Number(mobilesOn.aircraft) + Number(mobilesOn.vessel) + Number(mobilesOn.merchant) + Number(camerasOn);
 
   // Catalogue (source, date, nombre d'éléments) demandé à chaque ouverture s'il manque :
@@ -242,7 +248,16 @@ export function LayersMenu({ embedded = false }: { embedded?: boolean }) {
           <h3 className="section-title mt-3 border-t border-[rgba(127,212,255,0.12)] pt-3">{tr(locale, "Caméras publiques", "Public cameras")}</h3>
           <ul className="mt-2"><li className="layer-row" data-on={camerasOn}>
             <label className="layer-toggle"><input type="checkbox" checked={camerasOn} onChange={toggleCameras} /><span className="layer-glyph" data-glyph="square" style={{ background: "#8be8ff" }} aria-hidden /><span className="layer-name">CAMÉRAS</span><span className="layer-state" data-tone={camerasStatus === "error" ? "error" : camerasStatus === "stale" ? "warn" : camerasOn ? "ok" : "off"}>{camerasStatus === "loading" ? tr(locale, "chargement…", "loading…") : camerasOn ? `${int(camerasCount)} / ${int(camerasTotal)}` : tr(locale, "désactivé", "off")}</span></label>
-            <p className="meta layer-meta">Fintraffic / Digitraffic · Finlande · {tr(locale, "images périodiques ~10 min, pas de vidéo directe", "periodic images ~10 min, no live video")} · CC BY 4.0</p>
+            <p className="meta layer-meta">{tr(locale, "Réseau public mondial", "Worldwide public network")} · {tr(locale, "vidéo, image récente et instantané distingués", "video, recent image and snapshot distinguished")}</p>
+            {camerasOn ? <div className="meta mt-2 ml-5">
+              <span>TOTAL {int(camerasTotal)}</span> · <span>LIVE {int(cameraCounts.liveVideo)}</span> · <span>{tr(locale, "QUASI-DIRECT", "NEAR LIVE")} {int(cameraCounts.nearLiveImage)}</span> · <span>SNAPSHOTS {int(cameraCounts.periodicSnapshot)}</span>
+              <div className="flex flex-wrap gap-1 mt-2" role="group" aria-label={tr(locale, "Filtre caméras", "Camera filter")}>
+                {([ ["all", "TOUT"], ["live", "LIVE"], ["one_minute", "< 1 MIN"], ["five_minutes", "< 5 MIN"], ["snapshots", "SNAPSHOTS"] ] as const).map(([id, label]) => <button key={id} type="button" className="chip shrink-0 whitespace-nowrap px-2" aria-pressed={cameraFilter === id} onClick={() => setCameraFilter(id)}>{label}</button>)}
+              </div>
+              {featuredCameras.length ? <div className="mt-2 space-y-1" aria-label={tr(locale, "Caméras à explorer", "Explore cameras")}>
+                {featuredCameras.map((camera) => <button key={camera.id} type="button" className="block w-full truncate text-left text-[11px] text-[#8be8ff] hover:text-white" onClick={() => selectCamera(camera)}>{camera.mediaType === "live_video" ? "● " : "◇ "}{camera.name ?? camera.id} · {camera.providerName}</button>)}
+              </div> : null}
+            </div> : null}
             {camerasOn && camerasMessage ? <p className={camerasStatus === "error" ? "error-note mt-1" : "meta mt-1"}>{camerasMessage} <button type="button" className="link-button ml-2" onClick={() => void loadCameras(true)}>{tr(locale, "Réessayer", "Retry")}</button></p> : null}
           </li></ul>
           <h3 className="section-title mt-3 border-t border-[rgba(127,212,255,0.12)] pt-3">{tr(locale, "Calques de référence", "Reference layers")}</h3>
