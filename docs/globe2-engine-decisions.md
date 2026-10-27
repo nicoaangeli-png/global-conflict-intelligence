@@ -10,12 +10,12 @@ Base : `origin/main` `465747d4d2d44a8c12cbfa94fec8718b1dc5a1e1`. Portée : **ARC
 - **CONSEQUENCES** : effort substantiel de géodésie, terrain, culling et outillage ; contrats testables requis.
 - **REVERSIBILITY** : élevée tant que le moteur est isolé ; chaque module derrière adaptateur/flag.
 
-## D02 — Géodésie canonique WGS84 en mètres
+## D02 — Donnée source distincte de la position canonique WGS84
 
-- **DECISION** : `GeoPoint` WGS84, ECEF double précision et ENU pour le local ; axes Three compatibles avec le globe courant par rotation explicite.
+- **DECISION** : `SourceGeoPoint` conserve `heightM: number | null` et le datum vertical reçu (`WGS84_ELLIPSOID`, `MSL`, `AGL`, `UNKNOWN`). Seul un résolveur explicite produit un `GeoPoint` à hauteur ellipsoïdale WGS84 numérique admis par ECEF double précision ; ENU sert au local et les axes Three restent compatibles par rotation explicite. `clampToTerrain` est un placement visuel déclaré, jamais une altitude source inventée.
 - **WHY** : zoom de l'espace au sol, altitudes et picking cohérents, sans utiliser le rayon graphique `1` comme unité réelle.
-- **ALTERNATIVES REJECTED** : poursuivre les calculs sphériques `latlon.ts` jusqu'à STREET ; laisser une bibliothèque imposer l'API géographique.
-- **CONSEQUENCES** : datums d'altitude inconnus restent inconnus ; conversions et cas limites à tester avant rendu.
+- **ALTERNATIVES REJECTED** : convertir `null`, `MSL`, `AGL` ou `UNKNOWN` silencieusement en WGS84 ; poursuivre les calculs sphériques `latlon.ts` jusqu'à STREET ; laisser une bibliothèque imposer l'API géographique.
+- **CONSEQUENCES** : sans modèle de géoïde ou terrain vérifié, une altitude non ellipsoïdale reste non résolue ; conversion, provenance et cas limites à tester avant rendu.
 - **REVERSIBILITY** : moyenne après création de données/tiles ; verrouiller convention et version dès Phase 1.
 
 ## D03 — Origine flottante unique et versionnée
@@ -28,19 +28,19 @@ Base : `origin/main` `465747d4d2d44a8c12cbfa94fec8718b1dc5a1e1`. Portée : **ARC
 
 ## D04 — Caméra interne et commandes arbitrées
 
-- **DECISION** : Camera Engine indépendant de Three, pose double précision et commandes typées ; l'utilisateur interrompt un fly-to/tracking automatisé.
+- **DECISION** : Camera Engine indépendant de Three, pose double précision et union discriminée `GlobeCommand` (`flyTo`, `focus`, `track`, `setLayer`, `select`, `inspect`) avec payload propre à chaque action ; l'utilisateur interrompt un fly-to/tracking automatisé.
 - **WHY** : feed, AURA, sélection et gestes doivent piloter le même monde sans conflits.
-- **ALTERNATIVES REJECTED** : exposer directement `THREE.PerspectiveCamera` à chaque panneau ; utiliser un contrôleur de viewer tiers.
+- **ALTERNATIVES REJECTED** : charge utile non typée dans l'API centrale, blob arbitraire émis par AURA, accès direct de chaque panneau à `THREE.PerspectiveCamera`, contrôleur de viewer tiers.
 - **CONSEQUENCES** : transition orbitale/oblique/sol, collision terrain et near/far à concevoir et tester.
 - **REVERSIBILITY** : élevée avant branchement du globe de production ; ancien `GlobeCameraController` reste disponible.
 
-## D05 — Quadtree cube-sphere et adaptateurs de terrain
+## D05 — Index de tuiles interne ; cube-sphere candidat privilégié
 
-- **DECISION** : index de tuiles interne `face/z/x/y`, sélection frustum+horizon+erreur écran ; données sources derrière des adaptateurs déclarant datum, licence et couverture.
-- **WHY** : comportement stable aux pôles et contrôle du LOD/terrain sans fournisseur obligatoire.
-- **ALTERNATIVES REJECTED** : imposer le découpage d'une API de tuiles ; dépendance à une source commerciale ; chargement de tout le DEM.
-- **CONSEQUENCES** : coût de couture entre faces, reprojection et scheduler ; parent/ellipsoïde de secours.
-- **REVERSIBILITY** : moyenne ; clé interne stable et adaptateurs rendent les fournisseurs remplaçables.
+- **DECISION** : ORBITAL possède l'index de tuiles et la sélection frustum+horizon+erreur écran. Le quadtree cube-sphere `face/z/x/y` est le **candidat de référence, non gelé** ; un POC Tile/LOD propriétaire le comparera au minimum à un quadtree géographique avec traitement polaire avant décision finale. Les données sources restent derrière des adaptateurs déclarant datum, licence et couverture.
+- **WHY** : cube-sphere promet un meilleur comportement polaire et une distribution plus régulière, tout en laissant ORBITAL contrôler le LOD et l'index interne.
+- **ALTERNATIVES REJECTED** : laisser un fournisseur imposer son découpage interne ; source commerciale obligatoire ; chargement de tout le DEM. L'alternative géographique n'est **pas** rejetée avant le POC comparatif.
+- **CONSEQUENCES** : mesurer couture inter-faces, complexité des voisins, projection, sélection, stabilité LOD et coûts CPU/GPU sur les mêmes cas ; conserver parent/ellipsoïde de secours. La structure finale ne sera gelée qu'après ces mesures.
+- **REVERSIBILITY** : élevée avant le POC et le gel de l'index ; les adaptateurs doivent garder les fournisseurs remplaçables.
 
 ## D06 — Surface progressive sous style ORBITAL
 
@@ -92,7 +92,7 @@ Base : `origin/main` `465747d4d2d44a8c12cbfa94fec8718b1dc5a1e1`. Portée : **ARC
 
 ## D12 — AURA visuelle inchangée, capacités par interface
 
-- **DECISION** : `AuraCore`/`AgentPanel` restent la référence visuelle ; AURA émet des commandes validées vers le moteur, sans accès direct à Three ou aux stores internes de couches.
+- **DECISION** : `AuraCore`/`AgentPanel` restent la référence visuelle ; AURA émet les mêmes variantes typées de `GlobeCommand` que l'utilisateur, le feed et la timeline, avec validation d'exécution, sans blob arbitraire ni accès direct à Three ou aux stores internes de couches.
 - **WHY** : augmenter les capacités sans refaire l'identité AURA.
 - **ALTERNATIVES REJECTED** : nouveau chat SaaS, automatisation qui prend le contrôle après un geste utilisateur.
 - **CONSEQUENCES** : permissions, feedback de commande, annulation et journal de résultats à définir.

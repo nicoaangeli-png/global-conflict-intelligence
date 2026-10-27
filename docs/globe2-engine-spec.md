@@ -51,7 +51,14 @@ Le **modèle géospatial** (géodésie, caméra, visibilité, tuiles, LOD, séle
 Contrats internes proposés (non implémentés) :
 
 ```ts
+type SourceGeoPoint = Readonly<{ latDeg: number; lonDeg: number; heightM: number | null;
+  verticalDatum: 'WGS84_ELLIPSOID' | 'MSL' | 'AGL' | 'UNKNOWN' }>;
 type GeoPoint = Readonly<{ latDeg: number; lonDeg: number; heightM: number; datum: 'WGS84' }>;
+type GeoResolution =
+  | Readonly<{ status: 'resolved'; point: GeoPoint;
+      method: 'source-ellipsoid' | 'verified-geoid' | 'verified-terrain'; provenance: string }>
+  | Readonly<{ status: 'unresolved'; reason: 'missing-height' | 'unknown-datum' | 'missing-model' | 'invalid-position' }>;
+type ResolveSourcePosition = (source: SourceGeoPoint) => GeoResolution;
 type EcefMeters = Readonly<{ x: number; y: number; z: number }>;
 type RenderVector = Readonly<{ x: number; y: number; z: number; originEpoch: number }>;
 type ViewState = Readonly<{ eye: GeoPoint; target: GeoPoint | null; headingRad: number; pitchRad: number;
@@ -59,11 +66,31 @@ type ViewState = Readonly<{ eye: GeoPoint; target: GeoPoint | null; headingRad: 
 type ViewFootprint = Readonly<{ spans: Array<{ west: number; south: number; east: number; north: number }>;
   center: GeoPoint | null; groundSpanM: number | null; horizonVisible: boolean; revision: number }>;
 type SelectionKey = Readonly<{ kind: 'event' | 'feed' | 'country' | 'mobile' | 'camera' | 'satellite' | 'reference'; id: string }>;
-type GlobeCommand = Readonly<{ id: string; source: 'user' | 'feed' | 'aura' | 'timeline';
-  action: 'flyTo' | 'focus' | 'track' | 'setLayer' | 'select' | 'inspect'; payload: unknown }>;
+type MapAnchor = Readonly<{ latDeg: number; lonDeg: number }>;
+type GlobeTarget =
+  | Readonly<{ kind: 'object'; key: SelectionKey }>
+  | Readonly<{ kind: 'map-point'; id: string; position: MapAnchor }>
+  | Readonly<{ kind: 'area'; id: string; bounds: ViewFootprint['spans'] }>;
+type GlobeLayerId = 'conflicts' | 'feed' | 'aircraft' | 'vessels' | 'cameras' | 'satellites'
+  | 'weather' | 'nuclear_plants' | 'military_bases' | 'submarine_cables' | 'sanctions';
+type CommandBase<Action extends string> = Readonly<{ id: string;
+  source: 'user' | 'feed' | 'aura' | 'timeline'; action: Action; issuedAt: string }>;
+type FlyToCommand = CommandBase<'flyTo'> & Readonly<{ payload: {
+  target: GlobeTarget; framing: 'center' | 'fit'; durationMs?: number } }>;
+type FocusCommand = CommandBase<'focus'> & Readonly<{ payload: { target: GlobeTarget } }>;
+type TrackCommand = CommandBase<'track'> & Readonly<{ payload: {
+  target: Readonly<{ kind: 'mobile' | 'satellite'; id: string }>; enabled: boolean } }>;
+type SetLayerCommand = CommandBase<'setLayer'> & Readonly<{ payload: {
+  layerId: GlobeLayerId; visible: boolean } }>;
+type SelectCommand = CommandBase<'select'> & Readonly<{ payload: { target: SelectionKey | null } }>;
+type InspectCommand = CommandBase<'inspect'> & Readonly<{ payload: { target: SelectionKey } }>;
+type GlobeCommand = FlyToCommand | FocusCommand | TrackCommand | SetLayerCommand
+  | SelectCommand | InspectCommand;
 ```
 
-`GeoPoint.heightM` est une hauteur **ellipsoïdale** ; l'altitude d'une source qui n'a pas de datum connu reste `null` dans l'adaptateur, jamais transformée implicitement en WGS84. L'API de rendu reçoit des `Float32Array` relatifs à l'origine, jamais des coordonnées globales en float. La sélection possède une clé stable et un résolveur de détails ; un objet choisi reste épinglé hors budget de couches si sa position est encore valide. Les commandes portent un identifiant, une origine et un résultat (`accepted`, `completed`, `cancelled`, `failed`) afin d'éviter qu'un fly-to AURA ancien écrase une interaction utilisateur plus récente. L'utilisateur a priorité sur l'automatisation.
+`SourceGeoPoint` représente la donnée reçue : hauteur `null` et datum `UNKNOWN` restent possibles. `GeoPoint` est une **position canonique du moteur** : hauteur numérique ellipsoïdale WGS84 résolue, seule entrée admise par `toEcef`. `ResolveSourcePosition` renvoie une résolution explicite, avec méthode et provenance ou motif de refus ; il ne renvoie un `GeoPoint` directement que si `heightM` est fini et `verticalDatum === 'WGS84_ELLIPSOID'`. Pour `MSL` ou `AGL`, une conversion exige un modèle de géoïde ou une référence terrain identifiés, compatibles, disponibles et tracés dans la provenance ; sinon le résultat reste non résolu. `null` ou `UNKNOWN` ne sont jamais convertis par défaut en `0 m`. Pour représenter un objet sans hauteur connue sur la surface, `clampToTerrain` est une règle de **placement visuel** avec statut et source conservés, pas une modification de la donnée source ni une conversion ECEF canonique implicite.
+
+`MapAnchor` est une cible horizontale de navigation, sans prétention d'altitude ; un cadrage de zone ou de point n'invente donc pas de hauteur source. Chaque variante de `GlobeCommand` possède un payload statiquement typé et une cible ou couche identifiable. Les émetteurs utilisateur, feed, AURA et timeline passent par la même validation de coordonnées, d'identifiants, de durée et d'autorisation à l'exécution ; AURA n'envoie aucun objet arbitraire au moteur. L'API de rendu reçoit des `Float32Array` relatifs à l'origine, jamais des coordonnées globales en float. La sélection possède une clé stable et un résolveur de détails ; un objet choisi reste épinglé hors budget de couches si sa position est encore valide. Les commandes portent un identifiant, une origine et un résultat (`accepted`, `completed`, `cancelled`, `failed`) afin d'éviter qu'un fly-to AURA ancien écrase une interaction utilisateur plus récente. L'utilisateur a priorité sur l'automatisation.
 
 ### Modules : responsabilité et cycle de vie
 
@@ -75,7 +102,7 @@ Chaque ligne précise **entrées → sortie / API**, état, dépendances, worker
 | **Coordinate System** | `GeoPoint`, ECEF, ancre → `toEcef`, `fromEcef`, `enuFrame`, `toRender` | Convention d'axes et unités ; dépend Geo Core ; pur, sans worker/cache | Pas de ressource ; risques datum, unités et axes ; tests aller-retour, ENU, compatibilité sphère actuelle. |
 | **Floating Origin** | ECEF caméra/objets → `rebase(origin, epoch)`, positions relatives | Origine ECEF en double, epoch ; dépend Geo Core ; aucun cache | Invalider buffers/anciennes réponses d'epoch ; risque saut de frame ; tests invariance avant/après rebase et picking. |
 | **Camera Engine** | gestes/commandes + terrain → `step(dt)`, `flyTo`, `track`, `viewState`, `footprint` | Pose/cible/velocity double ; Geo, terrain ; pas de worker, snapshots de footprint memoïsés par revision | Annuler vols/listeners ; risques clipping, sous-sol, conflits user/AURA ; tests cinématique, horizon, mobile. |
-| **Tile Engine** | empreinte/frustum/horizon + manifest → `selectTiles`, `request`, `release` | Quadtree cube-sphere, état pending/ready/fallback ; Geo, LOD ; worker de décodage, cache LRU mémoire/disque HTTP | Abort, générations, GPU eviction ; risques fissures/emballement réseau ; tests visibilité, priorité, annulation, pôles. |
+| **Tile Engine** | empreinte/frustum/horizon + manifest → `selectTiles`, `request`, `release` | Index interne à valider (quadtree cube-sphere privilégié), état pending/ready/fallback ; Geo, LOD ; worker de décodage, cache LRU mémoire/disque HTTP | Abort, générations, GPU eviction ; risques fissures/emballement réseau ; tests comparatifs visibilité, priorité, annulation, pôles. |
 | **Terrain Engine** | tuiles hauteur/datum → `heightAt`, `meshFor`, `normalAt` | Mesh et min/max hauteur par tuile ; Tile/Geo ; worker mesh, cache hauteur partagé avec picking | Dispose geometry/texture ; risques datum, trous, bordures ; tests skirts, erreurs de source, repli, collision. |
 | **LOD Engine** | erreur géométrique, distance, budget → `choose`, `hysteresis`, `pin` | Nœuds actifs et budget par couche ; Tile/Camera ; worker optionnel, cache par clé de tuile | Libérer parents/enfants et pinned refs ; risque pop/oscillation ; tests SSE, parent fallback, saturation. |
 | **Semantic Zoom Engine** | `ViewState` + `ViewFootprint` + sélection → `classify`, `transition` | État `SPACE..SENSOR`, délai/hystérésis ; Geo/Camera ; pur, pas de worker/cache | Reset au démontage ; risque niveaux instables ; tests seuils, FOV, viewport, fly-to, sélection. |
@@ -96,7 +123,7 @@ Le registre de couches est un contrat d'adaptation, pas une migration automatiqu
 
 ## 3. Geo Core propriétaire : conventions mathématiques
 
-- **Entrée canonique** : WGS84, degrés signés latitude `[-90,90]`, longitude normalisée `[-180,180)`, hauteur ellipsoïdale en mètres. Rejeter NaN/infini et conserver explicitement les datums d'altitude inconnus. `0,0` est une coordonnée valide si réellement fournie.
+- **Entrée canonique** : `GeoPoint` WGS84, degrés signés latitude `[-90,90]`, longitude normalisée `[-180,180)`, hauteur ellipsoïdale résolue en mètres. Rejeter NaN/infini. Une `SourceGeoPoint` à hauteur ou datum inconnu reste hors des conversions ECEF tant qu'un résolveur explicite n'a pas produit cette entrée canonique. `0,0` est une coordonnée valide si réellement fournie.
 - **ECEF** : repère terrestre droitier, `X` équateur/Greenwich, `Y` équateur/90° E, `Z` pôle Nord. Avec `a=6378137 m`, `f=1/298.257223563`, `e²=f(2−f)`, `N=a/√(1−e²sin²φ)` : `X=(N+h)cosφcosλ`, `Y=(N+h)cosφsinλ`, `Z=(N(1−e²)+h)sinφ`. Inverse itératif borné près des pôles, validation d'erreur et convergence ; cas centre Terre rejeté.
 - **Axes Three.js** : préserver la convention du globe actuel par `(x,y,z)=(ECEF.X, ECEF.Z, −ECEF.Y) × scale`, rotation droite. À la surface de référence, `scale=1/a` pour une transition contrôlée depuis `GLOBE.radius=1`, sans faire de ce rayon une unité métier.
 - **ENU** au point d'ancrage : est `(-sinλ,cosλ,0)`, nord `(-sinφcosλ,-sinφsinλ,cosφ)`, haut normal ellipsoïdal `(cosφcosλ,cosφsinλ,sinφ)` en ECEF ; transformer ensuite vers les axes de rendu. Utiliser ENU pour navigation locale, heading, labels et objets proches, pas pour stocker des positions globales.
@@ -116,7 +143,7 @@ Près du sol : `near/far` adaptatifs à l'altitude et aux bounds visibles, depth
 
 ## 5. Tuiles, terrain et surface
 
-**Structure retenue pour le moteur** : quadtree sur six faces de cube projetées vers l'ellipsoïde, afin de réduire les pathologies polaires d'une grille lat/lon et d'avoir une clé `face/z/x/y`. Coût accepté : voisinage et couture entre faces. Les fournisseurs ne dictent pas le découpage interne ; un adaptateur reprojette/décode DEM raster, quantized mesh ou données auto-hébergées vers l'échantillonnage canonique. Il doit déclarer datum vertical, résolution, couverture, licence, attribution, TTL et disponibilité. Un datum inconnu ne se convertit pas silencieusement.
+**Candidat privilégié, non gelé** : quadtree sur six faces de cube projetées vers l'ellipsoïde, pour son comportement polaire, sa distribution de tuiles et le contrôle de la clé interne `face/z/x/y`. Un futur **POC Tile/LOD propriétaire** devra le comparer au minimum à un quadtree géographique lat/lon avec gestion polaire explicite, sur les mêmes données et vues. Mesurer la couture inter-faces, la complexité des voisins, le coût de projection, la sélection des tuiles, la stabilité LOD et les coûts CPU/GPU, notamment aux pôles et à l'antiméridien. La structure finale ne sera gelée qu'après cette preuve expérimentale ; aucun fournisseur ne dicte l'index interne. Quel que soit l'index choisi, un adaptateur reprojette/décode DEM raster, quantized mesh ou données auto-hébergées vers l'échantillonnage canonique. Il déclare datum vertical, résolution, couverture, licence, attribution, TTL et disponibilité. Un datum inconnu ne se convertit pas silencieusement.
 
 Sélection des tuiles : intersection frustum + test d'horizon **conservateur**, erreur géométrique projetée en pixels CSS, état parent maintenu jusqu'à ce que tous les enfants utiles soient prêts. Priorités : (1) terrain sous caméra/cible et objet sélectionné ; (2) centre écran ; (3) périphérie/prélecture de mouvement. Hystérésis LOD et `AbortController` par requête ; réponse d'une ancienne `viewRevision` ou `originEpoch` ignorée. Limites de concurrence réseau et de génération mesh ; cache LRU séparé pour hauteurs CPU, géométries GPU et images, avec pinning du parent/fallback et de la sélection. Respect ETag/Cache-Control/attribution des fournisseurs ; aucun token dans le client si secret serveur.
 
@@ -185,7 +212,7 @@ Sécurité réseau : URL de tuiles/médias issue de manifestes fournisseurs vali
 
 ## 9. Tests et critères d'acceptation
 
-- **Sans WebGL** : lat/lon/hauteur ↔ ECEF (équateur, pôles, antiméridien, altitude), ENU orthonormal, distances, bbox coupée à ±180°, horizon conservateur, ray/ellipsoïde, floating origin et `originEpoch`, déterminisme quadtree/voisins, tuiles visibles/priorité/abort/fallback, LOD/hystérésis, semantic zoom selon FOV/viewport/inclinaison, sélection épinglée, commandes concurrentes et user override.
+- **Sans WebGL** : résolution explicite `SourceGeoPoint → GeoPoint` (hauteur absente, MSL/AGL/UNKNOWN refusés sans modèle vérifié), lat/lon/hauteur canonique ↔ ECEF (équateur, pôles, antiméridien, altitude), ENU orthonormal, distances, bbox coupée à ±180°, horizon conservateur, ray/ellipsoïde, floating origin et `originEpoch`, tests comparatifs d'index/voisins pour le POC Tile/LOD, tuiles visibles/priorité/abort/fallback, LOD/hystérésis, semantic zoom selon FOV/viewport/inclinaison, sélection épinglée, commandes typées, concurrence et priorité utilisateur.
 - **Contrats métier** : rouge critique toujours dans le budget ; précision pays/région non dessinée comme ville ; feed → focus → fiche → preuves → AURA ; trajectoires et cap observés ; silhouette mobile à toutes échelles ; caméra sans média avant clic ; fournisseur indisponible indépendant ; satellite calculé avec époque.
 - **WebGL/navigateur** : destruction/récréation scène et context loss, route aller-retour React, 1/2 pointeurs, sélection vue orbitale/oblique, terrain manquant, comparaison visuelle PLANET/COUNTRY/CITY/DISTRICT desktop/mobile avec références du globe actuel, console et logs sans erreur critique.
 - **Performance** : scénarios A-E à 1440p et mobile physique, captures des profils et données brutes ; baseline Three actuel capturée avant migration ; p95/p99 sur plusieurs passes et hardware identifié. Les fixtures synthétiques sont marquées comme telles et jamais utilisées en production.
@@ -197,7 +224,7 @@ Sécurité réseau : URL de tuiles/médias issue de manifestes fournisseurs vali
 | **0 — présente** | Contrats, décisions, audit, budgets, critères GO. | Documents uniquement ; PR brouillon, aucun merge automatique. |
 | **1 — Geo Core + repères** | WGS84/ECEF/ENU, bbox/horizon/floating origin **purs**, tests ; adaptateur de compatibilité de `latlon.ts`. | Aucun changement visuel ; ancien calcul reste autorité. Revenir par feature flag. |
 | **2 — Caméra expérimentale** | `Camera Engine` sur route lab/flag avec fly-to, oblique, tactile, métrique de footprint. | Référence `GlobeCameraController` inchangée en production ; comparaison gestes/pays/feed. |
-| **3 — Tile + LOD + surface de base** | Quadtree, scheduler, cache, fallback ellipsoïde, style ORBITAL à distance. | Pas de terrain obligatoire ; conflit rouge et feed en overlay comparés. |
+| **3 — Tile + LOD + surface de base** | POC comparatif de l'index (cube-sphere privilégié), puis choix documenté ; scheduler, cache, fallback ellipsoïde, style ORBITAL à distance. | Pas de terrain obligatoire ; conflit rouge et feed en overlay comparés. |
 | **4 — Terrain + imagerie progressive** | Adaptateurs de données, mesh, skirts/geomorph, attribution. | Source ouverte ou auto-hébergeable ; panne terrain sans panne globe. |
 | **5 — Semantic zoom + picking/selection** | Niveaux, hysteresis, sélection stable, pays ; tester au laboratoire. | Pas de bascule des couches avant preuve des interactions. |
 | **6 — Signaux et feed d'abord** | Rebrancher `ConflictLayer`/feed et hotspots sur moteur nouveau, conserver `Inspector`/Zustand. | Rouge PLANET, événements datés/sourcés, feed→focus→fiche obligatoires. |
