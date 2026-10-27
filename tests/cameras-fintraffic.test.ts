@@ -15,7 +15,8 @@ beforeEach(() => { resetCameraCache(); resetSourceHealth(); });
 describe("Fintraffic camera parsing", () => {
   it("normalise les vrais champs, capture et provenance sans inventer direction/ville", () => {
     const [camera] = parseFintraffic(catalog(), data(), now);
-    expect(camera).toMatchObject({ id: "C0150301", providerId: "fintraffic", latitude: 60.2, longitude: 24.9, name: "kt51_Inkoo", city: null, direction: null, capturedAt: "2026-10-26T07:55:00.000Z", feedType: "image", status: "recent", license: "CC BY 4.0" });
+    expect(camera).toMatchObject({ id: "C0150301", providerId: "fintraffic", latitude: 60.2, longitude: 24.9, name: "kt51_Inkoo", city: null, direction: null, capturedAt: "2026-10-26T07:55:00.000Z", mediaType: "periodic_snapshot", status: "recent", license: "CC BY 4.0", officialPageUrl: null, providerHomepageUrl: "https://www.digitraffic.fi/en/road-traffic/" });
+    expect(camera).not.toHaveProperty("sourceUrl");
   });
   it("écarte les coordonnées absentes ou invalides", () => {
     expect(parseFintraffic(catalog([station(), { ...station(), geometry: null }, { ...station(), geometry: { type: "Point", coordinates: [200, 60] } }]), data(), now)).toHaveLength(1);
@@ -35,30 +36,30 @@ describe("Fintraffic camera parsing", () => {
 describe("catalog cache and filters", () => {
   it("réutilise le cache et publie la santé", async () => {
     const get = fetcher();
-    expect((await loadCameras(get)).cameras).toHaveLength(1);
-    expect((await loadCameras(get)).cameras).toHaveLength(1);
+    expect((await loadCameras(get, Date.now(), "fintraffic")).cameras).toHaveLength(1);
+    expect((await loadCameras(get, Date.now(), "fintraffic")).cameras).toHaveLength(1);
     expect(vi.mocked(get).mock.calls).toHaveLength(2);
     expect(getSourceHealth("camera:fintraffic")?.itemCount).toBe(1);
   });
   it("conserve le dernier catalogue et signale une panne après expiration", async () => {
     const get = fetcher();
-    await loadCameras(get);
+    await loadCameras(get, Date.now(), "fintraffic");
     const fail = vi.fn(async () => { throw new Error("source unavailable"); }) as unknown as typeof fetch;
-    const result = await loadCameras(fail, Date.now() + 11 * 60_000);
+    const result = await loadCameras(fail, Date.now() + 11 * 60_000, "fintraffic");
     expect(result.status).toBe("stale");
     expect(result.cameras).toHaveLength(1);
     expect(getSourceHealth("camera:fintraffic")?.status).toBe("stale");
   });
   it("signale une source indisponible sans cache et un timeout", async () => {
     const fail = vi.fn(async () => { throw new DOMException("aborted", "TimeoutError"); }) as unknown as typeof fetch;
-    expect((await loadCameras(fail)).status).toBe("error");
+    expect((await loadCameras(fail, Date.now(), "fintraffic")).status).toBe("error");
     expect(getSourceHealth("camera:fintraffic")?.status).toBe("unavailable");
   });
   it("valide bbox et limit strictement puis filtre", () => {
     for (const invalid of ["24,60,23,61", "24,60,25", "24,60,181,61", "24,NaN,25,61", "24,60,25,60"]) expect(() => parseCameraQuery(new URLSearchParams({ bbox: invalid }))).toThrow();
     expect(() => parseCameraQuery(new URLSearchParams({ limit: "2501" }))).toThrow();
     const cameras = parseFintraffic(catalog([station({ presets: [{ id: "C0150301", inCollection: true }, { id: "C0150302", inCollection: true }] })]), data(), now);
-    const result = filterCameras({ cameras, total: cameras.length, status: "ok", message: null, fetchedAt: now }, parseCameraQuery(new URLSearchParams({ bbox: "24.5,60,25.3,60.5", limit: "1" })));
+    const result = filterCameras({ cameras, total: cameras.length, counts: { liveVideo: 0, nearLiveImage: 0, periodicSnapshot: cameras.length }, status: "ok", message: null, fetchedAt: now, nextCursor: null }, parseCameraQuery(new URLSearchParams({ bbox: "24.5,60,25.3,60.5", limit: "1" })));
     expect(result.total).toBe(2);
     expect(result.cameras).toHaveLength(1);
   });
