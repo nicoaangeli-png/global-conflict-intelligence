@@ -393,6 +393,9 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
     if (get().camerasStatus === "loading" || (!force && get().camerasStatus === "ok")) return;
     set({ camerasStatus: "loading" });
     try {
+      // TODO(Globe 2.0 / semantic LOD): derive a stable visible bbox from the globe camera,
+      // debounce viewport changes, retain overlap and the selected view while paging by bbox.
+      // The current global metadata load remains opt-in (camerasOn is false initially).
       let cursor: string | null = null;
       let total = 0;
       let counts = { liveVideo: 0, nearLiveImage: 0, periodicSnapshot: 0 };

@@ -15,19 +15,25 @@ const fintraffic = { ...base, id: "C0150301", providerId: "fintraffic", provider
 
 test("LIVE HLS and periodic snapshot remain distinct; closing releases the player and Fintraffic links to its site", async ({ page }) => {
   let manifestRequests = 0;
+  let catalogRequests = 0;
+  let frameRequests = 0;
   await page.route("**/playlist.m3u8", async (route) => { manifestRequests++; await route.fulfill({ status: 503, contentType: "text/plain", body: "fixture unavailable" }); });
   await mockApis(page, { override: async (route, url) => {
-    if (url.pathname === "/api/cameras") { await route.fulfill({ json: { cameras: [live, fintraffic], total: 2, counts: { liveVideo: 1, nearLiveImage: 0, periodicSnapshot: 1 }, status: "ok", message: null, fetchedAt: base.fetchedAt, nextCursor: null } }); return true; }
+    if (url.pathname === "/api/cameras") { catalogRequests++; await route.fulfill({ json: { cameras: [live, fintraffic], total: 2, counts: { liveVideo: 1, nearLiveImage: 0, periodicSnapshot: 1 }, status: "ok", message: null, fetchedAt: base.fetchedAt, nextCursor: null } }); return true; }
     if (decodeURIComponent(url.pathname) === "/api/cameras/wisconsin:1450") { await route.fulfill({ json: { ...live, streamUrl: "https://cctv1.dot.wi.gov/rtplive/CCTV-44-0081/playlist.m3u8", imageUrl: null, providerApiUrl: null } }); return true; }
     if (url.pathname === "/api/cameras/C0150301") { await route.fulfill({ json: { ...fintraffic, streamUrl: null, imageUrl: "https://weathercam.digitraffic.fi/C0150301.jpg", providerApiUrl: null } }); return true; }
-    if (url.pathname === "/api/cameras/C0150301/frame") { await route.fulfill({ status: 200, contentType: "image/jpeg", body: Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2Q==", "base64") }); return true; }
+    if (url.pathname === "/api/cameras/C0150301/frame") { frameRequests++; await route.fulfill({ status: 200, contentType: "image/jpeg", body: Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2Q==", "base64") }); return true; }
     return false;
   } });
   await page.goto("/");
+  expect(catalogRequests).toBe(0);
+  expect(frameRequests).toBe(0);
   await page.getByRole("button", { name: /^Calques/ }).click();
   const menu = page.getByRole("dialog", { name: "Calques" });
   await menu.getByRole("checkbox", { name: /CAMÉRAS/ }).check();
   await expect(menu).toContainText("LIVE 1");
+  expect(catalogRequests).toBeGreaterThan(0);
+  expect(frameRequests).toBe(0);
   await menu.getByRole("button", { name: "LIVE", exact: true }).click();
   await menu.getByRole("button", { name: /I-41 at County A/ }).click();
   const detail = page.getByRole("region", { name: "Détail caméra" });
@@ -42,6 +48,7 @@ test("LIVE HLS and periodic snapshot remain distinct; closing releases the playe
   await menu.getByRole("button", { name: "SNAPSHOTS", exact: true }).click();
   await menu.getByRole("button", { name: /kt51_Inkoo/ }).click();
   await expect(detail).toContainText("Instantané périodique");
+  await expect.poll(() => frameRequests).toBeGreaterThan(0);
   await expect(detail.getByRole("link", { name: /Site du fournisseur/ })).toHaveAttribute("href", "https://www.digitraffic.fi/en/road-traffic/");
   await expect(detail.getByRole("link", { name: /Fiche officielle/ })).toHaveCount(0);
 });

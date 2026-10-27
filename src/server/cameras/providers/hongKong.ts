@@ -6,6 +6,8 @@ export const HONG_KONG_CATALOG = "https://static.data.gov.hk/td/traffic-snapshot
 export const HONG_KONG_HOME = "https://data.gov.hk/en-data/dataset/hk-td-tis_2-traffic-snapshot-images";
 const IMAGE_HOST = "tdcctv.data.one.gov.hk";
 const IMAGE_PATH = /^\/[A-Z0-9]{3,12}\.JPG$/;
+const LICENSE = "DATA.GOV.HK Terms of Use";
+const ATTRIBUTION = "Government of the Hong Kong Special Administrative Region / Transport Department / DATA.GOV.HK";
 
 /** The official CSV resource is UTF-16LE, tab-separated and includes a BOM. */
 export function parseHongKong(bytes: Uint8Array, fetchedAt: string): Camera[] {
@@ -32,7 +34,7 @@ export function parseHongKong(bytes: Uint8Array, fetchedAt: string): Camera[] {
       latitude, longitude, direction: null, mediaType: "near_live_image", streamProtocol: null, streamUrl: null,
       imageUrl: image, capturedAt: null, updatedAt: null, fetchedAt, expectedRefreshSeconds: 120,
       officialPageUrl: null, providerHomepageUrl: HONG_KONG_HOME, providerApiUrl: HONG_KONG_CATALOG,
-      attribution: "Hong Kong Transport Department / DATA.GOV.HK", license: null,
+      attribution: ATTRIBUTION, license: LICENSE,
       status: "unknown", health: "unknown",
     });
   }
@@ -42,7 +44,7 @@ export function parseHongKong(bytes: Uint8Array, fetchedAt: string): Camera[] {
 
 export const hongKongProvider: CameraProvider = {
   id: "hongkong", ttlMs: 24 * 60 * 60_000, retryMs: 5 * 60_000, requiredKeyEnv: null,
-  descriptor: { id: "camera:hongkong", kind: "camera", name: "Hong Kong Transport Department", category: "road-camera", homepage: HONG_KONG_HOME, license: null, nature: "images routières actualisées environ toutes les 2 min ; capture non publiée", staleAfterMs: 2 * 24 * 60 * 60_000 },
+  descriptor: { id: "camera:hongkong", kind: "camera", name: "Hong Kong Transport Department", category: "road-camera", homepage: HONG_KONG_HOME, license: LICENSE, nature: "images routières actualisées environ toutes les 2 min ; capture non publiée", staleAfterMs: 2 * 24 * 60 * 60_000 },
   async fetchCatalog(fetcher) { return parseHongKong(await boundedGet(HONG_KONG_CATALOG, ["static.data.gov.hk"], /^\/td\/traffic-snapshot-images\/code\/Traffic_Camera_Locations_En\.csv$/, "text", fetcher), new Date().toISOString()); },
   async frame(camera, fetcher) {
     if (!camera.imageUrl) throw new Error("Hong Kong image unavailable");

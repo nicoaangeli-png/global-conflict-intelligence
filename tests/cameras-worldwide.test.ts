@@ -33,7 +33,7 @@ describe("provider normalization", () => {
     const header = "key\tregion\tdistrict\tdescription\teasting\tnorthing\tlatitude\tlongitude\turl";
     const row = "BC101F\tHong Kong Island\tCentral\tRoad camera\t0\t0\t22.28\t114.16\thttps://tdcctv.data.one.gov.hk/BC101F.JPG";
     const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${header}\r\n${row}`, "utf16le")]);
-    expect(parseHongKong(bytes, at)[0]).toMatchObject({ id: "hongkong:BC101F", mediaType: "near_live_image", capturedAt: null, status: "unknown" });
+    expect(parseHongKong(bytes, at)[0]).toMatchObject({ id: "hongkong:BC101F", mediaType: "near_live_image", capturedAt: null, status: "unknown", license: "DATA.GOV.HK Terms of Use", attribution: "Government of the Hong Kong Special Administrative Region / Transport Department / DATA.GOV.HK" });
     const evil = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${header}\r\n${row.replace("https://tdcctv.data.one.gov.hk/BC101F.JPG", "http://169.254.169.254/latest/meta-data")}`, "utf16le")]);
     expect(() => parseHongKong(evil, at)).toThrow(/no valid/);
   });
