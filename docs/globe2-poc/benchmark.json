@@ -1,0 +1,157 @@
+{
+  "measuredAt": "2026-10-27T15:28:47.123Z",
+  "browser": "156.0.8078.4",
+  "gpu": "SwiftShader (software)",
+  "node": "v26.12.0",
+  "runs": [
+    {
+      "viewport": "desktop-1440p",
+      "scenario": "globe",
+      "readyMs": 1721,
+      "level": "PLANET",
+      "fps": 7,
+      "frameMs": 136.4,
+      "heapMb": 33,
+      "rendered": 0,
+      "candidates": 0,
+      "requests": 0,
+      "canvas": true
+    },
+    {
+      "viewport": "desktop-1440p",
+      "scenario": "mobiles",
+      "readyMs": 1721,
+      "level": "PLANET",
+      "fps": 7,
+      "frameMs": 150.1,
+      "heapMb": 33,
+      "rendered": 3,
+      "candidates": 0,
+      "requests": 0,
+      "canvas": true
+    },
+    {
+      "viewport": "desktop-1440p",
+      "scenario": "cameras",
+      "readyMs": 1721,
+      "level": "PLANET",
+      "fps": 6,
+      "frameMs": 156,
+      "heapMb": 33,
+      "rendered": 120,
+      "candidates": 20000,
+      "requests": 1,
+      "canvas": true
+    },
+    {
+      "viewport": "desktop-1440p",
+      "scenario": "satellites",
+      "readyMs": 1721,
+      "level": "PLANET",
+      "fps": 6,
+      "frameMs": 155.9,
+      "heapMb": 33,
+      "rendered": 120,
+      "candidates": 15000,
+      "requests": 2,
+      "canvas": true
+    },
+    {
+      "viewport": "desktop-1440p",
+      "scenario": "combined",
+      "readyMs": 1721,
+      "level": "PLANET",
+      "fps": 6,
+      "frameMs": 156.6,
+      "heapMb": 33,
+      "rendered": 243,
+      "candidates": 35000,
+      "requests": 3,
+      "canvas": true
+    },
+    {
+      "viewport": "desktop-1440p",
+      "errors": []
+    },
+    {
+      "viewport": "mobile-390x844",
+      "scenario": "globe",
+      "readyMs": 828,
+      "level": "PLANET",
+      "fps": 22,
+      "frameMs": 44.5,
+      "heapMb": 33,
+      "rendered": 0,
+      "candidates": 0,
+      "requests": 0,
+      "canvas": true
+    },
+    {
+      "viewport": "mobile-390x844",
+      "scenario": "mobiles",
+      "readyMs": 828,
+      "level": "PLANET",
+      "fps": 19,
+      "frameMs": 51.3,
+      "heapMb": 33,
+      "rendered": 3,
+      "candidates": 0,
+      "requests": 0,
+      "canvas": true
+    },
+    {
+      "viewport": "mobile-390x844",
+      "scenario": "cameras",
+      "readyMs": 828,
+      "level": "PLANET",
+      "fps": 19,
+      "frameMs": 53,
+      "heapMb": 33,
+      "rendered": 120,
+      "candidates": 20000,
+      "requests": 1,
+      "canvas": true
+    },
+    {
+      "viewport": "mobile-390x844",
+      "scenario": "satellites",
+      "readyMs": 828,
+      "level": "PLANET",
+      "fps": 19,
+      "frameMs": 53.1,
+      "heapMb": 33,
+      "rendered": 120,
+      "candidates": 15000,
+      "requests": 2,
+      "canvas": true
+    },
+    {
+      "viewport": "mobile-390x844",
+      "scenario": "combined",
+      "readyMs": 828,
+      "level": "PLANET",
+      "fps": 20,
+      "frameMs": 50.4,
+      "heapMb": 33,
+      "rendered": 243,
+      "candidates": 35000,
+      "requests": 3,
+      "canvas": true
+    },
+    {
+      "viewport": "mobile-390x844",
+      "errors": []
+    }
+  ],
+  "openTerrain": {
+    "requests": 127,
+    "httpErrors": [],
+    "status": "Relief Re:Earth / Mapterhorn"
+  },
+  "threeBaseline": {
+    "readyMs": 4884,
+    "canvasCount": 2,
+    "heapMb": 21,
+    "note": "Different scene and data; FPS/draw calls not directly comparable."
+  }
+}

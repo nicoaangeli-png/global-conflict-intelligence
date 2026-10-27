@@ -6,6 +6,8 @@
     "node": "^22.13.0 || ^24.0.0"
   },
   "scripts": {
+    "predev": "node scripts/prepare-cesium-assets.cjs",
+    "prebuild": "node scripts/prepare-cesium-assets.cjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -19,6 +21,7 @@
     "audit:deps": "pnpm audit"
   },
   "dependencies": {
+    "cesium": "1.146.0",
     "clsx": "^2.1.1",
     "hls.js": "^1.7.3",
     "lucide-react": "^0.475.0",

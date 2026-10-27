@@ -17,6 +17,11 @@ const contentSecurityPolicy = [
   "manifest-src 'self'",
 ].join("; ");
 
+// Only the isolated Cesium lab may request the optional open terrain service.
+const labContentSecurityPolicy = contentSecurityPolicy
+  .replace("connect-src 'self'", "connect-src 'self' https://terrain.reearth.land")
+  .replace("script-src 'self'", "script-src 'self' blob: 'unsafe-eval' 'wasm-unsafe-eval'");
+
 const securityHeaders = [
   { key: "Content-Security-Policy", value: contentSecurityPolicy },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -38,7 +43,10 @@ const nextConfig = {
   poweredByHeader: false,
   devIndicators: false,
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    return [
+      { source: "/(.*)", headers: securityHeaders },
+      { source: "/lab/globe2", headers: [{ key: "Content-Security-Policy", value: labContentSecurityPolicy }] },
+    ];
   },
 };
 
