@@ -107,10 +107,13 @@ export function parseFintraffic(stationsRaw: unknown, dataRaw: unknown, fetchedA
       cameras.push({
         id, providerId: "fintraffic", providerName: FINTRAFFIC_ATTRIBUTION,
         name: string(preset?.presentationName) ?? string(props.name),
-        city: string(props.municipality), country: "Finland", latitude, longitude,
-        direction: string(preset?.direction) ?? string(preset?.directionCode), feedType: "image",
-        sourceUrl: `${FINTRAFFIC_API}/${stationId}`, capturedAt, fetchedAt,
-        status: cameraStatus(capturedAt, collecting, now), attribution: FINTRAFFIC_ATTRIBUTION, license: FINTRAFFIC_LICENSE,
+        city: string(props.municipality), region: null, country: "Finland", latitude, longitude,
+        direction: string(preset?.direction) ?? string(preset?.directionCode), mediaType: "periodic_snapshot",
+        streamProtocol: null, streamUrl: null, imageUrl: fintrafficImageUrl(id),
+        officialPageUrl: null, providerHomepageUrl: "https://www.digitraffic.fi/en/road-traffic/",
+        providerApiUrl: `${FINTRAFFIC_API}/${stationId}`, capturedAt, updatedAt: capturedAt, fetchedAt,
+        expectedRefreshSeconds: 600, status: cameraStatus(capturedAt, collecting, now),
+        health: collecting ? "ok" : "stale", attribution: FINTRAFFIC_ATTRIBUTION, license: FINTRAFFIC_LICENSE,
       });
     }
   }
@@ -123,7 +126,7 @@ export function enrichFintrafficCamera(camera: Camera, raw: unknown): Camera {
   const presets = props?.presets;
   const preset = Array.isArray(presets) ? presets.map(object).find((row) => row?.id === camera.id) : null;
   if (!preset) return camera;
-  return { ...camera, name: string(preset.presentationName) ?? string(object(props?.names)?.en) ?? camera.name, city: string(props?.municipality) ?? camera.city, direction: string(preset.direction) ?? string(preset.directionCode), sourceUrl: `${FINTRAFFIC_API}/${camera.id.slice(0, -2)}` };
+  return { ...camera, name: string(preset.presentationName) ?? string(object(props?.names)?.en) ?? camera.name, city: string(props?.municipality) ?? camera.city, direction: string(preset.direction) ?? string(preset.directionCode), providerApiUrl: `${FINTRAFFIC_API}/${camera.id.slice(0, -2)}` };
 }
 
 export function fintrafficImageUrl(id: string): string {

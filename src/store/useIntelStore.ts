@@ -15,7 +15,7 @@ import { REAL_DATASETS } from "@/types/conflict";
 import type { FeedCategory, FeedSourceState, FeedsResponse, LiveItem } from "@/types/feeds";
 import { FETCH_CATEGORIES, inAllFeed, mergeCategoryResults, themeCovers, type CategoryResult, type ThemeKey } from "@/components/feeds/feedModel";
 import type { LayerFeature, LayerId } from "@/types/layers";
-import type { Camera, CameraCatalogResponse } from "@/types/cameras";
+import type { CameraMarker, CameraCatalogResponse } from "@/types/cameras";
 import { featureAnchor, isLayerResponse, parseLayerCatalog, type LayerLoad, type LayerSummary } from "@/components/layers/layerModel";
 
 /**
@@ -86,14 +86,17 @@ interface IntelStore {
   hoverLayerFeature: (selection: LayerSelection) => void;
 
   camerasOn: boolean;
-  cameras: Camera[];
+  cameras: CameraMarker[];
   camerasTotal: number;
+  cameraCounts: CameraCatalogResponse["counts"];
+  cameraFilter: "all" | "live" | "one_minute" | "five_minutes" | "snapshots";
+  setCameraFilter: (filter: IntelStore["cameraFilter"]) => void;
   camerasStatus: "idle" | "loading" | "ok" | "stale" | "error";
   camerasMessage: string | null;
   toggleCameras: () => void;
   loadCameras: (force?: boolean) => Promise<void>;
-  selectedCamera: Camera | null;
-  selectCamera: (camera: Camera | null) => void;
+  selectedCamera: CameraMarker | null;
+  selectCamera: (camera: CameraMarker | null) => void;
 
   /** Élément de flux inspecté (clic sur un point du globe ou dans le fil). */
   selectedFeedItem: LiveItem | null;
@@ -376,6 +379,9 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
   camerasOn: false,
   cameras: [],
   camerasTotal: 0,
+  cameraCounts: { liveVideo: 0, nearLiveImage: 0, periodicSnapshot: 0 },
+  cameraFilter: "all",
+  setCameraFilter: (cameraFilter) => set({ cameraFilter }),
   camerasStatus: "idle",
   camerasMessage: null,
   toggleCameras: () => {
@@ -387,13 +393,27 @@ export const useIntelStore = create<IntelStore>((set, get) => ({
     if (get().camerasStatus === "loading" || (!force && get().camerasStatus === "ok")) return;
     set({ camerasStatus: "loading" });
     try {
-      const response = await fetch("/api/cameras?provider=fintraffic&country=FI&limit=2500", { cache: "no-store" });
-      const body = await response.json() as CameraCatalogResponse;
-      if (!response.ok && body.status !== "error") throw new Error("Catalogue indisponible");
-      if (!Array.isArray(body.cameras) || !["ok", "stale", "error"].includes(body.status)) throw new Error("Réponse caméra invalide");
-      set({ cameras: body.cameras, camerasTotal: body.total, camerasStatus: body.status, camerasMessage: body.message });
+      // TODO(Globe 2.0 / semantic LOD): derive a stable visible bbox from the globe camera,
+      // debounce viewport changes, retain overlap and the selected view while paging by bbox.
+      // The current global metadata load remains opt-in (camerasOn is false initially).
+      let cursor: string | null = null;
+      let total = 0;
+      let counts = { liveVideo: 0, nearLiveImage: 0, periodicSnapshot: 0 };
+      let status: CameraCatalogResponse["status"] = "ok";
+      let message: string | null = null;
+      const cameras: CameraMarker[] = [];
+      do {
+        const response: Response = await fetch(`/api/cameras?limit=2500${cursor ? `&cursor=${cursor}` : ""}`, { cache: "no-store" });
+        const body = await response.json() as CameraCatalogResponse;
+        if (!response.ok && body.status !== "error") throw new Error("Catalogue indisponible");
+        if (!Array.isArray(body.cameras) || !["ok", "stale", "error"].includes(body.status)) throw new Error("Réponse caméra invalide");
+        cameras.push(...body.cameras);
+        total = body.total; counts = body.counts; status = body.status; message = body.message;
+        cursor = body.nextCursor;
+      } while (cursor && cameras.length < 10_000);
+      set({ cameras, camerasTotal: total, cameraCounts: counts, camerasStatus: status, camerasMessage: message });
     } catch {
-      set({ camerasStatus: "error", camerasMessage: "Catalogue Fintraffic momentanément indisponible" });
+      set({ camerasStatus: "error", camerasMessage: "Catalogue des caméras momentanément indisponible" });
     }
   },
   selectedCamera: null,

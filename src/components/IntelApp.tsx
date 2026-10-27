@@ -67,6 +67,8 @@ export function IntelApp() {
   const inspecting = useIntelStore(hasInspection);
   const theme = useIntelStore((s) => s.theme);
   const refreshFeedCategory = useIntelStore((s) => s.refreshFeedCategory);
+  const camerasOn = useIntelStore((s) => s.camerasOn);
+  const loadCameras = useIntelStore((s) => s.loadCameras);
 
   // Langue du document synchronisée (évite la « traduction » automatique de Chrome).
   useEffect(() => {
@@ -97,6 +99,13 @@ export function IntelApp() {
     const id = setInterval(() => { if (!document.hidden) void refreshFeedCategory("shipping"); }, MILITARY_POLL_MS);
     return () => clearInterval(id);
   }, [merchantsLive, refreshFeedCategory]);
+
+  // La source la plus rapide recommande une requête par minute ; rien n'est interrogé couche éteinte.
+  useEffect(() => {
+    if (!camerasOn) return;
+    const id = setInterval(() => { if (!document.hidden) void loadCameras(true); }, 60_000);
+    return () => clearInterval(id);
+  }, [camerasOn, loadCameras]);
 
   // Sur mobile : une inspection ouvre le volet correspondant.
   useEffect(() => {
