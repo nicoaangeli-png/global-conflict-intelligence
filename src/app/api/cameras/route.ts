@@ -14,6 +14,6 @@ export const GET = instrumentRoute("/api/cameras", async (request: Request) => {
   catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Paramètres invalides" }, { status: 400 }); }
   const limited = await guardPublicApi(request, "cameras");
   if (limited) return limited;
-  const catalog = filterCameras(await loadCameras(), query);
+  const catalog = filterCameras(await loadCameras(fetch, Date.now(), query.provider), query);
   return Response.json(catalog, { status: catalog.status === "error" ? 503 : 200, headers: { "Cache-Control": "no-store" } });
 });
