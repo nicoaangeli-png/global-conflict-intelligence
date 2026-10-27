@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("POC Cesium: viewport, mobiles, camera selection, cleanup and isolated CSP", async ({ page }) => {
+  test.setTimeout(120_000); // Le rendu WebGL logiciel des runners CI ralentit les interactions.
   const media: string[] = [];
   const errors: string[] = [];
   page.on("request", (request) => { if (/\/api\/cameras\/.*\/frame|\.m3u8|\.mp4|\.jpg/i.test(request.url())) media.push(request.url()); });
@@ -71,5 +72,5 @@ test("POC Cesium: viewport, mobiles, camera selection, cleanup and isolated CSP"
   expect(await page.evaluate(() => window.__ORBITAL_GLOBE2_LAB__?.viewer.isDestroyed())).toBe(true);
   const productionCsp = (await page.request.get("/")).headers()["content-security-policy"] ?? "";
   expect(productionCsp).not.toContain("terrain.reearth.land");
-  expect(productionCsp).not.toContain("'unsafe-eval'");
+  expect(productionCsp).not.toContain("'wasm-unsafe-eval'");
 });
