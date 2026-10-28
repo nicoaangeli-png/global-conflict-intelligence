@@ -11,6 +11,8 @@ test("Tile/LOD lab renders real continents and both indexes through navigation",
   await expect(canvas).toBeVisible();
   await expect(page.getByTestId("land-status")).toContainText(/NATURAL EARTH · \d+ PAYS/, { timeout: 15_000 });
   await expect(page.getByTestId("tile-lab-debug")).toBeVisible();
+  await expect(page.getByTestId("tile-overlay-toggle")).toHaveText("VOIR PATCHES");
+  await expect(page.getByTestId("tile-overlay-toggle")).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("tile-visible")).toContainText(/\d+ \/ \d+/);
   const cubeCounts = await page.getByTestId("tile-visible").innerText();
   await page.getByTestId("strategy-geographic").click();
@@ -19,9 +21,11 @@ test("Tile/LOD lab renders real continents and both indexes through navigation",
   await page.getByTestId("strategy-cube").click();
   await expect(page.getByTestId("tile-lab-debug")).toContainText("CUBE");
   await page.getByTestId("tile-overlay-toggle").click();
-  await expect(page.getByTestId("tile-overlay-toggle")).toHaveText("VOIR PATCHES");
-  await page.getByTestId("tile-overlay-toggle").click();
   await expect(page.getByTestId("tile-overlay-toggle")).toHaveText("MASQUER PATCHES");
+  await expect(page.getByTestId("tile-overlay-toggle")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("tile-overlay-toggle").click();
+  await expect(page.getByTestId("tile-overlay-toggle")).toHaveText("VOIR PATCHES");
+  await expect(page.getByTestId("tile-overlay-toggle")).toHaveAttribute("aria-pressed", "false");
   await page.getByTestId("tile-surface-toggle").click();
   await expect(page.getByTestId("tile-surface-toggle")).toHaveText("SURFACE −");
   await page.getByTestId("tile-surface-toggle").click();
@@ -61,6 +65,7 @@ test("Tile/LOD lab remains usable at 390×844", async ({ page }) => {
   await page.goto("/lab/globe2-tiles");
   await expect(page.getByTestId("camera-lab-canvas")).toBeVisible();
   await expect(page.getByTestId("tile-lab-debug")).toBeVisible();
+  await expect(page.getByTestId("tile-overlay-toggle")).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("land-status")).toContainText(/NATURAL EARTH · \d+ PAYS/, { timeout: 15_000 });
   await page.getByTestId("strategy-geographic").click();
   await expect(page.getByTestId("tile-lab-debug")).toContainText("GEOGRAPHIC");

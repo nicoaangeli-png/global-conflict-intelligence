@@ -28,6 +28,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.goto(`${baseUrl}/lab/globe2-tiles`);
   await ready(page);
+  await page.getByTestId("tile-overlay-toggle").click();
   await page.getByTestId("preset-space").click(); await settle(page); await capture(page, "01-cube-space.png");
   await page.getByTestId("strategy-geographic").click(); await page.waitForTimeout(300);
   await capture(page, "02-geographic-space.png");

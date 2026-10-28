@@ -47,7 +47,7 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
   const [debug, setDebug] = useState<Debug>(EMPTY);
   const [tileMetrics, setTileMetrics] = useState<TileMetrics | null>(null);
   const [tileStrategy, setTileStrategy] = useState<TileStrategy>("cube");
-  const [tileOverlay, setTileOverlay] = useState(true);
+  const [tileOverlay, setTileOverlay] = useState(false);
   const [tileSurface, setTileSurface] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preset, setPreset] = useState<string>("PLANET");
@@ -352,7 +352,7 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
           onClick={() => { tileEngineRef.current?.setStrategy("cube"); setTileStrategy("cube"); }}>CUBE-SPHERE</button>
         <button type="button" data-testid="strategy-geographic" className={tileStrategy === "geographic" ? styles.active : ""}
           onClick={() => { tileEngineRef.current?.setStrategy("geographic"); setTileStrategy("geographic"); }}>GEOGRAPHIC</button>
-        <button type="button" data-testid="tile-overlay-toggle" onClick={() => {
+        <button type="button" data-testid="tile-overlay-toggle" aria-pressed={tileOverlay} onClick={() => {
           const next = !tileOverlay; if (tileLayerRef.current) tileLayerRef.current.group.visible = next;
           setTileOverlay(next);
         }}>{tileOverlay ? "MASQUER PATCHES" : "VOIR PATCHES"}</button>

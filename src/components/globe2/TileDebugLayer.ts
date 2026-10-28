@@ -16,6 +16,7 @@ export class TileDebugLayer {
   constructor(THREE: typeof ThreeTypes) {
     this.THREE = THREE;
     this.group = new THREE.Group();
+    this.group.visible = false;
     this.patches = new THREE.Mesh(new THREE.BufferGeometry(),
       new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.075,
         side: THREE.DoubleSide, depthWrite: false }));
