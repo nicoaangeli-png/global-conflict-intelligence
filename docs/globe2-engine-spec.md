@@ -2,6 +2,8 @@
 
 **Statut : architecture proposée, sans implémentation.** Base auditée : `origin/main` à `465747d4d2d44a8c12cbfa94fec8718b1dc5a1e1` (PR #11 fusionnée). Three.js reste le moteur graphique de production. Le POC Cesium de la PR #12 est une expérience historique non destinée à être fusionnée. Aucun chiffre de performance ci-dessous n'est une mesure du futur moteur : les budgets sont des **cibles à valider** sur appareils réels.
 
+**Suivi Phase 3A :** les passages ci-dessous qui qualifient cube-sphere de candidat reflètent la décision ouverte en Phase 0. Le POC comparatif ultérieur est documenté dans `globe2-tile-engine.md` et sa décision d'index interne dans D05 de `globe2-engine-decisions.md`. Le terrain et ses coutures restent non prouvés.
+
 ## 1. État réel du globe et invariants
 
 | Sujet | Constat vérifié dans le code de `main` | Limite / contrat à préserver |

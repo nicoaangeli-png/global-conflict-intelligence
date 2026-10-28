@@ -34,13 +34,13 @@ Base : `origin/main` `465747d4d2d44a8c12cbfa94fec8718b1dc5a1e1`. Portée : **ARC
 - **CONSEQUENCES** : transition orbitale/oblique/sol, collision terrain et near/far à concevoir et tester.
 - **REVERSIBILITY** : élevée avant branchement du globe de production ; ancien `GlobeCameraController` reste disponible.
 
-## D05 — Index de tuiles interne ; cube-sphere candidat privilégié
+## D05 — Index de tuiles interne cube-sphere retenu après Phase 3A
 
-- **DECISION** : ORBITAL possède l'index de tuiles et la sélection frustum+horizon+erreur écran. Le quadtree cube-sphere `face/z/x/y` est le **candidat de référence, non gelé** ; un POC Tile/LOD propriétaire le comparera au minimum à un quadtree géographique avec traitement polaire avant décision finale. Les données sources restent derrière des adaptateurs déclarant datum, licence et couverture.
-- **WHY** : cube-sphere promet un meilleur comportement polaire et une distribution plus régulière, tout en laissant ORBITAL contrôler le LOD et l'index interne.
-- **ALTERNATIVES REJECTED** : laisser un fournisseur imposer son découpage interne ; source commerciale obligatoire ; chargement de tout le DEM. L'alternative géographique n'est **pas** rejetée avant le POC comparatif.
-- **CONSEQUENCES** : mesurer couture inter-faces, complexité des voisins, projection, sélection, stabilité LOD et coûts CPU/GPU sur les mêmes cas ; conserver parent/ellipsoïde de secours. La structure finale ne sera gelée qu'après ces mesures.
-- **REVERSIBILITY** : élevée avant le POC et le gel de l'index ; les adaptateurs doivent garder les fournisseurs remplaçables.
+- **DECISION** : ORBITAL possède l'index de tuiles et la sélection frustum+horizon+erreur écran. Le quadtree cube-sphere `face/z/x/y` est retenu comme **index interne** après le POC comparatif Phase 3A. Les données sources restent derrière des adaptateurs déclarant datum, licence et couverture. Le maillage d'élévation, la couture terrain et les budgets GPU ne sont pas gelés par cette décision.
+- **WHY** : avec la même Camera Engine et 256 tuiles maximum, le pôle Nord sélectionne 100 patches cube contre 256 geographic ; l'erreur écran abstraite maximale y est 2,9 contre 14,8 px. SPACE et antiméridien demandent aussi moins de patches cube. Les bords de faces échantillonnés coïncident à moins de 1 µm en ECEF. Voir `docs/globe2-tile-engine.md` pour la méthode et ses limites.
+- **ALTERNATIVES REJECTED** : quadtree géographique comme index par défaut, car il sature au pôle dans ce POC ; laisser un fournisseur imposer son découpage interne ; source commerciale obligatoire. Le moteur géographique reste disponible dans le labo pour comparaison et réévaluation.
+- **CONSEQUENCES** : assumer un voisinage inter-faces plus complexe (192/1 536 arêtes échantillonnées contre 32/480 geographic au niveau 3) ; conserver parent/ellipsoïde de secours ; démontrer coutures DEM, LOD mixte, chargement asynchrone et coût GPU avant Phase 3B. Le POC n'autorise aucune migration du globe production.
+- **REVERSIBILITY** : encore élevée tant que l'index n'alimente pas le terrain ni le globe production ; garder les adaptateurs source indépendants de `TileId`.
 
 ## D06 — Surface progressive sous style ORBITAL
 
