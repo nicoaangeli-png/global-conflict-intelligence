@@ -7,6 +7,9 @@ import { ecefToRender, enuFrame, toEcef, WGS84_A_M, WGS84_B_M } from "@/lib/glob
 import type { GeoPoint } from "@/lib/globe2/geo";
 import { createLabEllipsoid, createLabLand } from "./CameraLabLand";
 import type { LabLand } from "./CameraLabLand";
+import { TileEngine } from "@/lib/globe2/tiles";
+import type { TileMetrics, TileStrategy } from "@/lib/globe2/tiles";
+import { TileDebugLayer } from "./TileDebugLayer";
 import styles from "./CameraLab.module.css";
 
 const PRESETS = [
@@ -36,10 +39,16 @@ const EMPTY: Debug = { lat: "—", lon: "—", height: "—", target: "—", fov
 
 const metres = (n: number | null) => n === null ? "—" : n >= 1000 ? `${(n / 1000).toFixed(1)} km` : `${n.toFixed(0)} m`;
 
-export default function CameraLab() {
+export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CameraEngine | null>(null);
+  const tileEngineRef = useRef<TileEngine | null>(null);
+  const tileLayerRef = useRef<TileDebugLayer | null>(null);
   const [debug, setDebug] = useState<Debug>(EMPTY);
+  const [tileMetrics, setTileMetrics] = useState<TileMetrics | null>(null);
+  const [tileStrategy, setTileStrategy] = useState<TileStrategy>("cube");
+  const [tileOverlay, setTileOverlay] = useState(false);
+  const [tileSurface, setTileSurface] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preset, setPreset] = useState<string>("PLANET");
   const [landStatus, setLandStatus] = useState("CHARGEMENT NATURAL EARTH…");
@@ -68,6 +77,11 @@ export default function CameraLab() {
 
       const globe = new THREE.Group();
       scene.add(globe);
+      const tileEngine = tileLab ? new TileEngine("cube", { maxVisible: mount.clientWidth < 700 ? 128 : 256 }) : null;
+      const tileLayer = tileLab ? new TileDebugLayer(THREE) : null;
+      if (tileLayer) scene.add(tileLayer.group);
+      tileEngineRef.current = tileEngine;
+      tileLayerRef.current = tileLayer;
       const earthGeometry = createLabEllipsoid(THREE);
       const earthMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x03101b,
         specular: 0x18445a, shininess: 8 });
@@ -233,6 +247,11 @@ export default function CameraLab() {
         engine.step(delta, Date.now(), reduced);
         applyCameraToThree(engine, camera, globe);
         const state = engine.getState();
+        if (tileEngine && tileLayer) {
+          const snapshot = tileEngine.update(engine.getPose(), engine.getViewFootprint());
+          tileLayer.update(snapshot, engine.getFloatingOrigin());
+          if (time - lastReport >= 160) setTileMetrics(snapshot.metrics);
+        }
         updateGrid(state.target, state.distanceM, state.revision, state.originEpoch);
         renderer.render(scene, camera);
         frames++;
@@ -266,13 +285,14 @@ export default function CameraLab() {
         land?.dispose(); earthGeometry.dispose(); earthMaterial.dispose(); atmosphereGeometry.dispose(); atmosphereMaterial.dispose();
         graticuleGeometry.dispose(); graticuleMaterial.dispose();
         localGridGeometry.dispose(); (localGrid.material as ThreeTypes.Material).dispose();
+        tileLayer?.dispose(); tileEngine?.dispose(); tileEngineRef.current = null; tileLayerRef.current = null;
         renderer.dispose(); renderer.forceContextLoss(); canvas.remove();
         engine.dispose(); engineRef.current = null;
       };
     };
     start().catch(err => { if (!disposed) setError(err instanceof Error ? err.message : "WebGL indisponible"); });
     return () => { disposed = true; cleanup(); };
-  }, []);
+  }, [tileLab]);
 
   const fly = (target: { latDeg: number; lonDeg: number; distanceM: number }, name: string) => {
     const engine = engineRef.current;
@@ -283,10 +303,10 @@ export default function CameraLab() {
     setPreset(name);
   };
 
-  return <main className={styles.lab}>
+  return <main className={`${styles.lab} ${tileLab ? styles.labTiles : ""}`}>
     <div ref={mountRef} className={styles.canvas} data-testid="camera-lab-mount" />
-    <header className={styles.header}><span className={styles.brand}>◉ ORBITAL <strong>LAB / CAMERA ENGINE</strong></span>
-      <span className={styles.badge}>PHASE 2 · THREE.JS RENDU · MOTEUR ORBITAL</span></header>
+    <header className={styles.header}><span className={styles.brand}>◉ ORBITAL <strong>{tileLab ? "LAB / TILE + LOD ENGINE" : "LAB / CAMERA ENGINE"}</strong></span>
+      <span className={styles.badge}>{tileLab ? "PHASE 3A · PATCHES DEBUG · AUCUN TERRAIN" : "PHASE 2 · THREE.JS RENDU · MOTEUR ORBITAL"}</span></header>
     <section className={styles.controls} aria-label="Contrôles caméra">
       <div className={styles.label}>ÉCHELLE · {preset}</div>
       <div className={styles.buttons}>{PRESETS.map(p => <button key={p.name} type="button" data-testid={`preset-${p.name.toLowerCase()}`}
@@ -325,6 +345,34 @@ export default function CameraLab() {
         <dt>ENGINE / VUE</dt><dd>{debug.engineMs} ms · r{debug.revision}</dd>
       </dl>
     </aside>
+    {tileLab && <aside className={styles.tileDebug} aria-label="Debug Tile Engine" data-testid="tile-lab-debug">
+      <div className={styles.label}>TILE / LOD <span>{tileStrategy.toUpperCase()}</span></div>
+      <div className={styles.buttons}>
+        <button type="button" data-testid="strategy-cube" className={tileStrategy === "cube" ? styles.active : ""}
+          onClick={() => { tileEngineRef.current?.setStrategy("cube"); setTileStrategy("cube"); }}>CUBE-SPHERE</button>
+        <button type="button" data-testid="strategy-geographic" className={tileStrategy === "geographic" ? styles.active : ""}
+          onClick={() => { tileEngineRef.current?.setStrategy("geographic"); setTileStrategy("geographic"); }}>GEOGRAPHIC</button>
+        <button type="button" data-testid="tile-overlay-toggle" aria-pressed={tileOverlay} onClick={() => {
+          const next = !tileOverlay; if (tileLayerRef.current) tileLayerRef.current.group.visible = next;
+          setTileOverlay(next);
+        }}>{tileOverlay ? "MASQUER PATCHES" : "VOIR PATCHES"}</button>
+        <button type="button" data-testid="tile-surface-toggle" onClick={() => {
+          const next = !tileSurface; tileLayerRef.current?.setSurfaceVisible(next); setTileSurface(next);
+        }}>{tileSurface ? "SURFACE −" : "SURFACE +"}</button>
+      </div>
+      <dl>
+        <dt>VISIBLES / SÉLECTION</dt><dd data-testid="tile-visible">{tileMetrics?.visible ?? "—"} / {tileMetrics?.selected ?? "—"}</dd>
+        <dt>LOD MIN–MAX</dt><dd data-testid="tile-depth">{tileMetrics ? `${tileMetrics.minDepth}–${tileMetrics.maxDepth}` : "—"}</dd>
+        <dt>ERREUR MAX / BUDGET</dt><dd>{tileMetrics ? `${tileMetrics.maxScreenErrorPx.toFixed(1)} px · ${tileMetrics.budgetSaturated ? "SATURÉ" : "OK"}` : "—"}</dd>
+        <dt>CULL FRUSTUM</dt><dd>{tileMetrics?.culledFrustum ?? "—"}</dd>
+        <dt>CULL HORIZON</dt><dd>{tileMetrics?.culledHorizon ?? "—"}</dd>
+        <dt>SUBDIVISIONS</dt><dd>{tileMetrics?.subdivisions ?? "—"}</dd>
+        <dt>CHANGEMENTS</dt><dd>{tileMetrics?.changes ?? "—"}</dd>
+        <dt>DERNIÈRE SÉLECTION</dt><dd data-testid="tile-time">{tileMetrics ? `${tileMetrics.selectionMs.toFixed(2)} ms` : "—"}</dd>
+        <dt>NOEUDS / CACHE</dt><dd>{tileMetrics ? `${tileMetrics.visited} / ${tileMetrics.cached}` : "—"}</dd>
+      </dl>
+      <p className={styles.tileNote}>PATCHES ELLIPSOÏDE · AUCUN RÉSEAU · AUCUN DEM</p>
+    </aside>}
     {error && <div className={styles.error} role="alert">WebGL / Camera Lab : {error}</div>}
     <footer className={styles.footer}><span data-testid="land-status">{landStatus}</span> · ELLIPSOÏDE WGS84 · AUCUN TERRAIN · AUCUNE SOURCE EXTERNE</footer>
   </main>;

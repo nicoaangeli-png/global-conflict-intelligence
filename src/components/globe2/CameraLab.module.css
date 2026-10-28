@@ -6,7 +6,7 @@
 .brand { font-size: 14px; letter-spacing: .18em; color: #7fd4ff; white-space: nowrap; }
 .brand strong { font-weight: 500; color: #dff1ff; margin-left: 8px; }
 .badge { font: 10px var(--font-mono); letter-spacing: .09em; color: #8fb4cc; text-align: right; }
-.controls, .debug { position: absolute; z-index: 3; border: 1px solid rgba(127,212,255,.19); background: rgba(2,9,18,.79); backdrop-filter: blur(16px); box-shadow: 0 10px 32px rgba(0,0,0,.27); }
+.controls, .debug, .tileDebug { position: absolute; z-index: 3; border: 1px solid rgba(127,212,255,.19); background: rgba(2,9,18,.79); backdrop-filter: blur(16px); box-shadow: 0 10px 32px rgba(0,0,0,.27); }
 .controls { left: 20px; top: 76px; width: min(350px, calc(100vw - 40px)); padding: 16px; }
 .label { display: flex; justify-content: space-between; font: 11px var(--font-mono); letter-spacing: .12em; color: #7fd4ff; margin: 0 0 10px; }
 .buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
@@ -17,6 +17,11 @@
 .debug dl { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; margin: 0; font: 11px var(--font-mono); }
 .debug dt { color: #759cb3; }
 .debug dd { margin: 0; color: #d6edf8; text-align: right; font-variant-numeric: tabular-nums; }
+.tileDebug { right: 20px; top: 370px; width: min(280px, calc(100vw - 40px)); padding: 16px; }
+.tileDebug dl { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; margin: 0; font: 11px var(--font-mono); }
+.tileDebug dt { color: #759cb3; }
+.tileDebug dd { margin: 0; color: #d6edf8; text-align: right; font-variant-numeric: tabular-nums; }
+.tileNote { margin: 12px 0 0; font: 9px var(--font-mono); letter-spacing: .06em; color: #789fb7; }
 .footer { position: absolute; left: 20px; bottom: 16px; z-index: 2; font: 10px var(--font-mono); letter-spacing: .1em; color: #78a4bc; pointer-events: none; }
 .error { position: absolute; z-index: 5; left: 50%; top: 50%; transform: translate(-50%,-50%); padding: 16px; color: #fff; background: #5a1b1b; }
 @media (max-width: 700px) {
@@ -31,5 +36,12 @@
   .debug { top: 56px; right: 8px; width: 190px; padding: 10px; }
   .debug dl { font-size: 9px; gap: 5px; }
   .debug .label { font-size: 9px; }
+  .labTiles .debug { top: 52px; padding: 8px; }
+  .labTiles .debug dl > :nth-child(n+5) { display: none; }
+  .tileDebug { top: 150px; right: 8px; width: 190px; padding: 8px; }
+  .tileDebug dl { font-size: 9px; gap: 5px; }
+  .tileDebug .label { font-size: 9px; }
+  .tileDebug .buttons button { font-size: 8px; padding: 5px; }
+  .tileDebug dl > :nth-child(n+5), .tileDebug .tileNote { display: none; }
   .footer { display: none; }
 }
