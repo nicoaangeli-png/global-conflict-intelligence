@@ -14,6 +14,11 @@ async function settled(page) {
   await page.waitForTimeout(250);
 }
 
+async function landReady(page) {
+  await page.waitForFunction(() => /NATURAL EARTH · \d+ PAYS/.test(
+    document.querySelector('[data-testid="land-status"]')?.textContent ?? ""), null, { timeout: 15_000 });
+}
+
 async function capture(page, file) {
   await page.screenshot({ path: join(output, file), fullPage: false });
   observations.push({ file, debug: await page.getByTestId("camera-lab-debug").innerText() });
@@ -24,6 +29,7 @@ try {
   const page = await context.newPage();
   await page.goto(`${baseUrl}/lab/globe2-camera`);
   await page.getByTestId("camera-lab-canvas").waitFor();
+  await landReady(page);
   await page.getByTestId("preset-space").click(); await settled(page); await capture(page, "01-space.png");
   await page.getByTestId("preset-country").click(); await settled(page); await capture(page, "02-country.png");
   await page.getByTestId("preset-city").click(); await settled(page); await capture(page, "03-city.png");
@@ -39,6 +45,7 @@ try {
   const mobilePage = await mobile.newPage();
   await mobilePage.goto(`${baseUrl}/lab/globe2-camera`);
   await mobilePage.getByTestId("camera-lab-canvas").waitFor();
+  await landReady(mobilePage);
   await mobilePage.getByTestId("preset-country").click(); await settled(mobilePage);
   await capture(mobilePage, "06-mobile-390x844.png");
   await mobile.close();
@@ -49,6 +56,7 @@ try {
   const video = videoPage.video();
   await videoPage.goto(`${baseUrl}/lab/globe2-camera`);
   await videoPage.getByTestId("camera-lab-canvas").waitFor();
+  await landReady(videoPage);
   await videoPage.waitForTimeout(500);
   await videoPage.mouse.move(850, 430);
   await videoPage.mouse.down();

@@ -4,10 +4,16 @@ test.describe("Globe 2.0 Camera Engine lab", () => {
   test("renders the isolated globe and responds to drag, zoom, fly-to and interruption", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/lab/globe2-camera");
+    const response = await page.goto("/lab/globe2-camera");
+    expect(response?.status()).toBe(200);
     const canvas = page.getByTestId("camera-lab-canvas");
     await expect(canvas).toBeVisible();
+    await expect(page.getByTestId("land-status")).toContainText(/NATURAL EARTH · \d+ PAYS · \d+ SEGMENTS/, { timeout: 15_000 });
+    const landStatus = await page.getByTestId("land-status").innerText();
+    expect(Number(landStatus.match(/(\d+) PAYS/)?.[1])).toBeGreaterThan(100);
+    expect(Number(landStatus.match(/(\d+) SEGMENTS/)?.[1])).toBeGreaterThan(1000);
     await expect(page.getByTestId("camera-lab-debug")).toBeVisible();
     await expect(page.locator("main [role='alert']")).toHaveCount(0);
     const initial = await page.getByTestId("debug-target").innerText();
@@ -28,6 +34,17 @@ test.describe("Globe 2.0 Camera Engine lab", () => {
     await page.getByTestId("preset-city").click();
     await expect(page.getByTestId("debug-target")).toContainText("48.", { timeout: 10_000 });
     await expect.poll(() => page.getByTestId("debug-command").innerText(), { timeout: 10_000 }).toBe("—");
+    await page.getByRole("button", { name: "EUROPE", exact: true }).click();
+    await expect(page.getByTestId("debug-target")).toContainText("50.0000", { timeout: 10_000 });
+    await page.getByRole("button", { name: "FRANCE", exact: true }).click();
+    await expect(page.getByTestId("debug-target")).toContainText("46.6000", { timeout: 10_000 });
+    const beforeTilt = await page.locator("dt:text-is('TILT') + dd").innerText();
+    await page.getByTestId("tilt-button").click();
+    await expect(page.locator("dt:text-is('TILT') + dd")).not.toHaveText(beforeTilt);
+    for (const name of ["SPACE", "PLANET", "CONTINENT", "COUNTRY", "REGION", "CITY", "DISTRICT"]) {
+      await page.getByTestId(`preset-${name.toLowerCase()}`).click();
+      await expect(page.getByTestId("debug-command")).toContainText(`lab-${name.toLowerCase()}`);
+    }
     expect(errors).toEqual([]);
   });
 
@@ -38,6 +55,7 @@ test.describe("Globe 2.0 Camera Engine lab", () => {
     await page.goto("/lab/globe2-camera");
     const canvas = page.getByTestId("camera-lab-canvas");
     await expect(canvas).toBeVisible();
+    await expect(page.getByTestId("land-status")).toContainText(/NATURAL EARTH · \d+ PAYS/, { timeout: 15_000 });
     await expect(page.getByTestId("camera-lab-debug")).toBeVisible();
     await page.getByTestId("preset-country").click();
     await expect(page.getByTestId("debug-command")).toContainText("lab-country");

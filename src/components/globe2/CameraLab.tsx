@@ -5,6 +5,8 @@ import type * as ThreeTypes from "three";
 import { CameraEngine } from "@/lib/globe2/camera";
 import { ecefToRender, enuFrame, toEcef, WGS84_A_M, WGS84_B_M } from "@/lib/globe2/geo";
 import type { GeoPoint } from "@/lib/globe2/geo";
+import { createLabEllipsoid, createLabLand } from "./CameraLabLand";
+import type { LabLand } from "./CameraLabLand";
 import styles from "./CameraLab.module.css";
 
 const PRESETS = [
@@ -40,6 +42,7 @@ export default function CameraLab() {
   const [debug, setDebug] = useState<Debug>(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [preset, setPreset] = useState<string>("PLANET");
+  const [landStatus, setLandStatus] = useState("CHARGEMENT NATURAL EARTH…");
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -65,12 +68,31 @@ export default function CameraLab() {
 
       const globe = new THREE.Group();
       scene.add(globe);
-      const earthGeometry = new THREE.SphereGeometry(WGS84_A_M, 256, 128);
-      const earthMaterial = new THREE.MeshPhongMaterial({ color: 0x071827, emissive: 0x03101b,
+      const earthGeometry = createLabEllipsoid(THREE);
+      const earthMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x03101b,
         specular: 0x18445a, shininess: 8 });
       const earth = new THREE.Mesh(earthGeometry, earthMaterial);
-      earth.scale.y = WGS84_B_M / WGS84_A_M;
       globe.add(earth);
+      const landAbort = new AbortController();
+      let land: LabLand | null = null;
+      fetch("/data/ne_110m_countries.geojson", { signal: landAbort.signal })
+        .then(response => {
+          if (!response.ok) throw new Error(`Natural Earth HTTP ${response.status}`);
+          return response.json() as Promise<unknown>;
+        })
+        .then(data => {
+          if (disposed) return;
+          land = createLabLand(THREE, data);
+          earthMaterial.map = land.texture;
+          earthMaterial.needsUpdate = true;
+          globe.add(land.borders, land.franceBorder);
+          setLandStatus(`NATURAL EARTH · ${land.countryCount} PAYS · ${land.borderSegments} SEGMENTS`);
+        })
+        .catch(reason => {
+          if (disposed || landAbort.signal.aborted) return;
+          setError(reason instanceof Error ? reason.message : "Natural Earth indisponible");
+          setLandStatus("NATURAL EARTH INDISPONIBLE");
+        });
       const atmosphereGeometry = new THREE.SphereGeometry(WGS84_A_M * 1.015, 96, 64);
       const atmosphereMaterial = new THREE.MeshBasicMaterial({ color: 0x2a8cae, transparent: true,
         opacity: 0.045, side: THREE.BackSide, depthWrite: false });
@@ -83,15 +105,18 @@ export default function CameraLab() {
       scene.add(light);
 
       const graticuleMaterial = new THREE.LineBasicMaterial({ color: 0x36a6cf, transparent: true, opacity: 0.24 });
-      const graticuleGeometry: ThreeTypes.BufferGeometry[] = [];
+      const graticulePositions: number[] = [];
+      const addGraticule = (points: number[]) => {
+        for (let i = 3; i < points.length; i += 3) graticulePositions.push(
+          points[i - 3], points[i - 2], points[i - 1], points[i], points[i + 1], points[i + 2]);
+      };
       for (let lat = -75; lat <= 75; lat += 15) {
         const positions: number[] = [];
         for (let lon = -180; lon <= 180; lon += 2) {
           const p = toEcef({ latDeg: lat, lonDeg: lon === 180 ? -180 : lon, heightM: 8_000, datum: "WGS84" });
           positions.push(p.x, p.z, -p.y);
         }
-        const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-        graticuleGeometry.push(geometry); globe.add(new THREE.Line(geometry, graticuleMaterial));
+        addGraticule(positions);
       }
       for (let lon = -180; lon < 180; lon += 15) {
         const positions: number[] = [];
@@ -99,9 +124,11 @@ export default function CameraLab() {
           const p = toEcef({ latDeg: lat, lonDeg: lon, heightM: 8_000, datum: "WGS84" });
           positions.push(p.x, p.z, -p.y);
         }
-        const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-        graticuleGeometry.push(geometry); globe.add(new THREE.Line(geometry, graticuleMaterial));
+        addGraticule(positions);
       }
+      const graticuleGeometry = new THREE.BufferGeometry();
+      graticuleGeometry.setAttribute("position", new THREE.Float32BufferAttribute(graticulePositions, 3));
+      globe.add(new THREE.LineSegments(graticuleGeometry, graticuleMaterial));
 
       const localGridGeometry = new THREE.BufferGeometry();
       const localGridPositions = new Float32Array(42 * 2 * 3);
@@ -228,6 +255,7 @@ export default function CameraLab() {
       raf = requestAnimationFrame(animate);
 
       cleanup = () => {
+        landAbort.abort();
         cancelAnimationFrame(raf); resize.disconnect();
         canvas.removeEventListener("pointerdown", onPointerDown);
         canvas.removeEventListener("pointermove", onPointerMove);
@@ -235,8 +263,8 @@ export default function CameraLab() {
         canvas.removeEventListener("pointercancel", onPointerUp);
         canvas.removeEventListener("wheel", onWheel);
         canvas.removeEventListener("contextmenu", onContextMenu);
-        earthGeometry.dispose(); earthMaterial.dispose(); atmosphereGeometry.dispose(); atmosphereMaterial.dispose();
-        graticuleGeometry.forEach(g => g.dispose()); graticuleMaterial.dispose();
+        land?.dispose(); earthGeometry.dispose(); earthMaterial.dispose(); atmosphereGeometry.dispose(); atmosphereMaterial.dispose();
+        graticuleGeometry.dispose(); graticuleMaterial.dispose();
         localGridGeometry.dispose(); (localGrid.material as ThreeTypes.Material).dispose();
         renderer.dispose(); renderer.forceContextLoss(); canvas.remove();
         engine.dispose(); engineRef.current = null;
@@ -298,7 +326,7 @@ export default function CameraLab() {
       </dl>
     </aside>
     {error && <div className={styles.error} role="alert">WebGL / Camera Lab : {error}</div>}
-    <footer className={styles.footer}>LABORATOIRE LOCAL · ELLIPSOÏDE WGS84 · AUCUN TERRAIN · AUCUNE SOURCE EXTERNE</footer>
+    <footer className={styles.footer}><span data-testid="land-status">{landStatus}</span> · ELLIPSOÏDE WGS84 · AUCUN TERRAIN · AUCUNE SOURCE EXTERNE</footer>
   </main>;
 }
 
