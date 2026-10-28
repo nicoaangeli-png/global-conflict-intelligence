@@ -1,0 +1,32 @@
+{
+  "capturedAt": "2026-10-28T18:01:01.305Z",
+  "browser": "Playwright Chromium headless",
+  "source": "http://localhost:3011",
+  "notes": "Indicative local debug values; FPS is not a controlled benchmark.",
+  "observations": [
+    {
+      "file": "01-space.png",
+      "debug": "VIEWSTATE / DEBUG\nFPS 44\nCAMÉRA\n20.00000°, 0.00000°\nHAUTEUR\n50000.0 km\nCIBLE\n20.0000°, 0.0000°\nMODE / FOV\nORBIT · 50.0°\nTILT\n0.0°\nHORIZON\nOUI\nFOOTPRINT\nPARTIEL\nGROUND SPAN\n18591.3 km\nORIGIN EPOCH\n5 · 5 rebases\nCOMMANDE\n—\nENGINE / VUE\n<0.1 ms · r67"
+    },
+    {
+      "file": "02-country.png",
+      "debug": "VIEWSTATE / DEBUG\nFPS 30\nCAMÉRA\n46.60000°, 2.20000°\nHAUTEUR\n1400.0 km\nCIBLE\n46.6000°, 2.2000°\nMODE / FOV\nORBIT · 50.0°\nTILT\n0.0°\nHORIZON\nNON\nFOOTPRINT\nCOMPLET\nGROUND SPAN\n2740.6 km\nORIGIN EPOCH\n24 · 24 rebases\nCOMMANDE\n—\nENGINE / VUE\n<0.1 ms · r124"
+    },
+    {
+      "file": "03-city.png",
+      "debug": "VIEWSTATE / DEBUG\nFPS 30\nCAMÉRA\n48.85660°, 2.35220°\nHAUTEUR\n30.0 km\nCIBLE\n48.8566°, 2.3522°\nMODE / FOV\nORBIT · 50.0°\nTILT\n0.0°\nHORIZON\nNON\nFOOTPRINT\nCOMPLET\nGROUND SPAN\n52.8 km\nORIGIN EPOCH\n45 · 45 rebases\nCOMMANDE\n—\nENGINE / VUE\n<0.1 ms · r176"
+    },
+    {
+      "file": "04-district.png",
+      "debug": "VIEWSTATE / DEBUG\nFPS 25\nCAMÉRA\n48.85840°, 2.29450°\nHAUTEUR\n2.0 km\nCIBLE\n48.8584°, 2.2945°\nMODE / FOV\nORBIT · 50.0°\nTILT\n0.0°\nHORIZON\nNON\nFOOTPRINT\nCOMPLET\nGROUND SPAN\n3.5 km\nORIGIN EPOCH\n61 · 61 rebases\nCOMMANDE\n—\nENGINE / VUE\n<0.1 ms · r226"
+    },
+    {
+      "file": "05-oblique.png",
+      "debug": "VIEWSTATE / DEBUG\nFPS 30\nCAMÉRA\n48.84081°, 2.29450°\nHAUTEUR\n416 m\nCIBLE\n48.8584°, 2.2945°\nMODE / FOV\nORBIT · 50.0°\nTILT\n78.0°\nHORIZON\nOUI\nFOOTPRINT\nPARTIEL\nGROUND SPAN\n145.7 km\nORIGIN EPOCH\n65 · 65 rebases\nCOMMANDE\n—\nENGINE / VUE\n<0.1 ms · r230"
+    },
+    {
+      "file": "06-mobile-390x844.png",
+      "debug": "VIEWSTATE / DEBUG\nFPS 60\nCAMÉRA\n46.60000°, 2.20000°\nHAUTEUR\n1400.0 km\nCIBLE\n46.6000°, 2.2000°\nMODE / FOV\nORBIT · 50.0°\nTILT\n0.0°\nHORIZON\nNON\nFOOTPRINT\nCOMPLET\nGROUND SPAN\n1487.4 km\nORIGIN EPOCH\n17 · 17 rebases\nCOMMANDE\n—\nENGINE / VUE\n<0.1 ms · r93"
+    }
+  ]
+}
