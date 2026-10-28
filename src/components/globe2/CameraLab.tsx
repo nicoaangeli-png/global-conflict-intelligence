@@ -10,6 +10,8 @@ import type { LabLand } from "./CameraLabLand";
 import { TileEngine } from "@/lib/globe2/tiles";
 import type { TileMetrics, TileStrategy } from "@/lib/globe2/tiles";
 import { TileDebugLayer } from "./TileDebugLayer";
+import type { ProductGlobeVisual } from "./ProductGlobeVisual";
+import type { Starfield } from "@/components/globe/Starfield";
 import styles from "./CameraLab.module.css";
 
 const PRESETS = [
@@ -39,7 +41,7 @@ const EMPTY: Debug = { lat: "—", lon: "—", height: "—", target: "—", fov
 
 const metres = (n: number | null) => n === null ? "—" : n >= 1000 ? `${(n / 1000).toFixed(1)} km` : `${n.toFixed(0)} m`;
 
-export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
+export default function CameraLab({ tileLab = false, productLab = false }: { tileLab?: boolean; productLab?: boolean }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CameraEngine | null>(null);
   const tileEngineRef = useRef<TileEngine | null>(null);
@@ -49,6 +51,7 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
   const [tileStrategy, setTileStrategy] = useState<TileStrategy>("cube");
   const [tileOverlay, setTileOverlay] = useState(false);
   const [tileSurface, setTileSurface] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preset, setPreset] = useState<string>("PLANET");
   const [landStatus, setLandStatus] = useState("CHARGEMENT NATURAL EARTH…");
@@ -61,6 +64,8 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
     const start = async () => {
       const THREE = await import("three");
       const { applyCameraToThree } = await import("./CameraThreeAdapter");
+      const ProductVisualClass = productLab ? (await import("./ProductGlobeVisual")).ProductGlobeVisual : null;
+      const StarfieldClass = productLab ? (await import("@/components/globe/Starfield")).Starfield : null;
       if (disposed) return;
       const engine = new CameraEngine({ width: mount.clientWidth, height: mount.clientHeight });
       engineRef.current = engine;
@@ -77,17 +82,35 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
 
       const globe = new THREE.Group();
       scene.add(globe);
+      let starfield: Starfield | null = null;
+      if (StarfieldClass) {
+        starfield = new StarfieldClass();
+        // Keep the existing star field within the Camera Engine's dynamic far plane.
+        starfield.group.scale.setScalar(WGS84_A_M * 0.3);
+        globe.add(starfield.group);
+      }
       const tileEngine = tileLab ? new TileEngine("cube", { maxVisible: mount.clientWidth < 700 ? 128 : 256 }) : null;
       const tileLayer = tileLab ? new TileDebugLayer(THREE) : null;
       if (tileLayer) scene.add(tileLayer.group);
       tileEngineRef.current = tileEngine;
       tileLayerRef.current = tileLayer;
       const earthGeometry = createLabEllipsoid(THREE);
-      const earthMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x03101b,
-        specular: 0x18445a, shininess: 8 });
+      let productVisual: ProductGlobeVisual | null = null;
+      if (ProductVisualClass) {
+        productVisual = new ProductVisualClass(THREE, earthGeometry, renderer.getPixelRatio());
+        globe.add(productVisual.group);
+      }
+      const earthMaterial = productLab
+        ? new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 })
+        : new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x03101b,
+          specular: 0x18445a, shininess: 8 });
       const earth = new THREE.Mesh(earthGeometry, earthMaterial);
+      if (productLab) { earth.scale.setScalar(1.00015); earth.visible = false; }
       globe.add(earth);
       const landAbort = new AbortController();
+      if (productVisual) productVisual.load(landAbort.signal).catch(reason => {
+        if (!landAbort.signal.aborted) setError(reason instanceof Error ? reason.message : "Points terrestres indisponibles");
+      });
       let land: LabLand | null = null;
       fetch("/data/ne_110m_countries.geojson", { signal: landAbort.signal })
         .then(response => {
@@ -96,7 +119,7 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
         })
         .then(data => {
           if (disposed) return;
-          land = createLabLand(THREE, data);
+          land = createLabLand(THREE, data, productLab);
           earthMaterial.map = land.texture;
           earthMaterial.needsUpdate = true;
           globe.add(land.borders, land.franceBorder);
@@ -112,13 +135,15 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
         opacity: 0.045, side: THREE.BackSide, depthWrite: false });
       const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
       atmosphere.scale.y = WGS84_B_M / WGS84_A_M;
+      atmosphere.visible = !productLab;
       globe.add(atmosphere);
       scene.add(new THREE.AmbientLight(0x7aa2bb, 1.3));
       const light = new THREE.DirectionalLight(0xb5e7ff, 2.2);
       light.position.set(8_000_000, 10_000_000, 14_000_000);
       scene.add(light);
 
-      const graticuleMaterial = new THREE.LineBasicMaterial({ color: 0x36a6cf, transparent: true, opacity: 0.24 });
+      const graticuleMaterial = new THREE.LineBasicMaterial({ color: 0x36a6cf, transparent: true,
+        opacity: productLab ? 0.12 : 0.24 });
       const graticulePositions: number[] = [];
       const addGraticule = (points: number[]) => {
         for (let i = 3; i < points.length; i += 3) graticulePositions.push(
@@ -142,13 +167,15 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
       }
       const graticuleGeometry = new THREE.BufferGeometry();
       graticuleGeometry.setAttribute("position", new THREE.Float32BufferAttribute(graticulePositions, 3));
-      globe.add(new THREE.LineSegments(graticuleGeometry, graticuleMaterial));
+      const graticule = new THREE.LineSegments(graticuleGeometry, graticuleMaterial);
+      globe.add(graticule);
 
       const localGridGeometry = new THREE.BufferGeometry();
       const localGridPositions = new Float32Array(42 * 2 * 3);
       localGridGeometry.setAttribute("position", new THREE.BufferAttribute(localGridPositions, 3));
       const localGrid = new THREE.LineSegments(localGridGeometry,
-        new THREE.LineBasicMaterial({ color: 0x56d8e9, transparent: true, opacity: 0.36, depthTest: false }));
+        new THREE.LineBasicMaterial({ color: 0x56d8e9, transparent: true,
+          opacity: productLab ? 0.14 : 0.36, depthTest: false }));
       localGrid.frustumCulled = false;
       scene.add(localGrid);
       let gridRevision = -1, gridEpoch = -1;
@@ -230,6 +257,7 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
       const resize = new ResizeObserver(() => {
         const width = Math.max(1, mount.clientWidth), height = Math.max(1, mount.clientHeight);
         engine.setViewport({ width, height }); renderer.setSize(width, height);
+        productVisual?.setPixelRatio(renderer.getPixelRatio());
       });
       resize.observe(mount);
 
@@ -247,6 +275,14 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
         engine.step(delta, Date.now(), reduced);
         applyCameraToThree(engine, camera, globe);
         const state = engine.getState();
+        if (productLab) {
+          productVisual?.update(time / 1000, state.distanceM);
+          starfield?.update(time / 1000);
+          const surfaceOpacity = Math.max(0, Math.min(1, (2_000_000 - state.distanceM) / 1_700_000));
+          earthMaterial.opacity = surfaceOpacity;
+          earth.visible = land !== null && surfaceOpacity > 0.01;
+          graticule.visible = state.distanceM > 400_000;
+        }
         if (tileEngine && tileLayer) {
           const snapshot = tileEngine.update(engine.getPose(), engine.getViewFootprint());
           tileLayer.update(snapshot, engine.getFloatingOrigin());
@@ -283,6 +319,11 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
         canvas.removeEventListener("wheel", onWheel);
         canvas.removeEventListener("contextmenu", onContextMenu);
         land?.dispose(); earthGeometry.dispose(); earthMaterial.dispose(); atmosphereGeometry.dispose(); atmosphereMaterial.dispose();
+        productVisual?.dispose();
+        if (starfield) {
+          starfield.group.traverse(object => { if (object instanceof THREE.Points) object.geometry.dispose(); });
+          starfield.dispose();
+        }
         graticuleGeometry.dispose(); graticuleMaterial.dispose();
         localGridGeometry.dispose(); (localGrid.material as ThreeTypes.Material).dispose();
         tileLayer?.dispose(); tileEngine?.dispose(); tileEngineRef.current = null; tileLayerRef.current = null;
@@ -292,7 +333,7 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
     };
     start().catch(err => { if (!disposed) setError(err instanceof Error ? err.message : "WebGL indisponible"); });
     return () => { disposed = true; cleanup(); };
-  }, [tileLab]);
+  }, [tileLab, productLab]);
 
   const fly = (target: { latDeg: number; lonDeg: number; distanceM: number }, name: string) => {
     const engine = engineRef.current;
@@ -303,33 +344,38 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
     setPreset(name);
   };
 
-  return <main className={`${styles.lab} ${tileLab ? styles.labTiles : ""}`}>
+  return <main className={`${styles.lab} ${tileLab ? styles.labTiles : ""} ${productLab ? styles.labProduct : ""}`}>
     <div ref={mountRef} className={styles.canvas} data-testid="camera-lab-mount" />
-    <header className={styles.header}><span className={styles.brand}>◉ ORBITAL <strong>{tileLab ? "LAB / TILE + LOD ENGINE" : "LAB / CAMERA ENGINE"}</strong></span>
-      <span className={styles.badge}>{tileLab ? "PHASE 3A · PATCHES DEBUG · AUCUN TERRAIN" : "PHASE 2 · THREE.JS RENDU · MOTEUR ORBITAL"}</span></header>
+    <header className={styles.header}><span className={styles.brand}>◉ ORBITAL <strong>{productLab ? "GLOBE 2.0 / LAB" : tileLab ? "LAB / TILE + LOD ENGINE" : "LAB / CAMERA ENGINE"}</strong></span>
+      <span className={styles.badge}>{productLab ? "GEO CORE · CAMERA ENGINE · TILE ENGINE" : tileLab ? "PHASE 3A · PATCHES DEBUG · AUCUN TERRAIN" : "PHASE 2 · THREE.JS RENDU · MOTEUR ORBITAL"}</span></header>
     <section className={styles.controls} aria-label="Contrôles caméra">
       <div className={styles.label}>ÉCHELLE · {preset}</div>
       <div className={styles.buttons}>{PRESETS.map(p => <button key={p.name} type="button" data-testid={`preset-${p.name.toLowerCase()}`}
         className={preset === p.name ? styles.active : ""} onClick={() => fly(p, p.name)}>{p.name}</button>)}</div>
       <div className={styles.label}>DESTINATIONS</div>
-      <div className={styles.buttons}>{DESTINATIONS.map(p => <button key={p.name} type="button" onClick={() => fly(p, p.name)}>{p.name}</button>)}</div>
+      <div className={styles.buttons}>
+        {productLab && <button type="button" data-testid="destination-monde" onClick={() => fly(PRESETS[0], "MONDE")}>MONDE</button>}
+        {DESTINATIONS.map(p => <button key={p.name} type="button" data-testid={`destination-${p.name.toLowerCase()}`} onClick={() => fly(p, p.name)}>{p.name}</button>)}
+      </div>
       <div className={styles.label}>ORIENTATION / COMMANDE</div>
       <div className={styles.buttons}>
         <button type="button" data-testid="tilt-button" onClick={() => engineRef.current?.tilt(20 * Math.PI / 180)}>OBLIQUE +</button>
         <button type="button" onClick={() => engineRef.current?.tilt(-20 * Math.PI / 180)}>OBLIQUE −</button>
         <button type="button" onClick={() => engineRef.current?.northUp()}>NORD ↑</button>
-        <button type="button" data-testid="track-button" onClick={() => {
+        {!productLab && <button type="button" data-testid="track-button" onClick={() => {
           const engine = engineRef.current; if (!engine) return;
           engine.flyTo({ target: { latDeg: 48.8566, lonDeg: 2.3522 }, distanceM: 30_000,
             durationMs: 1000, id: "lab-track-approach" });
           window.setTimeout(() => { if (engineRef.current === engine) engine.dispatch({ id: "lab-track", source: "user", action: "track",
             issuedAt: new Date().toISOString(), payload: { target: { kind: "mobile", id: "lab-synthetic-target" }, enabled: true } }); }, 1050);
-        }}>SUIVI SYNTHÉTIQUE</button>
+        }}>SUIVI SYNTHÉTIQUE</button>}
         <button type="button" data-testid="reset-button" onClick={() => { engineRef.current?.reset(); setPreset("PLANET"); }}>RESET</button>
       </div>
       <p className={styles.hint}>Glisser : rotation · Maj + glisser : pan · Molette/pinch : zoom au pointeur · Maj + molette / deux doigts verticaux : tilt. Tout geste interrompt un fly-to.</p>
     </section>
-    <aside className={styles.debug} aria-label="Debug Camera Engine" data-testid="camera-lab-debug">
+    {productLab && <button type="button" className={styles.debugToggle} data-testid="product-debug-toggle"
+      aria-expanded={showDebug} onClick={() => setShowDebug(value => !value)}>DEBUG {showDebug ? "−" : "+"}</button>}
+    {(!productLab || showDebug) && <aside className={styles.debug} aria-label="Debug Camera Engine" data-testid="camera-lab-debug">
       <div className={styles.label}>VIEWSTATE / DEBUG <span>FPS {debug.fps}</span></div>
       <dl>
         <dt>CAMÉRA</dt><dd data-testid="debug-camera">{debug.lat}°, {debug.lon}°</dd>
@@ -344,8 +390,8 @@ export default function CameraLab({ tileLab = false }: { tileLab?: boolean }) {
         <dt>COMMANDE</dt><dd data-testid="debug-command">{debug.command}</dd>
         <dt>ENGINE / VUE</dt><dd>{debug.engineMs} ms · r{debug.revision}</dd>
       </dl>
-    </aside>
-    {tileLab && <aside className={styles.tileDebug} aria-label="Debug Tile Engine" data-testid="tile-lab-debug">
+    </aside>}
+    {tileLab && (!productLab || showDebug) && <aside className={styles.tileDebug} aria-label="Debug Tile Engine" data-testid="tile-lab-debug">
       <div className={styles.label}>TILE / LOD <span>{tileStrategy.toUpperCase()}</span></div>
       <div className={styles.buttons}>
         <button type="button" data-testid="strategy-cube" className={tileStrategy === "cube" ? styles.active : ""}
