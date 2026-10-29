@@ -92,7 +92,7 @@ export class ProductGlobeVisual {
     this.THREE = THREE;
     this.group = new THREE.Group();
     this.bodyMaterial = new THREE.ShaderMaterial({ vertexShader: hologramVertex, fragmentShader: hologramFragment,
-      uniforms: THREE.UniformsUtils.clone(hologramDefaults), transparent: true, depthWrite: true });
+      uniforms: THREE.UniformsUtils.clone(hologramDefaults), transparent: true, depthWrite: false });
     // The original noise frequency is configured for a unit sphere.
     this.bodyMaterial.uniforms.uNoiseScale.value = GLOBE.body.noiseScale / WGS84_A_M;
     this.body = new THREE.Mesh(ellipsoid, this.bodyMaterial);
