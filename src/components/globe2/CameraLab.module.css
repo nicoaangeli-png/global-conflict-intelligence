@@ -24,6 +24,8 @@
 .tileNote { margin: 12px 0 0; font: 9px var(--font-mono); letter-spacing: .06em; color: #789fb7; }
 .footer { position: absolute; left: 20px; bottom: 16px; z-index: 2; font: 10px var(--font-mono); letter-spacing: .1em; color: #78a4bc; pointer-events: none; }
 .error { position: absolute; z-index: 5; left: 50%; top: 50%; transform: translate(-50%,-50%); padding: 16px; color: #fff; background: #5a1b1b; }
+.debugToggle { position: absolute; z-index: 4; right: 20px; bottom: 18px; padding: 8px 12px; border: 1px solid rgba(127,212,255,.25); background: rgba(2,9,18,.8); color: #8fb4cc; font: 10px var(--font-mono); letter-spacing: .1em; cursor: pointer; }
+.labProduct .footer { opacity: .7; }
 @media (max-width: 700px) {
   .header { min-height: 46px; padding: 0 12px; }
   .brand { font-size: 11px; letter-spacing: .1em; }
