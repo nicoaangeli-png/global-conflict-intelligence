@@ -72,7 +72,10 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x010409);
       const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 1, 90_000_000);
-      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", logarithmicDepthBuffer: true });
+      // Product shaders use regular fragment depth; the WGS84 depth occluder and
+      // geographic lines must share that depth space across all draw passes.
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance",
+        logarithmicDepthBuffer: !productLab });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       renderer.domElement.dataset.testid = "camera-lab-canvas";

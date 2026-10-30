@@ -78,6 +78,7 @@ export class ProductGlobeVisual {
   private readonly THREE: typeof ThreeTypes;
   private readonly body: ThreeTypes.Mesh;
   private readonly bodyMaterial: ThreeTypes.ShaderMaterial;
+  private readonly occluderMaterial: ThreeTypes.MeshBasicMaterial;
   private readonly haloMaterial: ThreeTypes.ShaderMaterial;
   private readonly rimMaterial: ThreeTypes.ShaderMaterial;
   private readonly pointMaterial: ThreeTypes.ShaderMaterial;
@@ -91,8 +92,19 @@ export class ProductGlobeVisual {
   constructor(THREE: typeof ThreeTypes, ellipsoid: ThreeTypes.BufferGeometry, pixelRatio: number) {
     this.THREE = THREE;
     this.group = new THREE.Group();
+    // Opaque render pass, depth only: near-side WGS84 surface hides geographic
+    // lines and orbit segments behind the planet without painting a solid disk.
+    this.occluderMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true,
+      depthTest: true, side: THREE.FrontSide });
+    const occluder = new THREE.Mesh(ellipsoid, this.occluderMaterial);
+    occluder.renderOrder = -1;
+    this.group.add(occluder);
+    // The visible shell occupies exactly the same surface: bypass its own
+    // depth comparison to avoid z-fighting, while geographic layers still test
+    // against the occluder.
     this.bodyMaterial = new THREE.ShaderMaterial({ vertexShader: hologramVertex, fragmentShader: hologramFragment,
-      uniforms: THREE.UniformsUtils.clone(hologramDefaults), transparent: true, depthWrite: false });
+      uniforms: THREE.UniformsUtils.clone(hologramDefaults), transparent: true, depthWrite: false,
+      depthTest: false });
     // The original noise frequency is configured for a unit sphere.
     this.bodyMaterial.uniforms.uNoiseScale.value = GLOBE.body.noiseScale / WGS84_A_M;
     // The lab's full-scale WGS84 globe has no opaque surface at orbital distance.
@@ -177,7 +189,7 @@ export class ProductGlobeVisual {
 
   dispose(): void {
     for (const geometry of this.ownedGeometries) geometry.dispose();
-    this.bodyMaterial.dispose(); this.haloMaterial.dispose(); this.rimMaterial.dispose();
+    this.occluderMaterial.dispose(); this.bodyMaterial.dispose(); this.haloMaterial.dispose(); this.rimMaterial.dispose();
     this.pointMaterial.dispose(); this.cityMaterial.dispose(); this.orbitMaterial.dispose();
   }
 }

@@ -31,6 +31,31 @@ test("Product Globe 2.0 renders a readable holographic planet, not a dark core",
   expect(luminance.core).toBeGreaterThan(14);
   expect(luminance.core).toBeGreaterThan(luminance.innerBody * 0.5);
   expect(luminance.halo).toBeGreaterThan(luminance.space);
+
+  // At the Europe preset, the open Atlantic must not contain the dense web of
+  // back-side borders/graticule that was visible through the translucent globe.
+  await page.getByTestId("destination-europe").click();
+  await page.waitForTimeout(2_000);
+  const europeScreenshot = (await page.screenshot()).toString("base64");
+  const atlanticOverdraw = await page.evaluate(async imageBase64 => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${imageBase64}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Screenshot canvas unavailable");
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    let bright = 0, total = 0;
+    for (let y = 450; y < 760; y += 3) for (let x = 380; x < 470; x += 3) {
+      const pixel = (y * image.width + x) * 4;
+      if (Math.max(pixels[pixel], pixels[pixel + 1], pixels[pixel + 2]) > 35) bright++;
+      total++;
+    }
+    return bright / total;
+  }, europeScreenshot);
+  expect(atlanticOverdraw).toBeLessThan(0.07);
 });
 
 test("Product Globe 2.0 route navigates from space to district on the new engines", async ({ page }) => {
