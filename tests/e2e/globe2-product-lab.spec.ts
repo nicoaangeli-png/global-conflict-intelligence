@@ -1,5 +1,38 @@
 import { expect, test } from "@playwright/test";
 
+test("Product Globe 2.0 renders a readable holographic planet, not a dark core", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/lab/globe2");
+  await expect(page.getByTestId("land-status")).toContainText(/NATURAL EARTH · \d+ PAYS/, { timeout: 15_000 });
+  const screenshot = (await page.screenshot()).toString("base64");
+  const luminance = await page.evaluate(async imageBase64 => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${imageBase64}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Screenshot canvas unavailable");
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    const samples = (minRadius: number, maxRadius: number) => {
+      const values: number[] = [];
+      for (let y = 150; y < 750; y += 4) for (let x = 420; x < 1020; x += 4) {
+        const radius = Math.hypot(x - 720, y - 450);
+        if (radius < minRadius || radius >= maxRadius) continue;
+        const pixel = (y * image.width + x) * 4;
+        values.push(Math.max(pixels[pixel], pixels[pixel + 1], pixels[pixel + 2]));
+      }
+      values.sort((a, b) => a - b);
+      return values[Math.floor(values.length / 2)];
+    };
+    return { core: samples(0, 100), innerBody: samples(130, 180), halo: samples(260, 295), space: samples(310, 340) };
+  }, screenshot);
+  expect(luminance.core).toBeGreaterThan(14);
+  expect(luminance.core).toBeGreaterThan(luminance.innerBody * 0.5);
+  expect(luminance.halo).toBeGreaterThan(luminance.space);
+});
+
 test("Product Globe 2.0 route navigates from space to district on the new engines", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -34,6 +67,12 @@ test("Product Globe 2.0 route navigates from space to district on the new engine
   await page.mouse.move(900, 500);
   await page.mouse.wheel(0, -300);
   await expect(page.getByTestId("debug-height")).not.toHaveText(beforeZoom);
+  const beforeDrag = await page.getByTestId("debug-target").innerText();
+  await page.mouse.move(900, 500);
+  await page.mouse.down();
+  await page.mouse.move(970, 530, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByTestId("debug-target")).not.toHaveText(beforeDrag);
   const beforeTilt = await page.locator("dt:text-is('TILT') + dd").innerText();
   await page.getByTestId("tilt-button").click();
   await expect(page.locator("dt:text-is('TILT') + dd")).not.toHaveText(beforeTilt);

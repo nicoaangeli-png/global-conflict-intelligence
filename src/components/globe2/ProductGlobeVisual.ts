@@ -95,12 +95,18 @@ export class ProductGlobeVisual {
       uniforms: THREE.UniformsUtils.clone(hologramDefaults), transparent: true, depthWrite: false });
     // The original noise frequency is configured for a unit sphere.
     this.bodyMaterial.uniforms.uNoiseScale.value = GLOBE.body.noiseScale / WGS84_A_M;
+    // The lab's full-scale WGS84 globe has no opaque surface at orbital distance.
+    // Give the translucent body a readable deep-cyan fill without restoring a black disk.
+    this.bodyMaterial.uniforms.uBaseColor.value = new THREE.Color(0x398fb8);
+    this.bodyMaterial.uniforms.uFillOpacity.value = 1;
     this.body = new THREE.Mesh(ellipsoid, this.bodyMaterial);
     this.group.add(this.body);
 
+    // The back face of this enlarged shell lights the whole disk around the planet,
+    // making its centre look like a black hole. The front face leaves only the limb.
     this.haloMaterial = new THREE.ShaderMaterial({ vertexShader: atmosphereVertex, fragmentShader: atmosphereFragment,
       uniforms: THREE.UniformsUtils.clone(atmosphereHaloDefaults), transparent: true, depthWrite: false,
-      depthTest: false, side: THREE.BackSide, blending: THREE.AdditiveBlending });
+      depthTest: false, side: THREE.FrontSide, blending: THREE.AdditiveBlending });
     const halo = new THREE.Mesh(ellipsoid, this.haloMaterial);
     halo.scale.setScalar(GLOBE.atmosphere.haloRadius);
     this.group.add(halo);
