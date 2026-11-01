@@ -12,6 +12,12 @@ import type { TileMetrics, TileStrategy } from "@/lib/globe2/tiles";
 import { TileDebugLayer } from "./TileDebugLayer";
 import type { ProductGlobeVisual } from "./ProductGlobeVisual";
 import type { Starfield } from "@/components/globe/Starfield";
+import type { ConflictCluster, ConflictEvent, EventsResponse } from "@/types/conflict";
+import type { FeedsResponse, FeedSourceState, LiveItem } from "@/types/feeds";
+import { dedupeFeeds, productSignals, signalForFeed } from "./productIntel";
+import type { ProductSignal } from "./productIntel";
+import { ProductIntelPanel } from "./ProductIntelPanel";
+import type { ProductSignalLayer } from "./ProductSignalLayer";
 import styles from "./CameraLab.module.css";
 
 const PRESETS = [
@@ -46,6 +52,9 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
   const engineRef = useRef<CameraEngine | null>(null);
   const tileEngineRef = useRef<TileEngine | null>(null);
   const tileLayerRef = useRef<TileDebugLayer | null>(null);
+  const signalLayerRef = useRef<ProductSignalLayer | null>(null);
+  const signalsRef = useRef<ProductSignal[]>([]);
+  const detailSequenceRef = useRef(0);
   const [debug, setDebug] = useState<Debug>(EMPTY);
   const [tileMetrics, setTileMetrics] = useState<TileMetrics | null>(null);
   const [tileStrategy, setTileStrategy] = useState<TileStrategy>("cube");
@@ -55,6 +64,53 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
   const [error, setError] = useState<string | null>(null);
   const [preset, setPreset] = useState<string>("PLANET");
   const [landStatus, setLandStatus] = useState("CHARGEMENT NATURAL EARTH…");
+  const [events, setEvents] = useState<EventsResponse | null>(null);
+  const [feeds, setFeeds] = useState<LiveItem[]>([]);
+  const [feedSources, setFeedSources] = useState<FeedSourceState[]>([]);
+  const [intelLoading, setIntelLoading] = useState(productLab);
+  const [intelError, setIntelError] = useState<string | null>(null);
+  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
+  const [selectedConflict, setSelectedConflict] = useState<ConflictCluster | null>(null);
+  const [selectedConflictEvents, setSelectedConflictEvents] = useState<ConflictEvent[]>([]);
+  const [feedOpen, setFeedOpen] = useState(true);
+
+  useEffect(() => {
+    if (!productLab) return;
+    const abort = new AbortController();
+    const load = async () => {
+      setIntelLoading(true);
+      const urls = [
+        "/api/events?range=30d&types=Battles%2CExplosions%2FRemote%20violence%2CViolence%20against%20civilians&degrees=2.4",
+        "/api/feeds?category=disaster&limit=100",
+        "/api/feeds?category=weather&limit=100",
+        "/api/feeds?category=un&limit=60",
+      ];
+      const results = await Promise.allSettled(urls.map(async url => {
+        const response = await fetch(url, { signal: abort.signal });
+        if (!response.ok) throw new Error(`${url.split("?")[0]} HTTP ${response.status}`);
+        return response.json() as Promise<unknown>;
+      }));
+      if (abort.signal.aborted) return;
+      const failed = results.filter(result => result.status === "rejected");
+      if (results[0].status === "fulfilled") setEvents(results[0].value as EventsResponse);
+      const availableFeeds = results.slice(1).filter((result): result is PromiseFulfilledResult<unknown> => result.status === "fulfilled")
+        .map(result => result.value as FeedsResponse);
+      if (availableFeeds.length) {
+        setFeeds(dedupeFeeds(availableFeeds));
+        setFeedSources(availableFeeds.flatMap(response => response.sources));
+      }
+      setIntelError(failed.length ? `${failed.length} / ${urls.length} requêtes en échec` : null);
+      setIntelLoading(false);
+    };
+    void load();
+    const timer = window.setInterval(() => { void load(); }, 5 * 60_000);
+    return () => { abort.abort(); window.clearInterval(timer); };
+  }, [productLab]);
+
+  useEffect(() => {
+    signalsRef.current = productSignals(events, feeds);
+    signalLayerRef.current?.setSignals(signalsRef.current);
+  }, [events, feeds]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -65,6 +121,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       const THREE = await import("three");
       const { applyCameraToThree } = await import("./CameraThreeAdapter");
       const ProductVisualClass = productLab ? (await import("./ProductGlobeVisual")).ProductGlobeVisual : null;
+      const ProductSignalClass = productLab ? (await import("./ProductSignalLayer")).ProductSignalLayer : null;
       const StarfieldClass = productLab ? (await import("@/components/globe/Starfield")).Starfield : null;
       if (disposed) return;
       const engine = new CameraEngine({ width: mount.clientWidth, height: mount.clientHeight });
@@ -103,6 +160,8 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
         productVisual = new ProductVisualClass(THREE, earthGeometry, renderer.getPixelRatio());
         globe.add(productVisual.group);
       }
+      const signalLayer = ProductSignalClass ? new ProductSignalClass(THREE, renderer.getPixelRatio()) : null;
+      if (signalLayer) { globe.add(signalLayer.group); signalLayerRef.current = signalLayer; signalLayer.setSignals(signalsRef.current); }
       const earthMaterial = productLab
         ? new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 })
         : new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x03101b,
@@ -323,6 +382,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
         canvas.removeEventListener("contextmenu", onContextMenu);
         land?.dispose(); earthGeometry.dispose(); earthMaterial.dispose(); atmosphereGeometry.dispose(); atmosphereMaterial.dispose();
         productVisual?.dispose();
+        signalLayer?.dispose(); signalLayerRef.current = null;
         if (starfield) {
           starfield.group.traverse(object => { if (object instanceof THREE.Points) object.geometry.dispose(); });
           starfield.dispose();
@@ -345,6 +405,41 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       id: `lab-${name.toLowerCase().replace(/\s+/g, "-")}`, source: "user" }, Date.now(),
       window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     setPreset(name);
+  };
+
+  const selectFeed = (item: LiveItem) => {
+    detailSequenceRef.current++;
+    setSelectedFeedId(item.id);
+    setSelectedConflict(null);
+    const signal = signalForFeed(item);
+    signalLayerRef.current?.select(signal);
+    if (!signal) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    // Without terrain, retain enough geographic context for small islands and ocean events.
+    engine.flyTo({ target: { latDeg: signal.lat, lonDeg: signal.lon }, distanceM: 4_000_000,
+      durationMs: 1600, id: `feed-${item.id}`, source: "feed" }, Date.now(),
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    setPreset("ÉVÉNEMENT");
+  };
+
+  const selectConflict = (cluster: ConflictCluster) => {
+    const sequence = ++detailSequenceRef.current;
+    setSelectedConflict(cluster); setSelectedFeedId(null); setSelectedConflictEvents([]);
+    signalLayerRef.current?.select({ id: `conflict:${cluster.id}`, lat: cluster.latitude, lon: cluster.longitude,
+      kind: "conflict", label: cluster.locality || cluster.country });
+    const distanceM = cluster.geoPrecision === "country" ? 5_000_000
+      : cluster.geoPrecision === "region" ? 3_000_000 : 1_400_000;
+    engineRef.current?.flyTo({ target: { latDeg: cluster.latitude, lonDeg: cluster.longitude },
+      distanceM, durationMs: 1600, id: `conflict-${cluster.id}`, source: "user" },
+    Date.now(), window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    setPreset("SIGNAL");
+    void fetch("/api/cluster", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filters: { range: "30d", types: "Battles,Explosions/Remote violence,Violence against civilians" },
+        degrees: 2.4, lat: cluster.latitude, lon: cluster.longitude, clusterId: cluster.id, limit: 12 }) })
+      .then(response => response.ok ? response.json() as Promise<{ events?: ConflictEvent[] }> : null)
+      .then(data => { if (sequence === detailSequenceRef.current && data?.events) setSelectedConflictEvents(data.events); })
+      .catch(() => { /* The aggregate remains inspectable if detail is unavailable. */ });
   };
 
   return <main className={`${styles.lab} ${tileLab ? styles.labTiles : ""} ${productLab ? styles.labProduct : ""}`}>
@@ -376,6 +471,10 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       </div>
       <p className={styles.hint}>Glisser : rotation · Maj + glisser : pan · Molette/pinch : zoom au pointeur · Maj + molette / deux doigts verticaux : tilt. Tout geste interrompt un fly-to.</p>
     </section>
+    {productLab && <ProductIntelPanel events={events} feeds={feeds} sources={feedSources}
+      selectedId={selectedFeedId} selectedConflict={selectedConflict} selectedConflictEvents={selectedConflictEvents}
+      error={intelError} loading={intelLoading} open={feedOpen}
+      onToggle={() => setFeedOpen(value => !value)} onSelect={selectFeed} onSelectConflict={selectConflict} />}
     {productLab && <button type="button" className={styles.debugToggle} data-testid="product-debug-toggle"
       aria-expanded={showDebug} onClick={() => setShowDebug(value => !value)}>DEBUG {showDebug ? "−" : "+"}</button>}
     {(!productLab || showDebug) && <aside className={styles.debug} aria-label="Debug Camera Engine" data-testid="camera-lab-debug">
@@ -423,7 +522,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       <p className={styles.tileNote}>PATCHES ELLIPSOÏDE · AUCUN RÉSEAU · AUCUN DEM</p>
     </aside>}
     {error && <div className={styles.error} role="alert">WebGL / Camera Lab : {error}</div>}
-    <footer className={styles.footer}><span data-testid="land-status">{landStatus}</span> · ELLIPSOÏDE WGS84 · AUCUN TERRAIN · AUCUNE SOURCE EXTERNE</footer>
+    <footer className={styles.footer}><span data-testid="land-status">{landStatus}</span> · ELLIPSOÏDE WGS84 · AUCUN TERRAIN {productLab ? "· DONNÉES ORBITAL EXISTANTES" : "· AUCUNE SOURCE EXTERNE"}</footer>
   </main>;
 }
 

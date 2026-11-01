@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
 
+// These visual/navigation checks do not depend on external feed availability.
+// Feed integration and fly-to are covered separately in globe2-product-intel.spec.ts.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/events?*", route => route.fulfill({ json: { clusters: [], totalEvents: 0 } }));
+  await page.route("**/api/feeds?*", route => route.fulfill({ json: { items: [], sources: [], generatedAt: new Date().toISOString() } }));
+});
+
 test("Product Globe 2.0 renders a readable holographic planet, not a dark core", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/lab/globe2");
