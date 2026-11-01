@@ -109,7 +109,7 @@ export type LabLand = {
 };
 
 /** Natural Earth supplies the geography; all 3D positions use Geo Core WGS84/ECEF. */
-export function createLabLand(THREE: typeof ThreeTypes, input: unknown): LabLand {
+export function createLabLand(THREE: typeof ThreeTypes, input: unknown, darkSurface = false): LabLand {
   if (!input || typeof input !== "object" || (input as CountryCollection).type !== "FeatureCollection"
     || !Array.isArray((input as CountryCollection).features)) throw new Error("Natural Earth GeoJSON invalide");
   const countries = (input as CountryCollection).features;
@@ -117,14 +117,15 @@ export function createLabLand(THREE: typeof ThreeTypes, input: unknown): LabLand
   canvas.width = textureWidth; canvas.height = textureHeight;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D indisponible pour Natural Earth");
-  ctx.fillStyle = "#061723"; ctx.fillRect(0, 0, textureWidth, textureHeight);
+  ctx.fillStyle = darkSurface ? "#03111c" : "#061723";
+  ctx.fillRect(0, 0, textureWidth, textureHeight);
   const borders: number[] = [], franceBorders: number[] = [];
   let countryCount = 0, borderSegments = 0;
   for (const country of countries) {
     if (country?.type !== "Feature" || !country.geometry ||
       !["Polygon", "MultiPolygon"].includes(country.geometry.type)) continue;
     const isFrance = country.properties?.ADMIN === "France";
-    ctx.fillStyle = isFrance ? "#246078" : "#123e50";
+    ctx.fillStyle = darkSurface ? (isFrance ? "#0d2b38" : "#08202c") : (isFrance ? "#246078" : "#123e50");
     for (const polygon of polygons(country)) {
       drawPolygon(ctx, polygon);
       for (const ring of polygon) borderSegments += addBorderSegments(ring, isFrance ? franceBorders : borders);
