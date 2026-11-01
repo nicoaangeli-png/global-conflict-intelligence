@@ -1,5 +1,6 @@
 import type { ConflictCluster } from "@/types/conflict";
 import type { FeedsResponse, LiveItem } from "@/types/feeds";
+import { THEME_COLORS, type ThemeKey } from "@/components/feeds/feedModel";
 
 export type ProductSignal = Readonly<{
   id: string;
@@ -14,13 +15,35 @@ export const validPosition = (lat: number | null, lon: number | null): boolean =
   && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 
 const conflictTypes = new Set(["Battles", "Explosions/Remote violence", "Violence against civilians"]);
+export const isViolentCluster = (cluster: ConflictCluster): boolean => conflictTypes.has(cluster.topType);
 
 /** Only real records; GDELT media mentions remain explicitly labelled as unconfirmed in the UI. */
 export function selectConflictSignals(clusters: ConflictCluster[]): ConflictCluster[] {
   return clusters.filter(cluster => cluster.realShare === 1
-    && conflictTypes.has(cluster.topType)
+    && isViolentCluster(cluster)
     && validPosition(cluster.latitude, cluster.longitude))
     .sort((a, b) => b.intensity - a.intensity || b.eventCount - a.eventCount);
+}
+
+/** Existing non-violent event types stay available without taking the red conflict language. */
+export function selectOtherEventSignals(clusters: ConflictCluster[]): ConflictCluster[] {
+  return clusters.filter(cluster => cluster.realShare === 1 && !isViolentCluster(cluster)
+    && validPosition(cluster.latitude, cluster.longitude));
+}
+
+export function otherEventColor(cluster: ConflictCluster): string {
+  if (cluster.topType === "Thermal anomaly") return THEME_COLORS.disaster;
+  if (cluster.topType === "Strategic developments") return THEME_COLORS.infrastructure;
+  return THEME_COLORS.social;
+}
+
+export function clusterVisibleForTheme(cluster: ConflictCluster, theme: ThemeKey): boolean {
+  if (isViolentCluster(cluster)) return theme === "all" || theme === "conflict";
+  if (theme === "all") return true;
+  if (theme === "social") return ["Protests", "Riots", "Media signal"].includes(cluster.topType);
+  if (theme === "disaster") return cluster.topType === "Thermal anomaly";
+  if (theme === "infrastructure") return cluster.topType === "Strategic developments";
+  return false;
 }
 
 export function dedupeFeeds(responses: FeedsResponse[]): LiveItem[] {

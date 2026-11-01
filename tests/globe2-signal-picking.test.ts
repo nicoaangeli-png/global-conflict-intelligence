@@ -49,4 +49,12 @@ describe("Globe2 direct signal picking", () => {
     expect(layer.hitTest(camera, new THREE.Vector2(0.95, 0.95), 900, 900)).toBeNull();
     layer.dispose();
   });
+
+  it("picks a non-violent event without promoting it to a conflict marker", () => {
+    const layer = new ProductSignalLayer(THREE, 1);
+    layer.setData([], [], [{ ...cluster(0, 0, "protest"), topType: "Protests" }]);
+    const hit = layer.hitTest(view(layer), new THREE.Vector2(0, 0), 900, 900);
+    expect(hit?.kind).toBe("event");
+    layer.dispose();
+  });
 });

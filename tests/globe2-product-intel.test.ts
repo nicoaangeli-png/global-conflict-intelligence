@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { ConflictCluster } from "@/types/conflict";
 import type { FeedsResponse } from "@/types/feeds";
 import sample from "./fixtures/ui-feeds-sample.json";
-import { dedupeFeeds, selectConflictSignals, signalForFeed, validPosition } from "@/components/globe2/productIntel";
+import { clusterVisibleForTheme, dedupeFeeds, otherEventColor, selectConflictSignals,
+  selectOtherEventSignals, signalForFeed, validPosition } from "@/components/globe2/productIntel";
+import { THEME_COLORS } from "@/components/feeds/feedModel";
 
 const feeds = sample as unknown as FeedsResponse;
 const earthquake = feeds.items.find(item => item.sourceId === "usgs")!;
@@ -30,6 +32,18 @@ describe("Globe2 Product Integration — signaux réels", () => {
     expect(signalForFeed(earthquake)?.kind).toBe("event");
     expect(signalForFeed({ ...earthquake, nature: "official_alert", severity: "severe" })?.kind).toBe("critical");
     expect(signalForFeed({ ...earthquake, nature: "press_article", severity: "severe" })?.kind).toBe("event");
+  });
+
+  it("conserve manifestations, évolutions stratégiques et thermiques hors du rouge conflit", () => {
+    const protests = cluster({ id: "protest", topType: "Protests" });
+    const strategic = cluster({ id: "strategic", topType: "Strategic developments" });
+    const thermal = cluster({ id: "thermal", topType: "Thermal anomaly" });
+    expect(selectOtherEventSignals([protests, strategic, thermal, cluster()])).toHaveLength(3);
+    expect(otherEventColor(protests)).toBe(THEME_COLORS.social);
+    expect(otherEventColor(strategic)).toBe(THEME_COLORS.infrastructure);
+    expect(otherEventColor(thermal)).toBe(THEME_COLORS.disaster);
+    expect(clusterVisibleForTheme(protests, "social")).toBe(true);
+    expect(clusterVisibleForTheme(protests, "conflict")).toBe(false);
   });
 
   it("ne géolocalise pas une actualité sans position valide", () => {

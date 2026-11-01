@@ -18,7 +18,7 @@ import { itemsForTheme, type ThemeKey } from "@/components/feeds/feedModel";
 import { isPointPrecise } from "@/components/feeds/conflictModel";
 import { globeMarkerBudget } from "@/lib/globeQuality";
 import { useIntelStore } from "@/store/useIntelStore";
-import { dedupeFeedItems, selectConflictSignals, signalForFeed } from "./productIntel";
+import { clusterVisibleForTheme, dedupeFeedItems, selectConflictSignals, selectOtherEventSignals, signalForFeed } from "./productIntel";
 import { ProductIntelPanel } from "./ProductIntelPanel";
 import type { ProductSignalLayer } from "./ProductSignalLayer";
 import styles from "./CameraLab.module.css";
@@ -56,7 +56,8 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
   const tileEngineRef = useRef<TileEngine | null>(null);
   const tileLayerRef = useRef<TileDebugLayer | null>(null);
   const signalLayerRef = useRef<ProductSignalLayer | null>(null);
-  const layerDataRef = useRef<{ clusters: ConflictCluster[]; items: LiveItem[] }>({ clusters: [], items: [] });
+  const layerDataRef = useRef<{ clusters: ConflictCluster[]; eventClusters: ConflictCluster[]; items: LiveItem[] }>(
+    { clusters: [], eventClusters: [], items: [] });
   const selectedSignalRef = useRef<string | null>(null);
   const hoveredSignalRef = useRef<string | null>(null);
   const detailSequenceRef = useRef(0);
@@ -97,7 +98,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
     const abort = new AbortController();
     const load = async () => {
       setIntelLoading(true);
-      const url = "/api/events?range=30d&types=Battles%2CExplosions%2FRemote%20violence%2CViolence%20against%20civilians&degrees=2.4";
+      const url = "/api/events?range=30d&degrees=2.4";
       try {
         const response = await fetch(url, { signal: abort.signal });
         if (!response.ok) throw new Error(`Événements HTTP ${response.status}`);
@@ -116,16 +117,19 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
 
   useEffect(() => {
     const limit = window.matchMedia("(max-width: 700px), (prefers-reduced-motion: reduce)").matches ? 350 : Infinity;
+    const otherEvents = selectOtherEventSignals(events?.clusters ?? []).filter(isPointPrecise);
+    const themedEvents = otherEvents.filter(cluster => clusterVisibleForTheme(cluster, theme));
     layerDataRef.current = {
       clusters: theme === "all" || theme === "conflict"
         ? globeMarkerBudget(selectConflictSignals(events?.clusters ?? []).filter(isPointPrecise), limit,
           [selectedSignalRef.current, hoveredSignalRef.current]) : [],
+      eventClusters: globeMarkerBudget(themedEvents, limit, [selectedSignalRef.current, hoveredSignalRef.current]),
       // Aircraft and vessels retain their silhouette contract in the old MobileLayer.
       // Their records remain available in the feed until that layer is migrated.
       items: globeMarkerBudget(visibleFeeds.filter(item => item.category !== "military" && item.category !== "shipping" && !item.vehicle),
         limit, [selectedSignalRef.current, hoveredSignalRef.current]),
     };
-    signalLayerRef.current?.setData(layerDataRef.current.clusters, layerDataRef.current.items);
+    signalLayerRef.current?.setData(layerDataRef.current.clusters, layerDataRef.current.items, layerDataRef.current.eventClusters);
   }, [events, visibleFeeds, theme]);
 
   useEffect(() => {
@@ -178,7 +182,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       }
       const signalLayer = ProductSignalClass ? new ProductSignalClass(THREE, renderer.getPixelRatio()) : null;
       if (signalLayer) { globe.add(signalLayer.group); signalLayerRef.current = signalLayer;
-        signalLayer.setData(layerDataRef.current.clusters, layerDataRef.current.items); }
+        signalLayer.setData(layerDataRef.current.clusters, layerDataRef.current.items, layerDataRef.current.eventClusters); }
       const earthMaterial = productLab
         ? new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 })
         : new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x03101b,
@@ -300,7 +304,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       const hoverAt = (event: PointerEvent) => {
         if (!signalLayer || event.pointerType === "touch") return;
         const hit = hitAt(event);
-        const id = hit?.kind === "conflict" ? hit.cluster.id : hit?.item.id ?? null;
+        const id = hit && hit.kind !== "feed" ? hit.cluster.id : hit?.item.id ?? null;
         if (hoveredSignalRef.current !== id) {
           hoveredSignalRef.current = id;
           signalLayer.setHighlight(selectedSignalRef.current, id);
@@ -348,7 +352,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
         else if (pointers.size === 1) { lastPinch = 0; engine.beginGesture(); }
         if (clicked && pointers.size === 0) {
           const hit = hitAt(event);
-          if (hit?.kind === "conflict") selectConflict(hit.cluster);
+          if (hit && hit.kind !== "feed") selectConflict(hit.cluster);
           else if (hit?.kind === "feed") selectFeed(hit.item);
         }
         if (event.pointerType !== "touch" && pointers.size === 0) hoverAt(event);
@@ -499,7 +503,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
     Date.now(), window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     setPreset("SIGNAL");
     void fetch("/api/cluster", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filters: { range: "30d", types: "Battles,Explosions/Remote violence,Violence against civilians" },
+      body: JSON.stringify({ filters: { range: "30d" },
         degrees: 2.4, lat: cluster.latitude, lon: cluster.longitude, clusterId: cluster.id, limit: 12 }) })
       .then(response => response.ok ? response.json() as Promise<{ events?: ConflictEvent[] }> : null)
       .then(data => { if (sequence === detailSequenceRef.current && data?.events) setSelectedConflictEvents(data.events); })

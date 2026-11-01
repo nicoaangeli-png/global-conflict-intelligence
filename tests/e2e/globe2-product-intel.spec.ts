@@ -106,6 +106,26 @@ test("direct conflict click opens detail; rotation never selects a signal", asyn
   await expect(page.getByTestId("product-conflict-detail")).toContainText("ENREGISTREMENTS");
 });
 
+test("non-violent legacy event is loaded and picked with its own nature", async ({ page }) => {
+  let typesFilter: string | null | undefined;
+  await page.route("**/api/events?*", route => {
+    typesFilter = new URL(route.request().url()).searchParams.get("types");
+    return route.fulfill({ json: { clusters: [{ ...CLUSTER, id: "cluster:protest", latitude: 20,
+      longitude: 0, topType: "Protests", typeCounts: { Protests: 12 } }], totalEvents: 12 } });
+  });
+  await page.route("**/api/feeds?*", route => route.fulfill({ json: {
+    items: [], sources: [], generatedAt: new Date().toISOString(),
+  } }));
+  await page.route("**/api/cluster", route => route.fulfill({ json: { events: [] } }));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/lab/globe2");
+  await expect(page.getByTestId("land-status")).toContainText("NATURAL EARTH ·", { timeout: 15_000 });
+  expect(typesFilter).toBeNull();
+  await page.mouse.click(720, 450);
+  await expect(page.getByTestId("product-conflict-detail")).toContainText("ÉVÉNEMENT GÉOLOCALISÉ");
+  await expect(page.getByTestId("product-conflict-detail")).toContainText("Protests");
+});
+
 test.describe("mobile direct picking", () => {
   test.use({ hasTouch: true });
   test("direct feed tap opens provenance on mobile", async ({ page }) => {

@@ -6,8 +6,9 @@ import { conflictFragment, conflictUniforms, conflictVertex, heatFragment, heatU
   heatVertex, particleFragment, particleUniforms, particleVertex } from "@/shaders/conflict";
 import type { ConflictCluster } from "@/types/conflict";
 import type { LiveItem } from "@/types/feeds";
+import { otherEventColor } from "./productIntel";
 
-export type SignalHit = { kind: "conflict"; cluster: ConflictCluster } | { kind: "feed"; item: LiveItem };
+export type SignalHit = { kind: "conflict" | "event"; cluster: ConflictCluster } | { kind: "feed"; item: LiveItem };
 
 const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
 const position = (lat: number, lon: number, heightM: number): [number, number, number] => {
@@ -86,8 +87,10 @@ export class ProductSignalLayer {
   private readonly particles: ThreeTypes.Points;
   private readonly particleMaterial: ThreeTypes.ShaderMaterial;
   private readonly feeds: ThreeTypes.Points;
+  private readonly otherEvents: ThreeTypes.Points;
   private readonly feedMaterial: ThreeTypes.ShaderMaterial;
   private clusters: ConflictCluster[] = [];
+  private eventClusters: ConflictCluster[] = [];
   private items: LiveItem[] = [];
   private pickables: { point: ThreeTypes.Vector3; hit: SignalHit }[] = [];
   private selectedId: string | null = null;
@@ -117,11 +120,14 @@ export class ProductSignalLayer {
       depthWrite: false, depthTest: true });
     this.feeds = new THREE.Points(new THREE.BufferGeometry(), this.feedMaterial);
     this.feeds.frustumCulled = false; this.feeds.renderOrder = 22;
-    this.group.add(this.heat, this.particles, this.markers, this.feeds);
+    this.otherEvents = new THREE.Points(new THREE.BufferGeometry(), this.feedMaterial);
+    this.otherEvents.frustumCulled = false; this.otherEvents.renderOrder = 22;
+    this.group.add(this.heat, this.particles, this.markers, this.feeds, this.otherEvents);
   }
 
-  setData(clusters: ConflictCluster[], items: LiveItem[], now = Date.now()): void {
+  setData(clusters: ConflictCluster[], items: LiveItem[], eventClusters: ConflictCluster[] = [], now = Date.now()): void {
     this.clusters = clusters;
+    this.eventClusters = eventClusters;
     this.items = items.filter(item => item.lat !== null && item.lon !== null
       && Number.isFinite(item.lat) && Number.isFinite(item.lon)
       && item.lat >= -90 && item.lat <= 90 && item.lon >= -180 && item.lon <= 180);
@@ -130,9 +136,12 @@ export class ProductSignalLayer {
         hit: { kind: "conflict" as const, cluster } })),
       ...this.items.map(item => ({ point: new this.THREE.Vector3(...position(item.lat!, item.lon!, 18_000)),
         hit: { kind: "feed" as const, item } })),
+      ...this.eventClusters.map(cluster => ({ point: new this.THREE.Vector3(...position(cluster.latitude, cluster.longitude, 18_000)),
+        hit: { kind: "event" as const, cluster } })),
     ];
     this.buildConflicts();
     this.buildFeeds(now);
+    this.buildOtherEvents();
   }
 
   private buildConflicts(): void {
@@ -223,6 +232,30 @@ export class ProductSignalLayer {
     this.feeds.geometry.dispose(); this.feeds.geometry = geo;
   }
 
+  private buildOtherEvents(): void {
+    const THREE = this.THREE;
+    const n = this.eventClusters.length;
+    const positions = new Float32Array(n * 3), colors = new Float32Array(n * 3);
+    const bright = new Float32Array(n), live = new Float32Array(n), sel = new Float32Array(n), seeds = new Float32Array(n);
+    const color = new THREE.Color();
+    this.eventClusters.forEach((cluster, i) => {
+      positions.set(position(cluster.latitude, cluster.longitude, 18_000), i * 3);
+      color.set(otherEventColor(cluster));
+      colors.set([color.r, color.g, color.b], i * 3);
+      bright[i] = 0.6 + Math.min(0.4, Math.max(0, cluster.intensity) * 0.4);
+      live[i] = 0; // A cluster's last record date never implies a live stream.
+      sel[i] = this.highlight(cluster.id); seeds[i] = ((i * 37) % 101) / 101;
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute("aBright", new THREE.BufferAttribute(bright, 1));
+    geo.setAttribute("aLive", new THREE.BufferAttribute(live, 1));
+    geo.setAttribute("aSel", new THREE.BufferAttribute(sel, 1));
+    geo.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
+    this.otherEvents.geometry.dispose(); this.otherEvents.geometry = geo;
+  }
+
   private highlight(id: string): number { return id === this.selectedId ? 1 : id === this.hoveredId ? 0.5 : 0; }
 
   setHighlight(selectedId: string | null, hoveredId: string | null): void {
@@ -240,6 +273,12 @@ export class ProductSignalLayer {
       const array = sel.array as Float32Array;
       this.items.forEach((item, i) => { array[i] = this.highlight(item.id); });
       sel.needsUpdate = true;
+    }
+    const eventSel = this.otherEvents.geometry.getAttribute("aSel");
+    if (eventSel) {
+      const array = eventSel.array as Float32Array;
+      this.eventClusters.forEach((cluster, i) => { array[i] = this.highlight(cluster.id); });
+      eventSel.needsUpdate = true;
     }
   }
 
@@ -278,7 +317,7 @@ export class ProductSignalLayer {
   }
 
   dispose(): void {
-    for (const mesh of [this.markers, this.heat, this.particles, this.feeds]) mesh.geometry.dispose();
+    for (const mesh of [this.markers, this.heat, this.particles, this.feeds, this.otherEvents]) mesh.geometry.dispose();
     for (const material of [this.markerMaterial, this.heatMaterial, this.particleMaterial, this.feedMaterial]) material.dispose();
   }
 }

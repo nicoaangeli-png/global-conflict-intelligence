@@ -5,7 +5,8 @@ import { absoluteDateTime, relativeTime } from "@/lib/format";
 import { defaultPeriod, failingSourcesFor, inAllFeed, inPeriod, itemTime, itemsForTheme, NATURE_LABELS,
   PERIODS, sortChronological, sourceStatusLabel, THEME_COLORS, THEME_LABELS, THEME_TAB_LABELS,
   THEMES, themeCovers, type PeriodKey, type ThemeKey } from "@/components/feeds/feedModel";
-import { selectConflictSignals, validPosition } from "./productIntel";
+import { clusterVisibleForTheme, isViolentCluster, selectConflictSignals, selectOtherEventSignals, validPosition } from "./productIntel";
+import { clusterSummary } from "@/components/feeds/conflictModel";
 import styles from "./CameraLab.module.css";
 
 type Props = {
@@ -43,11 +44,13 @@ export function ProductIntelPanel({ events, feeds, sources, theme, onThemeChange
   const themed = itemsForTheme(feeds, theme, now, { allWeather });
   const shownFeeds = sortChronological(themed.filter(item => inPeriod(item, period, now)), now, theme === "space");
   const conflicts = selectConflictSignals(events?.clusters ?? []);
+  const otherEvents = selectOtherEventSignals(events?.clusters ?? []);
+  const shownOtherEvents = otherEvents.filter(cluster => clusterVisibleForTheme(cluster, theme));
   const failures = failingSourcesFor(sources, theme);
   const failedRequests = feedFailures.filter(failure => themeCovers(theme, failure.category));
   const changeTheme = (next: ThemeKey) => {
     if (selected && (!themeCovers(next, selected.category) || (next === "all" && !inAllFeed(selected)))) onClearSelection();
-    if (selectedConflict && next !== "all" && next !== "conflict") onClearSelection();
+    if (selectedConflict && !clusterVisibleForTheme(selectedConflict, next)) onClearSelection();
     onThemeChange(next); setPeriod(defaultPeriod(next));
   };
   return <>
@@ -61,11 +64,12 @@ export function ProductIntelPanel({ events, feeds, sources, theme, onThemeChange
       </div>
       <div className={styles.feedBody}>
         {selectedConflict && <section className={styles.feedDetail} data-testid="product-conflict-detail">
-          <div className={styles.label}>ZONE SIGNALÉE · {selectedConflict.confidence === "MEDIA_SIGNAL" ? "PRESSE NON CONFIRMÉE" : selectedConflict.confidence}
+          <div className={styles.label}>{isViolentCluster(selectedConflict) ? "FOYER DE VIOLENCE" : "ÉVÉNEMENT GÉOLOCALISÉ"} · {selectedConflict.confidence === "MEDIA_SIGNAL" ? "PRESSE NON CONFIRMÉE" : selectedConflict.confidence}
             <button type="button" onClick={onClearSelection} aria-label="Fermer la sélection">×</button></div>
           <h2>{selectedConflict.locality || selectedConflict.region || selectedConflict.country}</h2>
           <dl>
             <dt>TYPE</dt><dd>{selectedConflict.topType}</dd>
+            <dt>NATURE</dt><dd>{clusterSummary(selectedConflict, "fr") || "Non précisée"}</dd>
             <dt>DATE</dt><dd>{absoluteDateTime(selectedConflict.lastEventAt, "fr")} · {relativeTime(selectedConflict.lastEventAt, "fr")}</dd>
             <dt>PRÉCISION</dt><dd>{selectedConflict.geoPrecision ?? "Non fournie"}</dd>
             <dt>CONFIANCE</dt><dd>{selectedConflict.confidence}</dd>
@@ -73,6 +77,7 @@ export function ProductIntelPanel({ events, feeds, sources, theme, onThemeChange
           </dl>
           {selectedConflictEvents.length > 0 && <p>Sources du détail : {Array.from(new Set(selectedConflictEvents.map(event => `${event.sourceDataset} / ${event.source}`))).slice(0, 3).join(" ; ")}</p>}
           {selectedConflict.confidence === "MEDIA_SIGNAL" && <p className={styles.feedCaveat}>Mentions de presse géolocalisées ; elles ne prouvent pas autant d’incidents indépendants.</p>}
+          {selectedConflict.topType === "Thermal anomaly" && <p className={styles.feedCaveat}>Une détection thermique n’établit pas un conflit.</p>}
         </section>}
         {selected && <section className={styles.feedDetail} data-testid="product-feed-detail">
           <div className={styles.label}>SÉLECTION GÉOGRAPHIQUE <span><button type="button" onClick={() => onSelect(selected)} aria-label="Recentrer sur la sélection">↗</button>
@@ -96,12 +101,20 @@ export function ProductIntelPanel({ events, feeds, sources, theme, onThemeChange
         {failedRequests.length > 0 && <p className={styles.feedWarning}>Catégories indisponibles : {failedRequests.map(failure => `${THEME_LABELS[failure.category].fr} (${failure.error})`).join(", ")}</p>}
         {loading && <p className={styles.feedEmpty}>Chargement des sources ORBITAL…</p>}
         {!loading && feeds.length === 0 && <p className={styles.feedEmpty}>Aucune actualité reçue. Les sources restent consultables dans ORBITAL.</p>}
-        {conflicts.length > 0 && <div className={styles.conflictList}>
+        {conflicts.length > 0 && (theme === "all" || theme === "conflict") && <div className={styles.conflictList}>
           <div className={styles.label}>SIGNAUX ROUGES · CONFLITS / VIOLENCES</div>
           {conflicts.slice(0, 3).map(cluster => <button key={cluster.id} type="button" onClick={() => onSelectConflict(cluster)}
             data-testid={`product-conflict-${cluster.id}`}>
             <span>● {cluster.locality || cluster.region || cluster.country}</span>
             <small>{cluster.confidence === "MEDIA_SIGNAL" ? "PRESSE NON CONFIRMÉE" : cluster.confidence} · {relativeTime(cluster.lastEventAt, "fr")}</small>
+          </button>)}
+        </div>}
+        {shownOtherEvents.length > 0 && <div className={styles.conflictList}>
+          <div className={styles.label}>AUTRES ÉVÉNEMENTS · {shownOtherEvents.length} FOYERS · COULEUR PAR NATURE</div>
+          {shownOtherEvents.slice(0, 3).map(cluster => <button key={cluster.id} type="button" onClick={() => onSelectConflict(cluster)}
+            data-testid={`product-event-${cluster.id}`}>
+            <span>● {cluster.locality || cluster.region || cluster.country}</span>
+            <small>{cluster.topType} · {relativeTime(cluster.lastEventAt, "fr")}</small>
           </button>)}
         </div>}
         <div className={styles.feedFilters} role="group" aria-label="Filtrer le flux">
@@ -140,7 +153,7 @@ export function ProductIntelPanel({ events, feeds, sources, theme, onThemeChange
             {sources.filter(source => themeCovers(theme, source.category)).map(source =>
               <div key={source.sourceId}>{source.sourceName} · {THEME_LABELS[source.category].fr} · {sourceStatusLabel(source, "fr")} · {source.itemCount} éléments</div>)}
           </details>}
-        {events && <p className={styles.feedNote}>Violences signalées : {typeof events.totalEvents === "number" ? events.totalEvents.toLocaleString("fr-FR") : "—"} enregistrements réels / 30 j. {conflicts.filter((cluster: ConflictCluster) => cluster.confidence === "MEDIA_SIGNAL").length} foyers issus de mentions presse, non confirmés comme incidents indépendants.</p>}
+        {events && <p className={styles.feedNote}>Événements reçus : {typeof events.totalEvents === "number" ? events.totalEvents.toLocaleString("fr-FR") : "—"} enregistrements réels / 30 j, dont {conflicts.length} foyers de violence et {otherEvents.length} autres foyers. {conflicts.filter((cluster: ConflictCluster) => cluster.confidence === "MEDIA_SIGNAL").length} foyers violents sont issus de mentions presse, non confirmés comme incidents indépendants.</p>}
       </div>
     </aside>}
   </>;
