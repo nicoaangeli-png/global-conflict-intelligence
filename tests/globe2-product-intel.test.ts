@@ -16,14 +16,14 @@ const cluster = (overrides: Partial<ConflictCluster> = {}): ConflictCluster => (
 });
 
 describe("Globe2 Product Integration — signaux réels", () => {
-  it("écarte les fixtures, anomalies non conflictuelles et coordonnées invalides du rouge conflit", () => {
+  it("écarte les fixtures, anomalies non conflictuelles et coordonnées invalides du rouge conflit sans plafond arbitraire", () => {
     const selected = selectConflictSignals([
       cluster(), cluster({ id: "demo", realShare: 0 }),
       cluster({ id: "thermal", topType: "Thermal anomaly" }),
       cluster({ id: "invalid", latitude: NaN }),
       cluster({ id: "weak", intensity: 0.2 }),
     ]);
-    expect(selected.map(item => item.id)).toEqual(["cluster:test"]);
+    expect(selected.map(item => item.id)).toEqual(["cluster:test", "weak"]);
   });
 
   it("réserve le rouge critique aux alertes officielles sévères ou extrêmes", () => {

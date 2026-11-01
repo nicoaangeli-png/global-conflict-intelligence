@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type * as ThreeTypes from "three";
 import { CameraEngine } from "@/lib/globe2/camera";
 import { ecefToRender, enuFrame, toEcef, WGS84_A_M, WGS84_B_M } from "@/lib/globe2/geo";
@@ -13,9 +13,12 @@ import { TileDebugLayer } from "./TileDebugLayer";
 import type { ProductGlobeVisual } from "./ProductGlobeVisual";
 import type { Starfield } from "@/components/globe/Starfield";
 import type { ConflictCluster, ConflictEvent, EventsResponse } from "@/types/conflict";
-import type { FeedsResponse, FeedSourceState, LiveItem } from "@/types/feeds";
-import { dedupeFeeds, productSignals, signalForFeed } from "./productIntel";
-import type { ProductSignal } from "./productIntel";
+import type { LiveItem } from "@/types/feeds";
+import { itemsForTheme, type ThemeKey } from "@/components/feeds/feedModel";
+import { isPointPrecise } from "@/components/feeds/conflictModel";
+import { globeMarkerBudget } from "@/lib/globeQuality";
+import { useIntelStore } from "@/store/useIntelStore";
+import { dedupeFeedItems, selectConflictSignals, signalForFeed } from "./productIntel";
 import { ProductIntelPanel } from "./ProductIntelPanel";
 import type { ProductSignalLayer } from "./ProductSignalLayer";
 import styles from "./CameraLab.module.css";
@@ -53,7 +56,9 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
   const tileEngineRef = useRef<TileEngine | null>(null);
   const tileLayerRef = useRef<TileDebugLayer | null>(null);
   const signalLayerRef = useRef<ProductSignalLayer | null>(null);
-  const signalsRef = useRef<ProductSignal[]>([]);
+  const layerDataRef = useRef<{ clusters: ConflictCluster[]; items: LiveItem[] }>({ clusters: [], items: [] });
+  const selectedSignalRef = useRef<string | null>(null);
+  const hoveredSignalRef = useRef<string | null>(null);
   const detailSequenceRef = useRef(0);
   const [debug, setDebug] = useState<Debug>(EMPTY);
   const [tileMetrics, setTileMetrics] = useState<TileMetrics | null>(null);
@@ -65,42 +70,44 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
   const [preset, setPreset] = useState<string>("PLANET");
   const [landStatus, setLandStatus] = useState("CHARGEMENT NATURAL EARTH…");
   const [events, setEvents] = useState<EventsResponse | null>(null);
-  const [feeds, setFeeds] = useState<LiveItem[]>([]);
-  const [feedSources, setFeedSources] = useState<FeedSourceState[]>([]);
+  const storeFeeds = useIntelStore(state => state.feeds);
+  const feeds = useMemo(() => dedupeFeedItems(storeFeeds), [storeFeeds]);
+  const feedSources = useIntelStore(state => state.feedSources);
+  const feedsStatus = useIntelStore(state => state.feedsStatus);
+  const feedFailures = useIntelStore(state => state.feedFailures);
+  const refreshFeeds = useIntelStore(state => state.refreshFeeds);
+  const [theme, setTheme] = useState<ThemeKey>("all");
   const [intelLoading, setIntelLoading] = useState(productLab);
   const [intelError, setIntelError] = useState<string | null>(null);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [selectedConflict, setSelectedConflict] = useState<ConflictCluster | null>(null);
   const [selectedConflictEvents, setSelectedConflictEvents] = useState<ConflictEvent[]>([]);
   const [feedOpen, setFeedOpen] = useState(true);
+  const visibleFeeds = useMemo(() => itemsForTheme(feeds, theme), [feeds, theme]);
+
+  useEffect(() => {
+    if (!productLab) return;
+    void refreshFeeds();
+    const timer = window.setInterval(() => { void refreshFeeds(); }, 5 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [productLab, refreshFeeds]);
 
   useEffect(() => {
     if (!productLab) return;
     const abort = new AbortController();
     const load = async () => {
       setIntelLoading(true);
-      const urls = [
-        "/api/events?range=30d&types=Battles%2CExplosions%2FRemote%20violence%2CViolence%20against%20civilians&degrees=2.4",
-        "/api/feeds?category=disaster&limit=100",
-        "/api/feeds?category=weather&limit=100",
-        "/api/feeds?category=un&limit=60",
-      ];
-      const results = await Promise.allSettled(urls.map(async url => {
+      const url = "/api/events?range=30d&types=Battles%2CExplosions%2FRemote%20violence%2CViolence%20against%20civilians&degrees=2.4";
+      try {
         const response = await fetch(url, { signal: abort.signal });
-        if (!response.ok) throw new Error(`${url.split("?")[0]} HTTP ${response.status}`);
-        return response.json() as Promise<unknown>;
-      }));
-      if (abort.signal.aborted) return;
-      const failed = results.filter(result => result.status === "rejected");
-      if (results[0].status === "fulfilled") setEvents(results[0].value as EventsResponse);
-      const availableFeeds = results.slice(1).filter((result): result is PromiseFulfilledResult<unknown> => result.status === "fulfilled")
-        .map(result => result.value as FeedsResponse);
-      if (availableFeeds.length) {
-        setFeeds(dedupeFeeds(availableFeeds));
-        setFeedSources(availableFeeds.flatMap(response => response.sources));
+        if (!response.ok) throw new Error(`Événements HTTP ${response.status}`);
+        const data = await response.json() as EventsResponse;
+        if (!abort.signal.aborted) { setEvents(data); setIntelError(null); }
+      } catch {
+        if (!abort.signal.aborted) setIntelError("Événements indisponibles");
+      } finally {
+        if (!abort.signal.aborted) setIntelLoading(false);
       }
-      setIntelError(failed.length ? `${failed.length} / ${urls.length} requêtes en échec` : null);
-      setIntelLoading(false);
     };
     void load();
     const timer = window.setInterval(() => { void load(); }, 5 * 60_000);
@@ -108,9 +115,18 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
   }, [productLab]);
 
   useEffect(() => {
-    signalsRef.current = productSignals(events, feeds);
-    signalLayerRef.current?.setSignals(signalsRef.current);
-  }, [events, feeds]);
+    const limit = window.matchMedia("(max-width: 700px), (prefers-reduced-motion: reduce)").matches ? 350 : Infinity;
+    layerDataRef.current = {
+      clusters: theme === "all" || theme === "conflict"
+        ? globeMarkerBudget(selectConflictSignals(events?.clusters ?? []).filter(isPointPrecise), limit,
+          [selectedSignalRef.current, hoveredSignalRef.current]) : [],
+      // Aircraft and vessels retain their silhouette contract in the old MobileLayer.
+      // Their records remain available in the feed until that layer is migrated.
+      items: globeMarkerBudget(visibleFeeds.filter(item => item.category !== "military" && item.category !== "shipping" && !item.vehicle),
+        limit, [selectedSignalRef.current, hoveredSignalRef.current]),
+    };
+    signalLayerRef.current?.setData(layerDataRef.current.clusters, layerDataRef.current.items);
+  }, [events, visibleFeeds, theme]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -161,7 +177,8 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
         globe.add(productVisual.group);
       }
       const signalLayer = ProductSignalClass ? new ProductSignalClass(THREE, renderer.getPixelRatio()) : null;
-      if (signalLayer) { globe.add(signalLayer.group); signalLayerRef.current = signalLayer; signalLayer.setSignals(signalsRef.current); }
+      if (signalLayer) { globe.add(signalLayer.group); signalLayerRef.current = signalLayer;
+        signalLayer.setData(layerDataRef.current.clusters, layerDataRef.current.items); }
       const earthMaterial = productLab
         ? new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 })
         : new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x03101b,
@@ -267,11 +284,37 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       };
 
       const pointers = new Map<number, { x: number; y: number }>();
+      let tap: { id: number; x: number; y: number; moved: boolean; touch: boolean } | null = null;
       let lastPinch = 0, lastCentroidY = 0;
       const canvas = renderer.domElement;
+      const pointerNdc = (event: PointerEvent) => {
+        const rect = canvas.getBoundingClientRect();
+        return { point: new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1,
+          1 - (event.clientY - rect.top) / rect.height * 2), rect };
+      };
+      const hitAt = (event: PointerEvent) => {
+        if (!signalLayer) return null;
+        const { point, rect } = pointerNdc(event);
+        return signalLayer.hitTest(camera, point, rect.width, rect.height);
+      };
+      const hoverAt = (event: PointerEvent) => {
+        if (!signalLayer || event.pointerType === "touch") return;
+        const hit = hitAt(event);
+        const id = hit?.kind === "conflict" ? hit.cluster.id : hit?.item.id ?? null;
+        if (hoveredSignalRef.current !== id) {
+          hoveredSignalRef.current = id;
+          signalLayer.setHighlight(selectedSignalRef.current, id);
+        }
+        canvas.style.cursor = id ? "pointer" : "grab";
+      };
       const onPointerDown = (event: PointerEvent) => {
         canvas.setPointerCapture(event.pointerId);
         pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (event.button === 0 && pointers.size === 1) tap = { id: event.pointerId, x: event.clientX,
+          y: event.clientY, moved: false, touch: event.pointerType === "touch" };
+        if (pointers.size > 1) tap = null;
+        hoveredSignalRef.current = null;
+        signalLayer?.setHighlight(selectedSignalRef.current, null);
         engine.beginGesture();
         if (pointers.size === 2) {
           const p = [...pointers.values()];
@@ -281,7 +324,8 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       };
       const onPointerMove = (event: PointerEvent) => {
         const previous = pointers.get(event.pointerId);
-        if (!previous) return;
+        if (!previous) { hoverAt(event); return; }
+        if (tap?.id === event.pointerId && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > (tap.touch ? 10 : 6)) tap.moved = true;
         pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (pointers.size === 1) {
           const dx = event.clientX - previous.x, dy = event.clientY - previous.y;
@@ -297,9 +341,23 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
         }
       };
       const onPointerUp = (event: PointerEvent) => {
+        const clicked = tap?.id === event.pointerId && !tap.moved && event.type === "pointerup";
+        tap = null;
         pointers.delete(event.pointerId);
         if (pointers.size === 0) engine.endGesture();
         else if (pointers.size === 1) { lastPinch = 0; engine.beginGesture(); }
+        if (clicked && pointers.size === 0) {
+          const hit = hitAt(event);
+          if (hit?.kind === "conflict") selectConflict(hit.cluster);
+          else if (hit?.kind === "feed") selectFeed(hit.item);
+        }
+        if (event.pointerType !== "touch" && pointers.size === 0) hoverAt(event);
+      };
+      const onPointerLeave = () => {
+        if (pointers.size) return;
+        hoveredSignalRef.current = null;
+        signalLayer?.setHighlight(selectedSignalRef.current, null);
+        canvas.style.cursor = "grab";
       };
       const onWheel = (event: WheelEvent) => {
         event.preventDefault();
@@ -314,6 +372,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       canvas.addEventListener("pointermove", onPointerMove);
       canvas.addEventListener("pointerup", onPointerUp);
       canvas.addEventListener("pointercancel", onPointerUp);
+      canvas.addEventListener("pointerleave", onPointerLeave);
       canvas.addEventListener("wheel", onWheel, { passive: false });
       canvas.addEventListener("contextmenu", onContextMenu);
       const resize = new ResizeObserver(() => {
@@ -339,6 +398,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
         const state = engine.getState();
         if (productLab) {
           productVisual?.update(time / 1000, state.distanceM);
+          signalLayer?.update(time / 1000, delta, camera.fov, mount.clientHeight, renderer.getPixelRatio());
           starfield?.update(time / 1000);
           const surfaceOpacity = Math.max(0, Math.min(1, (2_000_000 - state.distanceM) / 1_700_000));
           earthMaterial.opacity = surfaceOpacity;
@@ -378,6 +438,7 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
         canvas.removeEventListener("pointermove", onPointerMove);
         canvas.removeEventListener("pointerup", onPointerUp);
         canvas.removeEventListener("pointercancel", onPointerUp);
+        canvas.removeEventListener("pointerleave", onPointerLeave);
         canvas.removeEventListener("wheel", onWheel);
         canvas.removeEventListener("contextmenu", onContextMenu);
         land?.dispose(); earthGeometry.dispose(); earthMaterial.dispose(); atmosphereGeometry.dispose(); atmosphereMaterial.dispose();
@@ -411,8 +472,10 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
     detailSequenceRef.current++;
     setSelectedFeedId(item.id);
     setSelectedConflict(null);
+    setFeedOpen(true);
+    selectedSignalRef.current = item.id;
     const signal = signalForFeed(item);
-    signalLayerRef.current?.select(signal);
+    signalLayerRef.current?.setHighlight(item.id, hoveredSignalRef.current);
     if (!signal) return;
     const engine = engineRef.current;
     if (!engine) return;
@@ -426,8 +489,9 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
   const selectConflict = (cluster: ConflictCluster) => {
     const sequence = ++detailSequenceRef.current;
     setSelectedConflict(cluster); setSelectedFeedId(null); setSelectedConflictEvents([]);
-    signalLayerRef.current?.select({ id: `conflict:${cluster.id}`, lat: cluster.latitude, lon: cluster.longitude,
-      kind: "conflict", label: cluster.locality || cluster.country });
+    setFeedOpen(true);
+    selectedSignalRef.current = cluster.id;
+    signalLayerRef.current?.setHighlight(cluster.id, hoveredSignalRef.current);
     const distanceM = cluster.geoPrecision === "country" ? 5_000_000
       : cluster.geoPrecision === "region" ? 3_000_000 : 1_400_000;
     engineRef.current?.flyTo({ target: { latDeg: cluster.latitude, lonDeg: cluster.longitude },
@@ -440,6 +504,13 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       .then(response => response.ok ? response.json() as Promise<{ events?: ConflictEvent[] }> : null)
       .then(data => { if (sequence === detailSequenceRef.current && data?.events) setSelectedConflictEvents(data.events); })
       .catch(() => { /* The aggregate remains inspectable if detail is unavailable. */ });
+  };
+
+  const clearSelection = () => {
+    detailSequenceRef.current++;
+    selectedSignalRef.current = null;
+    setSelectedFeedId(null); setSelectedConflict(null); setSelectedConflictEvents([]);
+    signalLayerRef.current?.setHighlight(null, hoveredSignalRef.current);
   };
 
   return <main className={`${styles.lab} ${tileLab ? styles.labTiles : ""} ${productLab ? styles.labProduct : ""}`}>
@@ -472,9 +543,12 @@ export default function CameraLab({ tileLab = false, productLab = false }: { til
       <p className={styles.hint}>Glisser : rotation · Maj + glisser : pan · Molette/pinch : zoom au pointeur · Maj + molette / deux doigts verticaux : tilt. Tout geste interrompt un fly-to.</p>
     </section>
     {productLab && <ProductIntelPanel events={events} feeds={feeds} sources={feedSources}
+      theme={theme} onThemeChange={setTheme} feedFailures={feedFailures}
       selectedId={selectedFeedId} selectedConflict={selectedConflict} selectedConflictEvents={selectedConflictEvents}
-      error={intelError} loading={intelLoading} open={feedOpen}
-      onToggle={() => setFeedOpen(value => !value)} onSelect={selectFeed} onSelectConflict={selectConflict} />}
+      error={intelError || (feedsStatus === "error" ? "Flux indisponibles" : null)}
+      loading={intelLoading || feedsStatus === "loading"} open={feedOpen}
+      onToggle={() => setFeedOpen(value => !value)} onSelect={selectFeed} onSelectConflict={selectConflict}
+      onClearSelection={clearSelection} />}
     {productLab && <button type="button" className={styles.debugToggle} data-testid="product-debug-toggle"
       aria-expanded={showDebug} onClick={() => setShowDebug(value => !value)}>DEBUG {showDebug ? "−" : "+"}</button>}
     {(!productLab || showDebug) && <aside className={styles.debug} aria-label="Debug Camera Engine" data-testid="camera-lab-debug">
