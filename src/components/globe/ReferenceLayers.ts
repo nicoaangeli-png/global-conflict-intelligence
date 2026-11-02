@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { latLonToVector3 } from '@/lib/geo/latlon';
+import { SPHERE_SURFACE, type RenderSurface } from '@/lib/geo/renderSurface';
 import type { WorldIndex } from '@/lib/geo/world';
 import type { LayerFeature, LayerId } from '@/types/layers';
 import { LAYER_STYLE, featurePoint, lineParts } from '../layers/layerModel';
@@ -108,10 +109,11 @@ class PointLayer {
     private readonly layerId: LayerId,
     private readonly radius: number,
     shape: 'ring' | 'square',
+    private readonly surface: RenderSurface = SPHERE_SURFACE,
   ) {
     const style = LAYER_STYLE[layerId];
     this.material = new THREE.ShaderMaterial({
-      vertexShader: pointVertex,
+      vertexShader: surface.vertexShader(pointVertex),
       fragmentShader: pointFragment,
       uniforms: {
         uColor: { value: new THREE.Color(style.color) },
@@ -122,7 +124,7 @@ class PointLayer {
       },
       transparent: true,
       depthWrite: false,
-      depthTest: false,
+      depthTest: surface.kind === 'wgs84',
     });
     this.points = new THREE.Points(new THREE.BufferGeometry(), this.material);
     this.points.frustumCulled = false;
@@ -138,7 +140,7 @@ class PointLayer {
     const v = new THREE.Vector3();
     this.features.forEach((f, i) => {
       const p = featurePoint(f)!;
-      latLonToVector3(p.lat, p.lon, this.radius * ALTITUDE, v);
+      this.surface.point(p.lat, p.lon, this.radius * ALTITUDE, v);
       this.positions.set([v.x, v.y, v.z], i * 3);
       sel[i] = this.selectionOf(f.id);
     });
@@ -177,7 +179,7 @@ class PointLayer {
     let hit: LayerFeature | null = null;
     for (let i = 0; i < this.features.length; i++) {
       point.fromArray(this.positions, i * 3);
-      if (toCamera.copy(localCamera).sub(point).dot(point) <= 0) continue;
+      if (!this.surface.visible(point, localCamera)) continue;
       point.applyMatrix4(matrixWorld).project(camera);
       if (Math.abs(point.x) > 1 || Math.abs(point.y) > 1 || Math.abs(point.z) > 1) continue;
       const dist = Math.hypot(((point.x - pointer.x) * width) / 2, ((point.y - pointer.y) * height) / 2);
@@ -208,16 +210,16 @@ class CableLayer {
   private owners = new Uint32Array(0);
   private selectedId: string | null = null;
 
-  constructor(private readonly radius: number) {
+  constructor(private readonly radius: number, private readonly surface: RenderSurface = SPHERE_SURFACE) {
     const color = new THREE.Color(LAYER_STYLE.submarine_cables.color);
     const make = (opacity: number) =>
       new THREE.ShaderMaterial({
-        vertexShader: lineVertex,
+        vertexShader: surface.vertexShader(lineVertex),
         fragmentShader: lineFragment,
         uniforms: { uColor: { value: color.clone() }, uOpacity: { value: opacity } },
         transparent: true,
         depthWrite: false,
-        depthTest: false,
+        depthTest: surface.kind === 'wgs84',
         blending: THREE.AdditiveBlending,
       });
     this.material = make(0.32);
@@ -242,6 +244,15 @@ class CableLayer {
     let count = 0;
     for (const part of lineParts(feature)) {
       for (let i = 0; i < part.length - 1; i++) {
+        if (this.surface.arc) {
+          const points = this.surface.arc({ lat: part[i][1], lon: part[i][0] },
+            { lat: part[i + 1][1], lon: part[i + 1][0] }, r);
+          for (let k = 0; k < points.length - 1; k++) {
+            const p = points[k], q = points[k + 1];
+            out.push(p.x, p.y, p.z, q.x, q.y, q.z); count++;
+          }
+          continue;
+        }
         latLonToVector3(part[i][1], part[i][0], 1, a);
         latLonToVector3(part[i + 1][1], part[i + 1][0], 1, b);
         const angle = a.angleTo(b);
@@ -306,7 +317,7 @@ class CableLayer {
     let owner = -1;
     for (let i = 0; i < this.owners.length; i++) {
       a.fromArray(this.positions, i * 6);
-      if (toCamera.copy(localCamera).sub(a).dot(a) <= 0) continue;
+      if (!this.surface.visible(a, localCamera)) continue;
       b.fromArray(this.positions, i * 6 + 3);
       a.applyMatrix4(matrixWorld).project(camera);
       b.applyMatrix4(matrixWorld).project(camera);
@@ -335,7 +346,7 @@ class TintLayer {
   private readonly texture: THREE.CanvasTexture;
   private readonly material: THREE.MeshBasicMaterial;
 
-  constructor(radius: number) {
+  constructor(radius: number, surface: RenderSurface = SPHERE_SURFACE) {
     this.canvas = document.createElement('canvas');
     this.canvas.width = 2048;
     this.canvas.height = 1024;
@@ -344,7 +355,7 @@ class TintLayer {
     this.texture.anisotropy = 4;
     this.material = new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, depthWrite: false, depthTest: true, toneMapped: false });
     // UV de SphereGeometry alignés sur latLonToVector3 (u = (lon + 180) / 360).
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.0016, 128, 64), this.material);
+    this.mesh = new THREE.Mesh(surface.geometry(radius * 1.0016, 128, 64), this.material);
     this.mesh.renderOrder = 6;
     this.mesh.visible = false;
   }
@@ -400,11 +411,11 @@ export class ReferenceLayers {
   private readonly cables: CableLayer;
   private readonly tint: TintLayer;
 
-  constructor(radius: number) {
-    this.nuclear = new PointLayer('nuclear_plants', radius, 'ring');
-    this.bases = new PointLayer('military_bases', radius, 'square');
-    this.cables = new CableLayer(radius);
-    this.tint = new TintLayer(radius);
+  constructor(radius: number, surface: RenderSurface = SPHERE_SURFACE) {
+    this.nuclear = new PointLayer('nuclear_plants', radius, 'ring', surface);
+    this.bases = new PointLayer('military_bases', radius, 'square', surface);
+    this.cables = new CableLayer(radius, surface);
+    this.tint = new TintLayer(radius, surface);
     this.group.add(this.tint.mesh, this.cables.group, this.bases.points, this.nuclear.points);
   }
 

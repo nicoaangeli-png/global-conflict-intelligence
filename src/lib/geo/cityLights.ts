@@ -1,6 +1,7 @@
 import { Vector3 } from "three";
 import { GLOBE } from "@/lib/config/visual";
 import { latLonToVector3 } from "./latlon";
+import type { RenderProjector } from "./renderSurface";
 
 /**
  * Lumières urbaines : réseau de points blancs (référence : « Terre connectée »).
@@ -37,7 +38,7 @@ const num = (p: Record<string, unknown>, keys: string[]): number => {
   return 0;
 };
 
-export function buildCityLights(geojson: { features: RawPlace[] }): CityLights {
+export function buildCityLights(geojson: { features: RawPlace[] }, project: RenderProjector = latLonToVector3): CityLights {
   const rand = mulberry32(97531);
   const positions: number[] = [];
   const intensities: number[] = [];
@@ -61,7 +62,7 @@ export function buildCityLights(geojson: { features: RawPlace[] }): CityLights {
     for (let i = 0; i < scale; i++) {
       const lat = place.lat + (i === 0 ? 0 : (rand() - 0.5) * spread * 2);
       const lon = place.lon + (i === 0 ? 0 : (rand() - 0.5) * spread * 2.4);
-      latLonToVector3(lat, lon, GLOBE.radius * 1.0012, v);
+      project(lat, lon, GLOBE.radius * 1.0012, v);
       positions.push(v.x, v.y, v.z);
       // intensité : décroît avec l'éloignement du centre-ville + bruit léger
       const falloff = i === 0 ? 1 : 1 - Math.min(0.85, Math.hypot(lat - place.lat, lon - place.lon) / spread);

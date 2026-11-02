@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { latLonToVector3 } from '@/lib/geo/latlon';
+import { SPHERE_SURFACE, type RenderSurface } from '@/lib/geo/renderSurface';
 import type { LiveItem } from '@/types/feeds';
 import { THEME_COLORS, ageBrightness, isLive } from '../feeds/feedModel';
 
@@ -78,11 +78,11 @@ export class FeedLayer {
   private selectedId: string | null = null;
   private hoveredId: string | null = null;
 
-  constructor(radius: number) {
+  constructor(radius: number, private readonly surface: RenderSurface = SPHERE_SURFACE) {
     this.radius = radius;
     this.group = new THREE.Group();
     this.material = new THREE.ShaderMaterial({
-      vertexShader: vertex,
+      vertexShader: surface.vertexShader(vertex),
       fragmentShader: fragment,
       uniforms: { uTime: { value: 0 }, uPixelRatio: { value: 1 } },
       transparent: true,
@@ -108,7 +108,7 @@ export class FeedLayer {
     const v = new THREE.Vector3();
     const c = new THREE.Color();
     this.items.forEach((item, i) => {
-      latLonToVector3(item.lat as number, item.lon as number, this.radius * 1.012, v);
+      this.surface.point(item.lat as number, item.lon as number, this.radius * 1.012, v);
       positions.set([v.x, v.y, v.z], i * 3);
       c.set(THEME_COLORS[item.category] ?? '#7fd4ff');
       colors.set([c.r, c.g, c.b], i * 3);
@@ -166,8 +166,8 @@ export class FeedLayer {
     let closest = 10;
     let hit: LiveItem | null = null;
     for (const item of this.items) {
-      latLonToVector3(item.lat as number, item.lon as number, this.radius * 1.012, point);
-      if (toCamera.copy(localCamera).sub(point).dot(point) <= 0) continue;
+      this.surface.point(item.lat as number, item.lon as number, this.radius * 1.012, point);
+      if (!this.surface.visible(point, localCamera)) continue;
       point.applyMatrix4(this.group.matrixWorld);
       projected.copy(point).project(camera);
       if (Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1 || Math.abs(projected.z) > 1) continue;

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { latLonToVector3 } from "@/lib/geo/latlon";
+import { SPHERE_SURFACE, type RenderSurface } from "@/lib/geo/renderSurface";
 import type { CameraMarker } from "@/types/cameras";
 
 /** One GPU draw call. Coarse views keep one preset per geographic cell. */
@@ -10,22 +10,29 @@ export class CameraLayer {
   private shown: CameraMarker[] = [];
   private positions = new Float32Array(0);
   private selectedId: string | null = null;
+  private catalog: CameraMarker[] = [];
+  private degrees = 2.4;
+  private viewDegrees: number | null = null;
 
-  constructor(private readonly radius: number) {
+  constructor(private readonly radius: number, private readonly surface: RenderSurface = SPHERE_SURFACE) {
     this.material = new THREE.ShaderMaterial({
       vertexShader: `uniform float uPixelRatio; attribute float aMedia; varying float vFacing; varying float vMedia; void main(){vec4 world=modelMatrix*vec4(position,1.0);vFacing=dot(normalize(world.xyz),normalize(cameraPosition-world.xyz));vMedia=aMedia;gl_Position=projectionMatrix*viewMatrix*world;gl_PointSize=(aMedia>1.5?11.0:aMedia>0.5?8.0:6.0)*uPixelRatio;}`,
       fragmentShader: `varying float vFacing; varying float vMedia;void main(){if(vFacing<0.04)discard;float d=length(gl_PointCoord*2.0-1.0);float facing=smoothstep(0.04,0.2,vFacing);float a;vec3 c;if(vMedia>1.5){float ring=smoothstep(0.42,0.48,d)*(1.0-smoothstep(0.58,0.64,d));float core=1.0-smoothstep(0.10,0.20,d);a=(ring*0.68+core*0.32)*facing;c=vec3(0.82,0.98,1.0);}else if(vMedia>0.5){a=(1.0-smoothstep(0.55,0.78,d))*0.68*facing;c=vec3(0.38,0.86,0.94);}else{a=(1.0-smoothstep(0.55,0.75,d))*0.36*facing;c=vec3(0.33,0.58,0.70);}if(a<0.01)discard;gl_FragColor=vec4(c,a);}`,
       uniforms: { uPixelRatio: { value: 1 } },
       transparent: true, depthWrite: false, depthTest: false,
     });
+    this.material.vertexShader = surface.vertexShader(this.material.vertexShader);
     this.points = new THREE.Points(new THREE.BufferGeometry(), this.material);
     this.points.frustumCulled = false;
     this.group.add(this.points);
   }
 
   setCameras(cameras: CameraMarker[], degrees: number, selectedId: string | null) {
+    this.catalog = cameras;
+    this.degrees = degrees;
     this.selectedId = selectedId;
-    const cell = degrees > 2 ? 0.35 : degrees > 0.7 ? 0.12 : 0;
+    const detail = this.viewDegrees ?? degrees;
+    const cell = detail > 2 ? 0.35 : detail > 0.7 ? 0.12 : 0;
     const seen = new Set<string>();
     this.shown = [...cameras].sort((a, b) => (b.mediaType === "live_video" ? 2 : b.mediaType === "near_live_image" ? 1 : 0) - (a.mediaType === "live_video" ? 2 : a.mediaType === "near_live_image" ? 1 : 0)).filter((camera) => {
       if (!cell || camera.id === selectedId) return true;
@@ -36,7 +43,7 @@ export class CameraLayer {
     });
     this.positions = new Float32Array(this.shown.length * 3);
     const media = new Float32Array(this.shown.length);
-    this.shown.forEach((camera, index) => latLonToVector3(camera.latitude, camera.longitude, this.radius * 1.016).toArray(this.positions, index * 3));
+    this.shown.forEach((camera, index) => this.surface.point(camera.latitude, camera.longitude, this.radius * 1.016).toArray(this.positions, index * 3));
     this.shown.forEach((camera, index) => { media[index] = camera.mediaType === "live_video" ? 2 : camera.mediaType === "near_live_image" ? 1 : 0; });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
@@ -47,6 +54,13 @@ export class CameraLayer {
 
   setPixelRatio(value: number) { this.material.uniforms.uPixelRatio.value = value; }
 
+  /** V2 footprint-derived detail, independent of the server's conflict clustering grid. */
+  setViewDegrees(value: number | null) {
+    if (this.viewDegrees === value) return;
+    this.viewDegrees = value;
+    if (this.group.visible && this.catalog.length) this.setCameras(this.catalog, this.degrees, this.selectedId);
+  }
+
   hitTest(camera: THREE.Camera, pointer: THREE.Vector2, width: number, height: number, matrixWorld: THREE.Matrix4, localCamera: THREE.Vector3): CameraMarker | null {
     if (!this.group.visible) return null;
     const point = new THREE.Vector3();
@@ -55,7 +69,7 @@ export class CameraLayer {
     let match: CameraMarker | null = null;
     for (let index = 0; index < this.shown.length; index++) {
       point.fromArray(this.positions, index * 3);
-      if (toCamera.copy(localCamera).sub(point).dot(point) <= 0) continue;
+      if (!this.surface.visible(point, localCamera)) continue;
       point.applyMatrix4(matrixWorld).project(camera);
       if (Math.abs(point.x) > 1 || Math.abs(point.y) > 1 || Math.abs(point.z) > 1) continue;
       const distance = Math.hypot((point.x - pointer.x) * width / 2, (point.y - pointer.y) * height / 2);

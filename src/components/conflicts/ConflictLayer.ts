@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFLICT, GLOBE } from '@/lib/config/visual';
-import { latLonToVector3 } from '@/lib/geo/latlon';
+import { SPHERE_SURFACE, type RenderSurface } from '@/lib/geo/renderSurface';
 import {
   conflictVertex,
   conflictFragment,
@@ -21,6 +21,12 @@ const CORNERS = [
   [-1, 1],
 ] as const;
 
+export type ClusterSignalColor = (cluster: ConflictCluster) => string | null;
+const tintVertex = (source: string) => `attribute vec4 aSignalTint; varying vec4 vSignalTint;\n${source}`
+  .replace('void main() {', 'void main() { vSignalTint = aSignalTint;');
+const tintFragment = (source: string) => `varying vec4 vSignalTint;\n${source}`
+  .replace(/(gl_FragColor\s*=\s*vec4\([^;]+;)/, '$1\n gl_FragColor.rgb = mix(gl_FragColor.rgb, vSignalTint.rgb * max(max(gl_FragColor.r, gl_FragColor.g), gl_FragColor.b), vSignalTint.a);');
+
 export class ConflictLayer {
   public group: THREE.Group;
   private radius: number;
@@ -35,40 +41,50 @@ export class ConflictLayer {
   private hoveredId: string | null = null;
   private revealProgress: number = 1.0;
 
-  constructor(radius: number) {
+  constructor(radius: number, private readonly surface: RenderSurface = SPHERE_SURFACE,
+    private readonly signalColor?: ClusterSignalColor) {
     this.group = new THREE.Group();
     this.radius = radius;
 
     // 1. Matériaux GPU
     this.markerMaterial = new THREE.ShaderMaterial({
-      vertexShader: conflictVertex,
-      fragmentShader: conflictFragment,
-      uniforms: conflictUniforms,
+      vertexShader: surface.vertexShader(conflictVertex),
+      fragmentShader: surface.kind === 'sphere' ? conflictFragment
+        : conflictFragment.replace('void main() {', 'void main() { if (vFacing <= 0.0) discard;'),
+      uniforms: surface.kind === 'sphere' ? conflictUniforms : THREE.UniformsUtils.clone(conflictUniforms),
       transparent: true,
       depthWrite: false,
+      // Screen-space quads must not be sliced by the curved surface's depth.
+      // V2 rejects the hidden hemisphere explicitly in the fragment shader.
       depthTest: false,
       blending: THREE.AdditiveBlending,
     });
 
     this.heatMaterial = new THREE.ShaderMaterial({
-      vertexShader: heatVertex,
-      fragmentShader: heatFragment,
-      uniforms: heatUniforms,
+      vertexShader: surface.vertexShader(heatVertex),
+      fragmentShader: surface.kind === 'sphere' ? heatFragment
+        : heatFragment.replace('void main() {', 'void main() { if (vFacing <= 0.0) discard;'),
+      uniforms: surface.kind === 'sphere' ? heatUniforms : THREE.UniformsUtils.clone(heatUniforms),
       transparent: true,
       depthWrite: false,
-      depthTest: true,
+      depthTest: surface.kind === 'sphere',
       blending: THREE.AdditiveBlending,
     });
 
     this.particleMaterial = new THREE.ShaderMaterial({
-      vertexShader: particleVertex,
-      fragmentShader: particleFragment,
-      uniforms: particleUniforms,
+      vertexShader: surface.vertexShader(particleVertex),
+      fragmentShader: surface.kind === 'sphere' ? particleFragment
+        : particleFragment.replace('void main() {', 'void main() { if (vFacing <= 0.0) discard;'),
+      uniforms: surface.kind === 'sphere' ? particleUniforms : THREE.UniformsUtils.clone(particleUniforms),
       transparent: true,
       depthWrite: false,
-      depthTest: true,
+      depthTest: surface.kind === 'sphere',
       blending: THREE.AdditiveBlending,
     });
+    if (signalColor) for (const material of [this.markerMaterial, this.heatMaterial, this.particleMaterial]) {
+      material.vertexShader = tintVertex(material.vertexShader);
+      material.fragmentShader = tintFragment(material.fragmentShader);
+    }
 
     // 2. Initialisation des Mesh
     this.markerMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.markerMaterial);
@@ -106,12 +122,14 @@ export class ConflictLayer {
     const corners = new Float32Array(n * 4 * 2);
     const params = new Float32Array(n * 4 * 4);
     const reals = new Float32Array(n * 4);
+    const tints = this.signalColor ? new Float32Array(n * 4 * 4) : null;
     const indices: number[] = [];
     const v = new THREE.Vector3();
 
     clusters.forEach((c, i) => {
-      latLonToVector3(c.latitude, c.longitude, this.radius * 1.02, v);
+      this.surface.point(c.latitude, c.longitude, this.radius * 1.02, v);
       const isSelected = c.id === this.selectedId ? 1 : c.id === this.hoveredId ? 0.5 : 0;
+      const tint = tints ? this.tintOf(c) : null;
       for (let k = 0; k < 4; k++) {
         const vi = i * 4 + k;
         centers[vi * 3] = v.x;
@@ -124,6 +142,7 @@ export class ConflictLayer {
         params[vi * 4 + 2] = isSelected;
         params[vi * 4 + 3] = ((i * 37) % 101) / 101;
         reals[vi] = c.realShare ?? 1;
+        if (tints && tint) tints.set(tint, vi * 4);
       }
       const b = i * 4;
       indices.push(b, b + 1, b + 2, b, b + 2, b + 3);
@@ -135,6 +154,7 @@ export class ConflictLayer {
     markerGeo.setAttribute('aCorner', new THREE.BufferAttribute(corners, 2));
     markerGeo.setAttribute('aParams', new THREE.BufferAttribute(params, 4));
     markerGeo.setAttribute('aReal', new THREE.BufferAttribute(reals, 1));
+    if (tints) markerGeo.setAttribute('aSignalTint', new THREE.BufferAttribute(tints, 4));
     markerGeo.setIndex(indices);
     markerGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), this.radius * 1.5);
 
@@ -148,21 +168,25 @@ export class ConflictLayer {
     const heatSizes = new Float32Array(nHeat);
     const heatIntensities = new Float32Array(nHeat);
     const heatReals = new Float32Array(nHeat);
+    const heatTints = this.signalColor ? new Float32Array(nHeat * 4) : null;
     let hIdx = 0;
 
     clusters.forEach((c, ci) => {
       for (let k = 0; k < perCluster; k++) {
         const spread = k === 0 ? 0 : 0.55 * (0.4 + c.intensity);
         const angle = (ci * 2.399 + k * 2.094) % (Math.PI * 2);
-        const lat = c.latitude + Math.sin(angle) * spread;
+        const jitterLat = c.latitude + Math.sin(angle) * spread;
+        // Clamp only the artistic heat sample, never the source record.
+        const lat = this.surface.kind === 'wgs84' ? Math.max(-90, Math.min(90, jitterLat)) : jitterLat;
         const lon = c.longitude + Math.cos(angle) * spread * 1.3;
-        latLonToVector3(lat, lon, this.radius * CONFLICT.heat.radius, v);
+        this.surface.point(lat, lon, this.radius * CONFLICT.heat.radius, v);
         heatPositions[hIdx * 3] = v.x;
         heatPositions[hIdx * 3 + 1] = v.y;
         heatPositions[hIdx * 3 + 2] = v.z;
         heatSizes[hIdx] = (k === 0 ? 1 : 0.62) * (0.5 + c.intensity);
         heatIntensities[hIdx] = (k === 0 ? 1 : 0.55) * (0.35 + c.intensity * 0.9);
         heatReals[hIdx] = c.realShare ?? 1;
+        heatTints?.set(this.tintOf(c), hIdx * 4);
         hIdx++;
       }
     });
@@ -172,6 +196,7 @@ export class ConflictLayer {
     heatGeo.setAttribute('aSize', new THREE.BufferAttribute(heatSizes, 1));
     heatGeo.setAttribute('aIntensity', new THREE.BufferAttribute(heatIntensities, 1));
     heatGeo.setAttribute('aReal', new THREE.BufferAttribute(heatReals, 1));
+    if (heatTints) heatGeo.setAttribute('aSignalTint', new THREE.BufferAttribute(heatTints, 4));
     heatGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), this.radius * 1.5);
 
     this.heatPoints.geometry.dispose();
@@ -185,10 +210,11 @@ export class ConflictLayer {
     const partSeeds = new Float32Array(nPart);
     const partIntensities = new Float32Array(nPart);
     const partReals = new Float32Array(nPart);
+    const partTints = this.signalColor ? new Float32Array(nPart * 4) : null;
     let pIdx = 0;
 
     clusters.forEach((c, ci) => {
-      latLonToVector3(c.latitude, c.longitude, this.radius * 1.021, v);
+      this.surface.point(c.latitude, c.longitude, this.radius * 1.021, v);
       for (let k = 0; k < perPart; k++) {
         partCenters[pIdx * 3] = v.x;
         partCenters[pIdx * 3 + 1] = v.y;
@@ -197,6 +223,7 @@ export class ConflictLayer {
         partSeeds[pIdx] = ((ci * 13 + k * 7) % 53) / 53;
         partIntensities[pIdx] = 0.35 + c.intensity * 0.8;
         partReals[pIdx] = c.realShare ?? 1;
+        partTints?.set(this.tintOf(c), pIdx * 4);
         pIdx++;
       }
     });
@@ -208,10 +235,18 @@ export class ConflictLayer {
     partGeo.setAttribute('aSeed', new THREE.BufferAttribute(partSeeds, 1));
     partGeo.setAttribute('aIntensity', new THREE.BufferAttribute(partIntensities, 1));
     partGeo.setAttribute('aReal', new THREE.BufferAttribute(partReals, 1));
+    if (partTints) partGeo.setAttribute('aSignalTint', new THREE.BufferAttribute(partTints, 4));
     partGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), this.radius * 1.6);
 
     this.particlePoints.geometry.dispose();
     this.particlePoints.geometry = partGeo;
+  }
+
+  private tintOf(cluster: ConflictCluster): [number, number, number, number] {
+    const value = this.signalColor?.(cluster);
+    if (!value) return [0, 0, 0, 0];
+    const c = new THREE.Color(value);
+    return [c.r, c.g, c.b, 1];
   }
 
   public setSelected(selectedId: string | null, hoveredId: string | null): void {
@@ -259,8 +294,8 @@ export class ConflictLayer {
     let hitCluster: ConflictCluster | null = null;
 
     for (const cluster of this.clusters) {
-      latLonToVector3(cluster.latitude, cluster.longitude, this.radius * 1.02, point);
-      if (cameraDirection.copy(localCamera).sub(point).dot(point) <= 0) continue;
+      this.surface.point(cluster.latitude, cluster.longitude, this.radius * 1.02, point);
+      if (!this.surface.visible(point, localCamera)) continue;
       point.applyMatrix4(this.group.matrixWorld);
       if (projected.copy(point).applyMatrix4(camera.matrixWorldInverse).z >= 0) continue;
       projected.copy(point).project(camera);

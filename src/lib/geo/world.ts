@@ -1,5 +1,6 @@
 import { Vector3 } from "three";
 import { latLonToVector3 } from "./latlon";
+import type { RenderSurface } from "./renderSurface";
 import { canonicalCountryIdentity } from "./country";
 
 /**
@@ -123,6 +124,7 @@ export function countryInteriorPoint(geometry: { type?: string; coordinates?: un
 export function buildWorldIndex(
   geojson: { features: RawFeature[] },
   radius = 1.0009,
+  surface?: RenderSurface,
 ): WorldIndex {
   const countries: CountryFeature[] = [];
   const byIso = new Map<string, CountryFeature>();
@@ -200,6 +202,14 @@ export function buildWorldIndex(
         const b = ring[i + 1];
         // évite l'artefact de couture ±180°
         if (Math.abs(a[0] - b[0]) > 180) continue;
+        if (surface?.arc) {
+          const points = surface.arc({ lat: a[1], lon: a[0] }, { lat: b[1], lon: b[0] }, radius);
+          for (let k = 0; k < points.length - 1; k++) {
+            const p = points[k], q = points[k + 1];
+            positions.push(p.x, p.y, p.z, q.x, q.y, q.z);
+          }
+          continue;
+        }
         latLonToVector3(a[1], a[0], radius, v);
         positions.push(v.x, v.y, v.z);
         latLonToVector3(b[1], b[0], radius, v);

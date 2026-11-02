@@ -9,7 +9,7 @@ import { loadWorld } from '@/lib/geo/referentials';
 import { HolographicEarth } from './HolographicEarth';
 import { OrbitLayer } from './OrbitLayer';
 import { Starfield } from './Starfield';
-import { ConflictLayer } from '../conflicts/ConflictLayer';
+import { ConflictLayer, type ClusterSignalColor } from '../conflicts/ConflictLayer';
 import { FeedLayer } from './FeedLayer';
 import { MobileLayer } from './MobileLayer';
 import { vehicleOf } from '../feeds/vehicleModel';
@@ -24,6 +24,7 @@ import { isPointPrecise } from '../feeds/conflictModel';
 import { GlobeGesture, globeFieldOfView, globeFrameDelta, globeMarkerBudget, globeQuality } from '@/lib/globeQuality';
 import { GlobeCameraController } from './GlobeCamera';
 import { CameraLayer } from './CameraLayer';
+import type { GlobeNavigation, GlobeNavigationFactory } from './GlobeNavigation';
 
 /**
  * Points de flux visibles pour un thème (« conflict » : aucun, « all » : l'actualité).
@@ -33,7 +34,7 @@ function feedItemsFor(theme: ThemeKey, feeds: LiveItem[], allWeather: boolean): 
   return itemsForTheme(feeds, theme, Date.now(), { allWeather }).filter((item) => item.category !== 'military');
 }
 
-export function GlobeScene() {
+export function GlobeScene({ createNavigation, signalColor }: { createNavigation?: GlobeNavigationFactory; signalColor?: ClusterSignalColor }) {
   const [quality, setQuality] = useState(() => globeQuality({}));
   const qualityRef = useRef(quality);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,15 +78,16 @@ export function GlobeScene() {
   const budgetHoveredFeedId = Number.isFinite(quality.markerLimit) ? hoveredFeedId : null;
 
   // Caméra orbitale (état, inertie, zoom) : logique pure dans GlobeCamera.ts.
-  const cameraRef = useRef<GlobeCameraController | null>(null);
-  cameraRef.current ??= new GlobeCameraController();
+  const cameraRef = useRef<GlobeNavigation | null>(null);
   const lastReportedDegrees = useRef(0);
   const debounceZoomTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
-    if (!containerRef.current || !cameraRef.current) return;
+    if (!containerRef.current) return;
     const container = containerRef.current;
-    const orbit = cameraRef.current;
+    const orbit: GlobeNavigation = createNavigation?.() ?? new GlobeCameraController();
+    cameraRef.current = orbit;
+    const surface = orbit.surface;
     let width = Math.max(1, container.clientWidth);
     let height = Math.max(1, container.clientHeight);
     const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -107,6 +109,7 @@ export function GlobeScene() {
     const camera = new THREE.PerspectiveCamera(fov, width / height, CAMERA.near, CAMERA.far);
     camera.position.set(0, 0, CAMERA.initial.distance);
     camera.lookAt(0, 0, 0);
+    orbit.resize?.(width, height, fov);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: qualityRef.current.effects,
@@ -117,6 +120,10 @@ export function GlobeScene() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, qualityRef.current.maxDpr));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
+    if (surface?.kind === 'wgs84') {
+      renderer.domElement.dataset.testid = 'orbital-globe-v2';
+      renderer.domElement.setAttribute('aria-label', 'ORBITAL — Globe Engine V2');
+    }
     container.appendChild(renderer.domElement);
 
     const globeGroup = new THREE.Group();
@@ -124,10 +131,11 @@ export function GlobeScene() {
 
     // Initialisation des couches
     const starfield = new Starfield();
-    scene.add(starfield.group);
+    if (surface?.kind === 'wgs84') globeGroup.add(starfield.group);
+    else scene.add(starfield.group);
     starfieldRef.current = starfield;
 
-    const holographicEarth = new HolographicEarth(GLOBE.radius);
+    const holographicEarth = new HolographicEarth(GLOBE.radius, surface);
     globeGroup.add(holographicEarth.group);
     holographicEarthRef.current = holographicEarth;
 
@@ -135,26 +143,26 @@ export function GlobeScene() {
     globeGroup.add(orbitLayer.group);
     orbitLayerRef.current = orbitLayer;
 
-    const conflictLayer = new ConflictLayer(GLOBE.radius);
+    const conflictLayer = new ConflictLayer(GLOBE.radius, surface, signalColor);
     globeGroup.add(conflictLayer.group);
     conflictLayerRef.current = conflictLayer;
 
     // Calques de référence (installations, câbles, sanctions) : sous les foyers et les flux.
-    const referenceLayers = new ReferenceLayers(GLOBE.radius);
+    const referenceLayers = new ReferenceLayers(GLOBE.radius, surface);
     globeGroup.add(referenceLayers.group);
     referenceLayersRef.current = referenceLayers;
 
-    const cameraLayer = new CameraLayer(GLOBE.radius);
+    const cameraLayer = new CameraLayer(GLOBE.radius, surface);
     globeGroup.add(cameraLayer.group);
     cameraLayerRef.current = cameraLayer;
 
     // Calque des flux mondiaux : au-dessus des foyers, sans toucher au rendu de la Terre.
-    const feedLayer = new FeedLayer(GLOBE.radius);
+    const feedLayer = new FeedLayer(GLOBE.radius, surface);
     globeGroup.add(feedLayer.group);
     feedLayerRef.current = feedLayer;
 
     // Mobiles militaires (aéronefs, navires) et leurs trajets : au-dessus de tout le reste.
-    const mobileLayer = new MobileLayer(GLOBE.radius);
+    const mobileLayer = new MobileLayer(GLOBE.radius, surface);
     globeGroup.add(mobileLayer.group);
     mobileLayerRef.current = mobileLayer;
 
@@ -195,13 +203,22 @@ export function GlobeScene() {
       mobileLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? feedLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height) ?? null;
     /** Élément d'un calque de référence allumé (~20 000 segments de câbles : ~1 ms par test). */
     const layerHit = (rect: DOMRect) => referenceLayersRef.current?.hitTest(camera, mouse, rect.width, rect.height, true) ?? null;
-    const cameraHit = (rect: DOMRect) => cameraLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height, globeGroup.matrixWorld, camera.position) ?? null;
+    const cameraHit = (rect: DOMRect) => {
+      globeGroup.updateWorldMatrix(true, false);
+      const localCamera = globeGroup.worldToLocal(camera.getWorldPosition(new THREE.Vector3()));
+      return cameraLayerRef.current?.hitTest(camera, mouse, rect.width, rect.height, globeGroup.matrixWorld, localCamera) ?? null;
+    };
 
     // Raycasting & picking analytique exact sur la sphère terrestre
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     const earthSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE.radius);
     const hitPoint = new THREE.Vector3();
+    const groundAtPointer = () => {
+      if (orbit.groundAt) return orbit.groundAt(mouse.x, mouse.y);
+      raycaster.setFromCamera(mouse, camera);
+      return raycaster.ray.intersectSphere(earthSphere, hitPoint) ? vector3ToLatLon(hitPoint) : null;
+    };
     const worldIndexPromise = loadWorld();
     const gesture = new GlobeGesture();
     let disposed = false;
@@ -227,7 +244,7 @@ export function GlobeScene() {
       container.style.cursor = 'default';
     };
 
-    const updatePointer = (e: PointerEvent) => {
+    const updatePointer = (e: { clientX: number; clientY: number }) => {
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -260,7 +277,9 @@ export function GlobeScene() {
           return;
         }
 
-        orbit.drag(deltaX, deltaY);
+        if (orbit.pan && (e.shiftKey || e.buttons === 2)) orbit.pan(deltaX, deltaY);
+        else if (orbit.tilt && e.altKey) orbit.tilt(deltaY * 0.003);
+        else orbit.drag(deltaX, deltaY);
         hover(null);
         setHoveredCountry(null);
         useIntelStore.getState().hoverFeed(null);
@@ -290,8 +309,8 @@ export function GlobeScene() {
           hover(null);
 
           // Inspection pays au survol via intersection analytique sur la sphère
-          if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
-            const geo = vector3ToLatLon(hitPoint);
+          const geo = groundAtPointer();
+          if (geo) {
             worldIndexPromise.then((w) => {
               if (disposed || currentHover !== hoverVersion || gesture.active) return;
               const c = countryAt(w, geo.lat, geo.lon);
@@ -340,8 +359,8 @@ export function GlobeScene() {
         useIntelStore.getState().selectLayerFeature(refHit);
       } else {
         // Clic sur un pays pour ouvrir la fiche détaillée Pentagone
-        if (raycaster.ray.intersectSphere(earthSphere, hitPoint)) {
-          const geo = vector3ToLatLon(hitPoint);
+        const geo = groundAtPointer();
+        if (geo) {
           const selectionVersion = interactionVersion;
           worldIndexPromise.then((w) => {
             if (disposed || selectionVersion !== interactionVersion) return;
@@ -370,7 +389,8 @@ export function GlobeScene() {
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      orbit.wheel(e);
+      if (surface?.kind === 'wgs84') updatePointer(e);
+      orbit.wheel(e, Date.now(), mouse);
       // Débouncage de la mise à jour d'agrégation réseau (évite tout freeze)
       reportZoom();
     };
@@ -395,6 +415,7 @@ export function GlobeScene() {
       camera.aspect = width / height;
       camera.fov = globeFieldOfView(CAMERA.fov, width, height);
       camera.updateProjectionMatrix();
+      orbit.resize?.(width, height, camera.fov);
       renderer.setSize(width, height);
       applyQuality();
     };
@@ -405,6 +426,7 @@ export function GlobeScene() {
     let animationFrameId: number | null = null;
     let lastFrame: number | null = null;
     let elapsedTime = 0;
+    let observedDegrees = orbit.clusterDegrees;
 
     const animate = (timestamp: number) => {
       if (disposed || document.hidden) return;
@@ -415,13 +437,22 @@ export function GlobeScene() {
       lastFrame = timestamp;
       if (!profile.reducedMotion) elapsedTime += delta;
       orbit.step(delta, { reducedMotion: profile.reducedMotion });
-      orbit.applyTo(camera);
+      orbit.applyTo(camera, globeGroup);
+      // V2 smooths toward a target distance inside CameraEngine. Observe its
+      // quantized LOD changes so toolbar zoom/reset also update V1 aggregation,
+      // with the same network debounce as wheel/pinch (never a request per RAF).
+      if (surface?.kind === 'wgs84' && orbit.clusterDegrees !== observedDegrees) {
+        observedDegrees = orbit.clusterDegrees;
+        reportZoom();
+      }
 
+      const layersStart = performance.now();
+      cameraLayer.setViewDegrees(orbit.cameraAggregationDegrees ?? null);
       const dpr = renderer.getPixelRatio();
-      if (holographicEarthRef.current) holographicEarthRef.current.update(elapsedTime);
+      if (holographicEarthRef.current) holographicEarthRef.current.update(elapsedTime, orbit.viewDistanceM);
       if (profile.effects) orbitLayer.update(elapsedTime, delta);
       if (profile.starFraction > 0) starfield.update(elapsedTime);
-      if (conflictLayerRef.current) conflictLayerRef.current.update(elapsedTime, profile.reducedMotion ? 1 : delta, fov, height, dpr);
+      if (conflictLayerRef.current) conflictLayerRef.current.update(elapsedTime, profile.reducedMotion ? 1 : delta, surface?.kind === 'wgs84' ? camera.fov : fov, height, dpr);
       if (feedLayerRef.current) feedLayerRef.current.update(elapsedTime, dpr);
       if (mobileLayerRef.current) mobileLayerRef.current.update(dpr, width, height, performance.now() + (profile.reducedMotion ? 60_000 : 0));
       if (profile.reducedMotion) mobileLayer.group.traverse((object) => {
@@ -431,7 +462,9 @@ export function GlobeScene() {
       });
       if (referenceLayersRef.current) referenceLayersRef.current.update(dpr);
 
+      const layersMs = performance.now() - layersStart;
       renderer.render(scene, camera);
+      orbit.reportFrame?.(renderer, delta, layersMs);
     };
 
     const pauseInteraction = () => {
@@ -487,12 +520,14 @@ export function GlobeScene() {
       referenceLayers.dispose();
       cameraLayer.dispose();
       mobileLayer.dispose();
+      orbit.dispose?.();
+      if (cameraRef.current === orbit) cameraRef.current = null;
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [hover, select, setCountry, setHoveredCountry, setDegrees]);
+  }, [hover, select, setCountry, setHoveredCountry, setDegrees, createNavigation, signalColor]);
 
   // Synchronisation des foyers
   useEffect(() => {
@@ -644,6 +679,9 @@ export function GlobeScene() {
           ⟳
         </button>
         <LayersMenu />
+        {createNavigation && <button type="button" onClick={() => cameraRef.current?.tilt?.(Math.PI / 8)}
+          title={tr(locale, 'Incliner la vue (Maj + molette pour ajuster)', 'Tilt view (Shift + wheel to adjust)')}
+          aria-label={tr(locale, 'Vue oblique', 'Oblique view')}>↗</button>}
       </div>
     </div>
   );

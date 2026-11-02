@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { latLonToVector3 } from '@/lib/geo/latlon';
+import { SPHERE_SURFACE, type RenderSurface } from '@/lib/geo/renderSurface';
 import type { LiveItem } from '@/types/feeds';
 import { ageBrightness } from '../feeds/feedModel';
 import { trackPoints, vehicleHeading, vehicleOf, type VehicleKind } from '../feeds/vehicleModel';
@@ -215,9 +216,9 @@ export class MobileLayer {
   private glideStart = 0;
   private gliding = false;
 
-  constructor(private readonly radius: number) {
+  constructor(private readonly radius: number, private readonly surface: RenderSurface = SPHERE_SURFACE) {
     this.pointMaterial = new THREE.ShaderMaterial({
-      vertexShader: pointVertex,
+      vertexShader: surface.vertexShader(pointVertex),
       fragmentShader: pointFragment,
       uniforms: { uPixelRatio: { value: 1 }, uViewport: { value: new THREE.Vector2(1, 1) } },
       transparent: true,
@@ -225,12 +226,12 @@ export class MobileLayer {
       depthTest: false,
     });
     this.lineMaterial = new THREE.ShaderMaterial({
-      vertexShader: lineVertex,
+      vertexShader: surface.vertexShader(lineVertex),
       fragmentShader: lineFragment,
       uniforms: { uDim: { value: 1 }, uTime: { value: 0 } },
       transparent: true,
       depthWrite: false,
-      depthTest: false,
+      depthTest: surface.kind === 'wgs84',
       blending: THREE.AdditiveBlending,
     });
     this.points = new THREE.Points(new THREE.BufferGeometry(), this.pointMaterial);
@@ -277,10 +278,11 @@ export class MobileLayer {
     this.items.forEach((item, i) => {
       const kind = vehicleOf(item);
       const r = this.altitude(kind);
-      latLonToVector3(item.lat as number, item.lon as number, r, v);
+      this.surface.point(item.lat as number, item.lon as number, r, v);
       this.glideTo.set([v.x, v.y, v.z], i * 3);
       const from = this.shown.get(item.id);
-      const start = from && from.angleTo(v) <= MAX_GLIDE_RAD ? from.clone().setLength(r) : v.clone();
+      const start = from && from.angleTo(v) <= MAX_GLIDE_RAD
+        ? this.surface.resurface?.(from.clone(), r) ?? from.clone().setLength(r) : v.clone();
       this.glideFrom.set([start.x, start.y, start.z], i * 3);
       this.positions.set([start.x, start.y, start.z], i * 3);
       shown.set(item.id, start);
@@ -298,6 +300,18 @@ export class MobileLayer {
       const t0 = pts[0].t;
       const span = Math.max(1, pts[pts.length - 1].t - t0);
       for (let k = 0; k < pts.length - 1; k++) {
+        if (this.surface.arc) {
+          const arc = this.surface.arc(pts[k], pts[k + 1], r);
+          for (let s = 0; s < arc.length - 1; s++) {
+            const p = arc[s], q = arc[s + 1];
+            tPos.push(p.x, p.y, p.z, q.x, q.y, q.z);
+            tCol.push(c.r, c.g, c.b, c.r, c.g, c.b);
+            tAge.push((pts[k].t + (pts[k + 1].t - pts[k].t) * s / (arc.length - 1) - t0) / span,
+              (pts[k].t + (pts[k + 1].t - pts[k].t) * (s + 1) / (arc.length - 1) - t0) / span);
+            tOwner.push(i, i);
+          }
+          continue;
+        }
         latLonToVector3(pts[k].lat, pts[k].lon, 1, a);
         latLonToVector3(pts[k + 1].lat, pts[k + 1].lon, 1, b);
         const angle = a.angleTo(b);
@@ -394,7 +408,9 @@ export class MobileLayer {
       a.fromArray(this.glideFrom, i * 3);
       b.fromArray(this.glideTo, i * 3);
       const r = b.length();
-      a.lerp(b, t).setLength(r);
+      a.lerp(b, t);
+      if (this.surface.resurface) this.surface.resurface(a, this.altitude(vehicleOf(this.items[i])));
+      else a.setLength(r);
       a.toArray(this.positions, i * 3);
       this.shown.get(this.items[i].id)?.copy(a);
     }
@@ -415,7 +431,7 @@ export class MobileLayer {
     let hit: LiveItem | null = null;
     for (let i = 0; i < this.items.length; i++) {
       point.fromArray(this.positions, i * 3);
-      if (toCamera.copy(localCamera).sub(point).dot(point) <= 0) continue;
+      if (!this.surface.visible(point, localCamera)) continue;
       point.applyMatrix4(this.group.matrixWorld).project(camera);
       if (Math.abs(point.x) > 1 || Math.abs(point.y) > 1 || Math.abs(point.z) > 1) continue;
       const dist = Math.hypot(((point.x - pointer.x) * width) / 2, ((point.y - pointer.y) * height) / 2);
