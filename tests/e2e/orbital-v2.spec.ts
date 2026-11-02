@@ -66,14 +66,22 @@ test.describe("ORBITAL V1 product on the V2 spatial runtime", () => {
   });
 
   test("conflict hover/direct click uses V1 Inspector; dragging over it never selects", async ({ page }) => {
-    await mockApis(page, { clusters: [conflict], feedItems: [] });
+    await mockApis(page, { clusters: [conflict], feedItems: [], override: async (_route, url) => {
+      // Camera telemetry can be ready before a delayed event catalog is rendered.
+      if (url.pathname === "/api/events") await new Promise(resolve => setTimeout(resolve, 700));
+      return false;
+    } });
     const canvas = await ready(page);
-    await page.mouse.move(720, 450);
-    await expect(page.locator(".hover-tip")).toContainText("Zone V2 (fixture)");
+    const hoverConflict = () => expect.poll(async () => {
+      await page.mouse.move(721, 450); await page.mouse.move(720, 450);
+      return (await page.locator(".hover-tip").allTextContents()).join(" ");
+    }).toContain("Zone V2 (fixture)");
+    await hoverConflict();
     await expect.poll(() => canvas.evaluate(element => element.parentElement?.style.cursor)).toBe("pointer");
     await page.mouse.down(); await page.mouse.move(790, 480, { steps: 8 }); await page.mouse.up();
     await expect(page.getByRole("region", { name: /Zone signalée/ })).toHaveCount(0);
     await page.reload(); await expect.poll(() => state(page)).toHaveProperty("scale", "PLANET");
+    await hoverConflict();
     await page.mouse.click(720, 450);
     const detail = page.getByRole("region", { name: "Zone signalée : Zone V2 (fixture)", exact: true });
     await expect(detail).toContainText("Un article de presse signale un sujet");

@@ -1,6 +1,6 @@
 # Revue locale ORBITAL V1 / V2
 
-Captures Chromium réelles, 2 novembre 2026, code `577e4f3f` (les commits suivants ne changent que documentation/preuves). Vraies API du dépôt, aucune fixture injectée dans ces captures. Les pages sont ouvertes successivement : données et caches peuvent évoluer entre V1 et V2; la capture planète V1 montre notamment son état de chargement initial du feed. Les tests automatisés utilisent séparément leurs fixtures reproductibles.
+Captures Chromium réelles, 2 novembre 2026, code `577e4f3f` (le rendu et le moteur restent identiques dans les commits suivants de documentation et de tests). Vraies API du dépôt, aucune fixture injectée dans ces captures. Les pages sont ouvertes successivement : données et caches peuvent évoluer entre V1 et V2; la capture planète V1 montre notamment son état de chargement initial du feed. Les tests automatisés utilisent séparément leurs fixtures reproductibles.
 
 ## Ouvrir le prototype
 
