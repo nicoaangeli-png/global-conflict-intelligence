@@ -13,7 +13,7 @@ const base = {
 const live = { ...base, id: "wisconsin:1450" };
 const fintraffic = { ...base, id: "C0150301", providerId: "fintraffic", providerName: "Fintraffic / Digitraffic", name: "kt51_Inkoo", country: "Finland", region: null, latitude: 60.05, longitude: 23.99, direction: null, mediaType: "periodic_snapshot", streamProtocol: null, capturedAt: "2026-10-27T08:55:00Z", expectedRefreshSeconds: 600, officialPageUrl: null, providerHomepageUrl: "https://www.digitraffic.fi/en/road-traffic/", attribution: "Fintraffic / Digitraffic", license: "CC BY 4.0", status: "recent" } as const;
 
-test("LIVE HLS and periodic snapshot remain distinct; closing releases the player and Fintraffic links to its site", async ({ page }) => {
+for (const path of ["/", "/lab/orbital-v2"]) test(`LIVE HLS and periodic snapshot remain distinct; closing releases the player and Fintraffic links to its site — ${path}`, async ({ page }) => {
   let manifestRequests = 0;
   let catalogRequests = 0;
   let frameRequests = 0;
@@ -25,7 +25,7 @@ test("LIVE HLS and periodic snapshot remain distinct; closing releases the playe
     if (url.pathname === "/api/cameras/C0150301/frame") { frameRequests++; await route.fulfill({ status: 200, contentType: "image/jpeg", body: Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2Q==", "base64") }); return true; }
     return false;
   } });
-  await page.goto("/");
+  await page.goto(path);
   expect(catalogRequests).toBe(0);
   expect(frameRequests).toBe(0);
   await page.getByRole("button", { name: /^Calques/ }).click();
