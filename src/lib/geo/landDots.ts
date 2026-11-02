@@ -1,6 +1,7 @@
 import { Vector3 } from "three";
 import { GLOBE } from "@/lib/config/visual";
 import { latLonToVector3 } from "./latlon";
+import type { RenderProjector } from "./renderSurface";
 
 /**
  * Continents en nuage de points (« planète constituée de données »).
@@ -44,7 +45,7 @@ function isLand(mask: Uint8Array, lat: number, lon: number): boolean {
 }
 
 /** Génère le nuage de points des terres émergées. */
-export async function buildLandDots(target = GLOBE.land.dotCount): Promise<LandDots> {
+export async function buildLandDots(target = GLOBE.land.dotCount, project: RenderProjector = latLonToVector3): Promise<LandDots> {
   const mask = await loadMask();
   const positions: number[] = [];
   const sizes: number[] = [];
@@ -62,7 +63,7 @@ export async function buildLandDots(target = GLOBE.land.dotCount): Promise<LandD
     const lon = Math.atan2(y, x) * (180 / Math.PI);
     if (!isLand(mask, lat, lon)) continue;
 
-    latLonToVector3(lat, lon, GLOBE.radius * 1.0006, v);
+    project(lat, lon, GLOBE.radius * 1.0006, v);
     positions.push(v.x, v.y, v.z);
 
     // taille légèrement variable : évite l'aspect « imprimante matricielle »

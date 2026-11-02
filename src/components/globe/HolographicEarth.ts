@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLOBE, rgb } from '@/lib/config/visual';
 import { latLonToVector3 } from '@/lib/geo/latlon';
+import { SPHERE_SURFACE, type RenderSurface } from '@/lib/geo/renderSurface';
 import { buildLandDots } from '@/lib/geo/landDots';
 import { buildCityLights } from '@/lib/geo/cityLights';
 import { buildWorldIndex } from '@/lib/geo/world';
@@ -73,25 +74,28 @@ const graticuleFragment = /* glsl */ `
   }
 `;
 
-function makeGraticule(radius: number, step: number): THREE.BufferGeometry {
+function makeGraticule(radius: number, step: number, surface: RenderSurface): THREE.BufferGeometry {
   const positions: number[] = [];
   const v = new THREE.Vector3();
   const r = radius * 1.00045;
+  const append = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) => {
+    const arc = surface.arc?.(a, b, r);
+    if (arc) {
+      for (let i = 0; i < arc.length - 1; i++) positions.push(...arc[i].toArray(), ...arc[i + 1].toArray());
+    } else {
+      latLonToVector3(a.lat, a.lon, r, v); positions.push(v.x, v.y, v.z);
+      latLonToVector3(b.lat, b.lon, r, v); positions.push(v.x, v.y, v.z);
+    }
+  };
 
   for (let lon = -180; lon < 180; lon += step) {
     for (let lat = -90; lat < 90; lat += 3) {
-      latLonToVector3(lat, lon, r, v);
-      positions.push(v.x, v.y, v.z);
-      latLonToVector3(Math.min(90, lat + 3), lon, r, v);
-      positions.push(v.x, v.y, v.z);
+      append({ lat, lon }, { lat: Math.min(90, lat + 3), lon });
     }
   }
   for (let lat = -75; lat <= 75; lat += step) {
     for (let lon = -180; lon < 180; lon += 4) {
-      latLonToVector3(lat, lon, r, v);
-      positions.push(v.x, v.y, v.z);
-      latLonToVector3(lat, lon + 4, r, v);
-      positions.push(v.x, v.y, v.z);
+      append({ lat, lon }, { lat, lon: lon + 4 });
     }
   }
 
@@ -117,15 +121,20 @@ export class HolographicEarth {
   private borderMaterial: THREE.ShaderMaterial;
   private graticuleLines: THREE.LineSegments;
   private graticuleMaterial: THREE.ShaderMaterial;
+  private occluderMaterial: THREE.MeshBasicMaterial | null = null;
+  private disposed = false;
+  private readonly abort = new AbortController();
+  private readonly orbitalColor = new THREE.Color(0x398fb8);
+  private readonly localColor = new THREE.Color(GLOBE.body.baseColor);
 
-  constructor(radius: number) {
+  constructor(radius: number, private readonly surface: RenderSurface = SPHERE_SURFACE) {
     this.group = new THREE.Group();
     this.radius = radius;
 
     // 1. Halo atmosphérique diffus arrière
-    const haloGeo = new THREE.SphereGeometry(radius * GLOBE.atmosphere.haloRadius, 64, 64);
+    const haloGeo = surface.geometry(radius * GLOBE.atmosphere.haloRadius, 64, 64, true);
     this.haloMaterial = new THREE.ShaderMaterial({
-      vertexShader: atmosphereVertex,
+      vertexShader: surface.vertexShader(atmosphereVertex),
       fragmentShader: atmosphereFragment,
       uniforms: {
         uColor: { value: rgb(GLOBE.atmosphere.haloColor) },
@@ -137,16 +146,23 @@ export class HolographicEarth {
       transparent: true,
       depthWrite: false,
       depthTest: false,
-      side: THREE.BackSide,
+      side: surface.kind === 'wgs84' ? THREE.FrontSide : THREE.BackSide,
       blending: THREE.AdditiveBlending,
     });
     this.haloMesh = new THREE.Mesh(haloGeo, this.haloMaterial);
     this.group.add(this.haloMesh);
 
     // 2. Corps de la planète : Shader océanique profond avec occlusion
-    const bodyGeo = new THREE.SphereGeometry(radius, 128, 128);
+    const bodyGeo = surface.geometry(radius, surface.kind === 'sphere' ? 128 : 256, 128);
+    if (surface.kind === 'wgs84') {
+      // Depth-only geometry: occlusion is independent from the translucent hologram.
+      this.occluderMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, depthTest: true });
+      const occluder = new THREE.Mesh(bodyGeo, this.occluderMaterial);
+      occluder.renderOrder = -1;
+      this.group.add(occluder);
+    }
     this.bodyMaterial = new THREE.ShaderMaterial({
-      vertexShader: hologramVertex,
+      vertexShader: surface.vertexShader(hologramVertex),
       fragmentShader: hologramFragment,
       uniforms: {
         uTime: { value: 0 },
@@ -169,18 +185,22 @@ export class HolographicEarth {
         uOpacity: { value: 0.95 },
       },
       transparent: true,
-      depthWrite: true,
-      depthTest: true,
+      depthWrite: surface.kind === 'sphere',
+      depthTest: surface.kind === 'sphere',
       side: THREE.FrontSide,
       blending: THREE.NormalBlending,
     });
+    if (surface.kind === 'wgs84') {
+      this.bodyMaterial.uniforms.uBaseColor.value = new THREE.Color(0x398fb8);
+      this.bodyMaterial.uniforms.uFillOpacity.value = 1;
+    }
     this.bodyMesh = new THREE.Mesh(bodyGeo, this.bodyMaterial);
     this.group.add(this.bodyMesh);
 
     // 3. Liséré atmosphérique net sur le limbe
-    const rimGeo = new THREE.SphereGeometry(radius * GLOBE.atmosphere.outerRadius, 64, 64);
+    const rimGeo = surface.geometry(radius * GLOBE.atmosphere.outerRadius, 64, 64, true);
     this.rimMaterial = new THREE.ShaderMaterial({
-      vertexShader: atmosphereVertex,
+      vertexShader: surface.vertexShader(atmosphereVertex),
       fragmentShader: atmosphereFragment,
       uniforms: {
         uColor: { value: rgb(GLOBE.atmosphere.rimColor) },
@@ -197,11 +217,12 @@ export class HolographicEarth {
     });
     this.rimMesh = new THREE.Mesh(rimGeo, this.rimMaterial);
     this.group.add(this.rimMesh);
+    if (surface.kind === 'wgs84') { this.haloMesh.renderOrder = 1; this.rimMesh.renderOrder = 2; }
 
     // 4. Grille sphérique avec occlusion de la face arrière
-    const graticuleGeo = makeGraticule(radius, GLOBE.graticule.step);
+    const graticuleGeo = makeGraticule(radius, GLOBE.graticule.step, surface);
     this.graticuleMaterial = new THREE.ShaderMaterial({
-      vertexShader: graticuleVertex,
+      vertexShader: surface.vertexShader(graticuleVertex),
       fragmentShader: graticuleFragment,
       uniforms: {
         uColor: { value: rgb(GLOBE.graticule.color) },
@@ -213,11 +234,12 @@ export class HolographicEarth {
       blending: THREE.AdditiveBlending,
     });
     this.graticuleLines = new THREE.LineSegments(graticuleGeo, this.graticuleMaterial);
+    if (surface.kind === 'wgs84') this.graticuleLines.renderOrder = 3;
     this.group.add(this.graticuleLines);
 
     // 5. Matières pour nuages de points avec occlusion stricte
     this.landMaterial = new THREE.ShaderMaterial({
-      vertexShader: pointsVertex,
+      vertexShader: surface.vertexShader(pointsVertex),
       fragmentShader: pointsFragment,
       uniforms: {
         uSize: { value: GLOBE.land.dotSize },
@@ -238,7 +260,7 @@ export class HolographicEarth {
     });
 
     this.cityMaterial = new THREE.ShaderMaterial({
-      vertexShader: pointsVertex,
+      vertexShader: surface.vertexShader(pointsVertex),
       fragmentShader: pointsFragment,
       uniforms: {
         uSize: { value: GLOBE.cities.size },
@@ -260,7 +282,7 @@ export class HolographicEarth {
 
     // 6. Matière frontières avec occlusion stricte
     this.borderMaterial = new THREE.ShaderMaterial({
-      vertexShader: borderLineVertex,
+      vertexShader: surface.vertexShader(borderLineVertex),
       fragmentShader: borderLineFragment,
       uniforms: {
         uColor: { value: rgb(GLOBE.borders.color) },
@@ -283,49 +305,67 @@ export class HolographicEarth {
   private async loadGeographicLayers(): Promise<void> {
     try {
       // Continents (nuage de points)
-      const landData = await buildLandDots(GLOBE.land.dotCount);
+      const landData = await buildLandDots(GLOBE.land.dotCount, this.surface.point);
+      if (this.disposed) return;
       const landGeo = new THREE.BufferGeometry();
       landGeo.setAttribute('position', new THREE.BufferAttribute(landData.positions, 3));
       landGeo.setAttribute('aSize', new THREE.BufferAttribute(landData.sizes, 1));
       landGeo.setAttribute('aIntensity', new THREE.BufferAttribute(new Float32Array(landData.count).fill(1), 1));
       this.landPoints = new THREE.Points(landGeo, this.landMaterial);
+      if (this.surface.kind === 'wgs84') this.landPoints.renderOrder = 4;
       this.group.add(this.landPoints);
 
       // Villes et foyers urbains
-      const placesRes = await fetch('/data/ne_110m_places.geojson');
+      const placesRes = await fetch('/data/ne_110m_places.geojson', { signal: this.abort.signal });
       if (placesRes.ok) {
         const placesGj = await placesRes.json();
-        const cityData = buildCityLights(placesGj);
+        if (this.disposed) return;
+        const cityData = buildCityLights(placesGj, this.surface.point);
         const cityGeo = new THREE.BufferGeometry();
         cityGeo.setAttribute('position', new THREE.BufferAttribute(cityData.positions, 3));
         cityGeo.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(cityData.count).fill(1), 1));
         cityGeo.setAttribute('aIntensity', new THREE.BufferAttribute(cityData.intensities, 1));
         this.cityPoints = new THREE.Points(cityGeo, this.cityMaterial);
+        if (this.surface.kind === 'wgs84') this.cityPoints.renderOrder = 5;
         this.group.add(this.cityPoints);
       }
 
       // Frontières administratives fines
-      const countriesRes = await fetch('/data/ne_110m_countries.geojson');
+      const countriesRes = await fetch('/data/ne_110m_countries.geojson', { signal: this.abort.signal });
       if (countriesRes.ok) {
         const countriesGj = await countriesRes.json();
-        const worldIndex = buildWorldIndex(countriesGj, GLOBE.radius * 1.0009);
+        if (this.disposed) return;
+        const worldIndex = buildWorldIndex(countriesGj, GLOBE.radius * 1.0009, this.surface.kind === 'wgs84' ? this.surface : undefined);
         const borderGeo = new THREE.BufferGeometry();
         borderGeo.setAttribute('position', new THREE.BufferAttribute(worldIndex.borderPositions, 3));
         this.borderLines = new THREE.LineSegments(borderGeo, this.borderMaterial);
+        if (this.surface.kind === 'wgs84') this.borderLines.renderOrder = 6;
         this.group.add(this.borderLines);
       }
     } catch (err) {
+      if (this.disposed) return;
       console.warn('[HolographicEarth] Erreur lors du chargement des couches géo :', err);
     }
   }
 
-  public update(time: number): void {
+  public update(time: number, viewDistanceM?: number): void {
+    if (this.surface.kind === 'wgs84' && viewDistanceM !== undefined) {
+      const blend = Math.max(0, Math.min(1, (Math.log10(Math.max(1, viewDistanceM)) - 5) / 1.3));
+      const smooth = blend * blend * (3 - 2 * blend);
+      (this.bodyMaterial.uniforms.uBaseColor.value as THREE.Color).copy(this.localColor).lerp(this.orbitalColor, smooth);
+      this.bodyMaterial.uniforms.uFillOpacity.value = GLOBE.body.fillOpacity + (1 - GLOBE.body.fillOpacity) * smooth;
+      this.haloMaterial.uniforms.uIntensity.value = GLOBE.atmosphere.haloIntensity * smooth;
+      this.rimMaterial.uniforms.uIntensity.value = GLOBE.atmosphere.rimIntensity * smooth;
+    }
     this.bodyMaterial.uniforms.uTime.value = time;
     this.haloMaterial.uniforms.uTime.value = time;
     this.rimMaterial.uniforms.uTime.value = time;
   }
 
   public dispose(): void {
+    this.disposed = true;
+    this.abort.abort();
+    this.occluderMaterial?.dispose();
     this.bodyGeoDispose();
   }
 

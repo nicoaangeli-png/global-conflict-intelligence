@@ -1,0 +1,364 @@
+{
+  "generatedAt": "2026-11-02T11:16:32.477Z",
+  "summary": {
+    "healthy": 21,
+    "degraded": 1,
+    "stale": 1,
+    "unavailable": 3,
+    "unconfigured": 7,
+    "pending": 6
+  },
+  "sources": [
+    {
+      "id": "camera:drivebc",
+      "category": "road-camera",
+      "status": "pending",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "camera:fintraffic",
+      "category": "road-weather-camera",
+      "status": "pending",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "camera:hongkong",
+      "category": "road-camera",
+      "status": "pending",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "camera:nevada",
+      "category": "road-camera",
+      "status": "unconfigured",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "Clé facultative CAMERA_NEVADA_API_KEY absente"
+    },
+    {
+      "id": "camera:nzta",
+      "category": "road-camera",
+      "status": "pending",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "camera:singapore",
+      "category": "road-camera",
+      "status": "pending",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "camera:wisconsin",
+      "category": "road-camera",
+      "status": "unconfigured",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "Clé facultative CAMERA_WISCONSIN_API_KEY absente"
+    },
+    {
+      "id": "connector:acled",
+      "category": "conflicts",
+      "status": "unconfigured",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "Non configuré. Renseignez ACLED_EMAIL / ACLED_PASSWORD dans .env.local."
+    },
+    {
+      "id": "connector:csv",
+      "category": "conflicts",
+      "status": "healthy",
+      "itemCount": 0,
+      "lastSuccessAt": "2026-11-02T11:11:04.171Z",
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "connector:firms",
+      "category": "conflicts",
+      "status": "unconfigured",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "NASA FIRMS — clé MAP_KEY requise (FIRMS_MAP_KEY)."
+    },
+    {
+      "id": "connector:gdelt",
+      "category": "conflicts",
+      "status": "healthy",
+      "itemCount": 547,
+      "lastSuccessAt": "2026-11-02T11:11:28.113Z",
+      "newestDataAt": "2026-11-02T10:30:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "connector:ucdp",
+      "category": "conflicts",
+      "status": "healthy",
+      "itemCount": 16633,
+      "lastSuccessAt": "2026-11-02T11:11:06.742Z",
+      "newestDataAt": "2026-09-30T00:00:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:aaro",
+      "category": "uap",
+      "status": "unavailable",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "www.aaro.mil refuse l'accès automatisé (HTTP 403) ; aucun contournement n'est tenté."
+    },
+    {
+      "id": "feed:adsb-lol-military",
+      "category": "military",
+      "status": "stale",
+      "itemCount": 120,
+      "lastSuccessAt": "2026-11-02T11:12:57.666Z",
+      "newestDataAt": "2026-11-02T11:12:57.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:aisstream-military",
+      "category": "military",
+      "status": "unconfigured",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "Clé AISStream absente (gratuite sur aisstream.io)"
+    },
+    {
+      "id": "feed:aisstream-straits",
+      "category": "shipping",
+      "status": "unconfigured",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "Clé AISStream absente (gratuite sur aisstream.io)"
+    },
+    {
+      "id": "feed:ecb-fx",
+      "category": "economy",
+      "status": "healthy",
+      "itemCount": 29,
+      "lastSuccessAt": "2026-11-02T11:11:03.030Z",
+      "newestDataAt": "2026-10-30T00:00:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:environment-canada-alerts",
+      "category": "weather",
+      "status": "unavailable",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "Réponse plus volumineuse que prévu (limite 3145728 octets) ; téléchargement interrompu."
+    },
+    {
+      "id": "feed:eonet",
+      "category": "disaster",
+      "status": "healthy",
+      "itemCount": 28,
+      "lastSuccessAt": "2026-11-02T11:11:03.368Z",
+      "newestDataAt": "2026-11-02T00:00:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:gdacs",
+      "category": "disaster",
+      "status": "unavailable",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "www.gdacs.org n'a pas répondu en 10 s."
+    },
+    {
+      "id": "feed:gdelt-events",
+      "category": "social",
+      "status": "healthy",
+      "itemCount": 93,
+      "lastSuccessAt": "2026-11-02T11:11:28.138Z",
+      "newestDataAt": "2026-11-02T10:30:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:geipan",
+      "category": "uap",
+      "status": "healthy",
+      "itemCount": 54,
+      "lastSuccessAt": "2026-11-02T11:11:09.249Z",
+      "newestDataAt": "2026-04-07T00:00:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:imf-portwatch",
+      "category": "infrastructure",
+      "status": "healthy",
+      "itemCount": 2,
+      "lastSuccessAt": "2026-11-02T11:11:05.058Z",
+      "newestDataAt": "2026-03-01T00:00:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:ioda-outages",
+      "category": "infrastructure",
+      "status": "healthy",
+      "itemCount": 113,
+      "lastSuccessAt": "2026-11-02T11:11:06.322Z",
+      "newestDataAt": "2026-11-02T10:20:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:ll2",
+      "category": "space",
+      "status": "healthy",
+      "itemCount": 30,
+      "lastSuccessAt": "2026-11-02T11:11:04.764Z",
+      "newestDataAt": "2026-11-03T00:10:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:nasa-uap",
+      "category": "uap",
+      "status": "unconfigured",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": "La page officielle de la NASA est statique (rapport final de l'équipe d'étude indépendante, septembre 2023) : aucun flux daté, donc aucune publication récente à lister."
+    },
+    {
+      "id": "feed:noaa-nhc",
+      "category": "weather",
+      "status": "healthy",
+      "itemCount": 0,
+      "lastSuccessAt": "2026-11-02T11:11:04.022Z",
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "feed:nws-alerts",
+      "category": "weather",
+      "status": "healthy",
+      "itemCount": 93,
+      "lastSuccessAt": "2026-11-02T11:11:03.972Z",
+      "newestDataAt": "2026-11-02T10:55:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:un-news",
+      "category": "un",
+      "status": "healthy",
+      "itemCount": 30,
+      "lastSuccessAt": "2026-11-02T11:11:02.848Z",
+      "newestDataAt": "2026-11-01T12:00:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:un-press",
+      "category": "un",
+      "status": "healthy",
+      "itemCount": 10,
+      "lastSuccessAt": "2026-11-02T11:11:02.781Z",
+      "newestDataAt": "2026-10-31T01:07:50.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:usgs",
+      "category": "disaster",
+      "status": "healthy",
+      "itemCount": 23,
+      "lastSuccessAt": "2026-11-02T11:11:02.617Z",
+      "newestDataAt": "2026-11-02T08:42:47.228Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:who-don",
+      "category": "health",
+      "status": "healthy",
+      "itemCount": 30,
+      "lastSuccessAt": "2026-11-02T11:11:02.678Z",
+      "newestDataAt": "2026-10-23T15:03:45.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:wmo-severe-weather",
+      "category": "weather",
+      "status": "healthy",
+      "itemCount": 1008,
+      "lastSuccessAt": "2026-11-02T11:11:03.711Z",
+      "newestDataAt": "2026-11-02T11:00:00.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:wnn",
+      "category": "nuclear",
+      "status": "healthy",
+      "itemCount": 40,
+      "lastSuccessAt": "2026-11-02T11:11:03.012Z",
+      "newestDataAt": "2026-10-30T16:13:18.000Z",
+      "lastError": null
+    },
+    {
+      "id": "feed:yahoo-indices",
+      "category": "economy",
+      "status": "degraded",
+      "itemCount": 36,
+      "lastSuccessAt": "2026-11-02T11:11:06.127Z",
+      "newestDataAt": "2026-11-02T11:11:04.000Z",
+      "lastError": "Cotations Yahoo indisponibles pour 1 symbole : ^MERV."
+    },
+    {
+      "id": "layer:military_bases",
+      "category": "reference",
+      "status": "healthy",
+      "itemCount": 2361,
+      "lastSuccessAt": "2026-11-02T10:35:43.210Z",
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "layer:nuclear_plants",
+      "category": "reference",
+      "status": "healthy",
+      "itemCount": 374,
+      "lastSuccessAt": "2026-11-02T10:35:43.210Z",
+      "newestDataAt": null,
+      "lastError": null
+    },
+    {
+      "id": "layer:sanctions",
+      "category": "reference",
+      "status": "healthy",
+      "itemCount": 145,
+      "lastSuccessAt": "2026-11-02T10:35:43.238Z",
+      "newestDataAt": "2026-10-27",
+      "lastError": null
+    },
+    {
+      "id": "layer:submarine_cables",
+      "category": "reference",
+      "status": "pending",
+      "itemCount": 0,
+      "lastSuccessAt": null,
+      "newestDataAt": null,
+      "lastError": null
+    }
+  ]
+}

@@ -1,0 +1,345 @@
+{
+  "testedAt": "2026-11-02T11:11:01.301Z",
+  "environment": "Local Chromium; mobile viewport, not physical device; GPU time/memory unavailable",
+  "measurements": [
+    {
+      "route": "/",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "scenario": "still",
+      "frames": 149,
+      "fps": 30.001006745192782,
+      "frameMs": 33.33221476510068,
+      "p95Ms": 33.400000000001455,
+      "drawCalls": 27.06711409395973,
+      "heapBytes": 18088392,
+      "v2": null
+    },
+    {
+      "route": "/",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "scenario": "rotate",
+      "frames": 101,
+      "fps": 30.001485222040696,
+      "frameMs": 33.33168316831683,
+      "p95Ms": 33.400000000001455,
+      "drawCalls": 28.128712871287128,
+      "heapBytes": 22094113,
+      "v2": null
+    },
+    {
+      "route": "/lab/orbital-v2",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "scenario": "still",
+      "frames": 149,
+      "fps": 30.001006745192793,
+      "frameMs": 33.33221476510067,
+      "p95Ms": 33.400000000001455,
+      "drawCalls": 29.02013422818792,
+      "heapBytes": 43551618,
+      "v2": {
+        "revision": 38,
+        "scale": "PLANET",
+        "target": {
+          "latDeg": 15.515486632992975,
+          "lonDeg": 60.11494232427572,
+          "heightM": 0,
+          "datum": "WGS84"
+        },
+        "distanceM": 20410038.399999987,
+        "pitchRad": 0,
+        "command": null,
+        "originEpoch": 1,
+        "rebases": 1,
+        "fps": 30.001875117194857,
+        "frameMs": 33.33124999999996,
+        "layersMs": 0.3187499998603016,
+        "maxLayersMs": 0.5,
+        "engineMs": 0,
+        "calls": 29,
+        "points": 57900,
+        "triangles": 150394,
+        "lines": 150098,
+        "geometries": 26,
+        "textures": 0,
+        "heapBytes": 43260762,
+        "tiles": {
+          "selected": 128,
+          "visible": 128,
+          "culledFrustum": 0,
+          "culledHorizon": 28,
+          "subdivisions": 0,
+          "changes": 0,
+          "minDepth": 2,
+          "maxDepth": 3,
+          "selectionMs": 2,
+          "visited": 206,
+          "cached": 206,
+          "maxScreenErrorPx": 8.073851739105953,
+          "budgetSaturated": true
+        }
+      }
+    },
+    {
+      "route": "/lab/orbital-v2",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "scenario": "rotate",
+      "frames": 101,
+      "fps": 30.00148522204071,
+      "frameMs": 33.331683168316815,
+      "p95Ms": 33.400000000001455,
+      "drawCalls": 27.85148514851485,
+      "heapBytes": 43393182,
+      "v2": {
+        "revision": 61,
+        "scale": "PLANET",
+        "target": {
+          "latDeg": 16.13812020932709,
+          "lonDeg": 57.5231707909536,
+          "heightM": 0,
+          "datum": "WGS84"
+        },
+        "distanceM": 20410038.399999987,
+        "pitchRad": 0,
+        "command": null,
+        "originEpoch": 1,
+        "rebases": 1,
+        "fps": 30.001875117194864,
+        "frameMs": 33.33124999999996,
+        "layersMs": 0.25625000009313226,
+        "maxLayersMs": 0.4000000022351742,
+        "engineMs": 0,
+        "calls": 28,
+        "points": 57900,
+        "triangles": 150042,
+        "lines": 150098,
+        "geometries": 26,
+        "textures": 0,
+        "heapBytes": 39630004,
+        "tiles": {
+          "selected": 128,
+          "visible": 128,
+          "culledFrustum": 0,
+          "culledHorizon": 28,
+          "subdivisions": 0,
+          "changes": 0,
+          "minDepth": 2,
+          "maxDepth": 3,
+          "selectionMs": 2.699999999254942,
+          "visited": 270,
+          "cached": 282,
+          "maxScreenErrorPx": 8.125845989096886,
+          "budgetSaturated": true
+        }
+      }
+    },
+    {
+      "route": "/",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scenario": "still",
+      "frames": 83,
+      "fps": 16.71230670103093,
+      "frameMs": 59.836144578313245,
+      "p95Ms": 66.70000000000073,
+      "drawCalls": 11,
+      "heapBytes": 15862498,
+      "v2": null
+    },
+    {
+      "route": "/",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scenario": "rotate",
+      "frames": 59,
+      "fps": 17.525099506920938,
+      "frameMs": 57.06101694915252,
+      "p95Ms": 66.70000000000073,
+      "drawCalls": 11,
+      "heapBytes": 17637774,
+      "v2": null
+    },
+    {
+      "route": "/lab/orbital-v2",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scenario": "still",
+      "frames": 90,
+      "fps": 18.12141347025068,
+      "frameMs": 55.18333333333333,
+      "p95Ms": 66.70000000000073,
+      "drawCalls": 12,
+      "heapBytes": 21276771,
+      "v2": {
+        "revision": 25,
+        "scale": "PLANET",
+        "target": {
+          "latDeg": 15.515486632992975,
+          "lonDeg": 60.11494232427572,
+          "heightM": 0,
+          "datum": "WGS84"
+        },
+        "distanceM": 20410038.399999987,
+        "pitchRad": 0,
+        "command": null,
+        "originEpoch": 1,
+        "rebases": 1,
+        "fps": 19.999999999999996,
+        "frameMs": 50.000000000000014,
+        "layersMs": 0.36999999918043613,
+        "maxLayersMs": 0.5,
+        "engineMs": 0,
+        "calls": 12,
+        "points": 48489,
+        "triangles": 131772,
+        "lines": 147461,
+        "geometries": 11,
+        "textures": 0,
+        "heapBytes": 21075548,
+        "tiles": {
+          "selected": 128,
+          "visible": 128,
+          "culledFrustum": 0,
+          "culledHorizon": 28,
+          "subdivisions": 0,
+          "changes": 0,
+          "minDepth": 2,
+          "maxDepth": 3,
+          "selectionMs": 1.3999999985098839,
+          "visited": 206,
+          "cached": 206,
+          "maxScreenErrorPx": 3.4986690869459127,
+          "budgetSaturated": true
+        }
+      }
+    },
+    {
+      "route": "/lab/orbital-v2",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scenario": "rotate",
+      "frames": 58,
+      "fps": 17.401218085265977,
+      "frameMs": 57.46724137931032,
+      "p95Ms": 66.70000000000073,
+      "drawCalls": 12,
+      "heapBytes": 37114539,
+      "v2": {
+        "revision": 49,
+        "scale": "PLANET",
+        "target": {
+          "latDeg": 16.881134620492578,
+          "lonDeg": 54.411752891316155,
+          "heightM": 0,
+          "datum": "WGS84"
+        },
+        "distanceM": 20410038.399999987,
+        "pitchRad": 0,
+        "command": null,
+        "originEpoch": 1,
+        "rebases": 1,
+        "fps": 18.003600720144103,
+        "frameMs": 55.54444444444421,
+        "layersMs": 0.23333333308498064,
+        "maxLayersMs": 0.4000000022351742,
+        "engineMs": 0.09999999776482582,
+        "calls": 12,
+        "points": 48489,
+        "triangles": 131772,
+        "lines": 147575,
+        "geometries": 11,
+        "textures": 0,
+        "heapBytes": 35917192,
+        "tiles": {
+          "selected": 128,
+          "visible": 128,
+          "culledFrustum": 0,
+          "culledHorizon": 25,
+          "subdivisions": 2,
+          "changes": 10,
+          "minDepth": 2,
+          "maxDepth": 3,
+          "selectionMs": 1.7000000029802322,
+          "visited": 266,
+          "cached": 282,
+          "maxScreenErrorPx": 3.5232979170511367,
+          "budgetSaturated": true
+        }
+      }
+    }
+  ],
+  "captures": [
+    {
+      "file": "v1-1440-planet.jpg",
+      "view": null
+    },
+    {
+      "file": "v1-space.jpg",
+      "view": null
+    },
+    {
+      "file": "v1-europe.jpg",
+      "view": null
+    },
+    {
+      "file": "v1-france.jpg",
+      "view": null
+    },
+    {
+      "file": "v2-1440-planet.jpg",
+      "view": "{\"revision\":38,\"scale\":\"PLANET\",\"target\":{\"latDeg\":15.515486632992975,\"lonDeg\":60.11494232427572,\"heightM\":0,\"datum\":\"WGS84\"},\"distanceM\":20410038.399999987,\"pitchRad\":0,\"command\":null,\"originEpoch\":1,\"rebases\":1,\"fps\":30,\"frameMs\":33.333333333333336,\"layersMs\":0.3066666670143604,\"maxLayersMs\":0.5999999977648258,\"engineMs\":0,\"calls\":29,\"points\":57900,\"triangles\":150394,\"lines\":150098,\"geometries\":26,\"textures\":0,\"heapBytes\":26815226,\"tiles\":{\"selected\":128,\"visible\":128,\"culledFrustum\":0,\"culledHorizon\":28,\"subdivisions\":0,\"changes\":0,\"minDepth\":2,\"maxDepth\":3,\"selectionMs\":2,\"visited\":206,\"cached\":206,\"maxScreenErrorPx\":8.073851739105953,\"budgetSaturated\":true}}"
+    },
+    {
+      "file": "v2-space.jpg",
+      "view": "{\"revision\":194,\"scale\":\"SPACE\",\"target\":{\"latDeg\":15.515486632992955,\"lonDeg\":60.11494232427572,\"heightM\":0,\"datum\":\"WGS84\"},\"distanceM\":44666965.93081793,\"pitchRad\":0,\"command\":null,\"originEpoch\":5,\"rebases\":5,\"fps\":29.996250468691333,\"frameMs\":33.33750000000009,\"layersMs\":0.2562499991618097,\"maxLayersMs\":0.5,\"engineMs\":0,\"calls\":30,\"points\":53664,\"triangles\":149334,\"lines\":150098,\"geometries\":26,\"textures\":0,\"heapBytes\":46753421,\"tiles\":{\"selected\":128,\"visible\":128,\"culledFrustum\":0,\"culledHorizon\":32,\"subdivisions\":0,\"changes\":0,\"minDepth\":2,\"maxDepth\":3,\"selectionMs\":3.199999999254942,\"visited\":318,\"cached\":318,\"maxScreenErrorPx\":3.9879095749120053,\"budgetSaturated\":true}}"
+    },
+    {
+      "file": "v2-europe.jpg",
+      "view": "{\"revision\":358,\"scale\":\"PLANET\",\"target\":{\"latDeg\":46.606463372863125,\"lonDeg\":2.3390886460293814,\"heightM\":0,\"datum\":\"WGS84\"},\"distanceM\":9913118.207813509,\"pitchRad\":0,\"command\":null,\"originEpoch\":21,\"rebases\":21,\"fps\":30.006001200239957,\"frameMs\":33.32666666666677,\"layersMs\":0.19333333348234494,\"maxLayersMs\":0.30000000074505806,\"engineMs\":0,\"calls\":26,\"points\":57900,\"triangles\":149338,\"lines\":150098,\"geometries\":26,\"textures\":0,\"heapBytes\":36303770,\"tiles\":{\"selected\":128,\"visible\":128,\"culledFrustum\":4,\"culledHorizon\":30,\"subdivisions\":0,\"changes\":0,\"minDepth\":2,\"maxDepth\":3,\"selectionMs\":1,\"visited\":214,\"cached\":366,\"maxScreenErrorPx\":14.535401019782299,\"budgetSaturated\":true}}"
+    },
+    {
+      "file": "v2-france.jpg",
+      "view": "{\"revision\":457,\"scale\":\"CONTINENT\",\"target\":{\"latDeg\":46.606463372863125,\"lonDeg\":2.3390886460293814,\"heightM\":0,\"datum\":\"WGS84\"},\"distanceM\":5101929.927532508,\"pitchRad\":0,\"command\":null,\"originEpoch\":25,\"rebases\":25,\"fps\":30,\"frameMs\":33.333333333333336,\"layersMs\":0.2266666668156783,\"maxLayersMs\":0.30000000074505806,\"engineMs\":0,\"calls\":27,\"points\":61200,\"triangles\":150790,\"lines\":150098,\"geometries\":26,\"textures\":0,\"heapBytes\":37628480,\"tiles\":{\"selected\":128,\"visible\":128,\"culledFrustum\":47,\"culledHorizon\":56,\"subdivisions\":0,\"changes\":0,\"minDepth\":3,\"maxDepth\":4,\"selectionMs\":2.5,\"visited\":306,\"cached\":534,\"maxScreenErrorPx\":8.860409362333929,\"budgetSaturated\":true}}"
+    },
+    {
+      "file": "v2-city-scale.jpg",
+      "view": "{\"revision\":743,\"scale\":\"CITY\",\"target\":{\"latDeg\":46.60646337286313,\"lonDeg\":2.3390886460293814,\"heightM\":0,\"datum\":\"WGS84\"},\"distanceM\":29993.967677786608,\"pitchRad\":0,\"command\":null,\"originEpoch\":52,\"rebases\":52,\"fps\":30,\"frameMs\":33.333333333333336,\"layersMs\":0.28000000019868215,\"maxLayersMs\":0.5,\"engineMs\":0,\"calls\":27,\"points\":61200,\"triangles\":150790,\"lines\":150098,\"geometries\":26,\"textures\":0,\"heapBytes\":51210925,\"tiles\":{\"selected\":10,\"visible\":10,\"culledFrustum\":122,\"culledHorizon\":21,\"subdivisions\":0,\"changes\":0,\"minDepth\":8,\"maxDepth\":8,\"selectionMs\":0.8000000007450581,\"visited\":202,\"cached\":894,\"maxScreenErrorPx\":1.6939508882716399,\"budgetSaturated\":false}}"
+    },
+    {
+      "file": "v2-district-scale.jpg",
+      "view": "{\"revision\":877,\"scale\":\"DISTRICT\",\"target\":{\"latDeg\":46.60646337286313,\"lonDeg\":2.3390886460293814,\"heightM\":0,\"datum\":\"WGS84\"},\"distanceM\":1997.9517234408866,\"pitchRad\":0,\"command\":null,\"originEpoch\":66,\"rebases\":66,\"fps\":30.006001200239965,\"frameMs\":33.32666666666676,\"layersMs\":0.27333333318432174,\"maxLayersMs\":0.4000000022351742,\"engineMs\":0,\"calls\":26,\"points\":61203,\"triangles\":150438,\"lines\":150221,\"geometries\":26,\"textures\":0,\"heapBytes\":32416709,\"tiles\":{\"selected\":7,\"visible\":7,\"culledFrustum\":141,\"culledHorizon\":23,\"subdivisions\":0,\"changes\":0,\"minDepth\":10,\"maxDepth\":10,\"selectionMs\":0.6999999992549419,\"visited\":226,\"cached\":942,\"maxScreenErrorPx\":1.5892315181880858,\"budgetSaturated\":false}}"
+    },
+    {
+      "file": "v2-oblique-district.jpg",
+      "view": "{\"revision\":893,\"scale\":\"DISTRICT\",\"target\":{\"latDeg\":46.60646337286313,\"lonDeg\":2.3390886460293814,\"heightM\":0,\"datum\":\"WGS84\"},\"distanceM\":1997.9060939771832,\"pitchRad\":0.39269908169872414,\"command\":null,\"originEpoch\":67,\"rebases\":67,\"fps\":30,\"frameMs\":33.333333333333336,\"layersMs\":0.3133333332836628,\"maxLayersMs\":0.5,\"engineMs\":0,\"calls\":27,\"points\":61203,\"triangles\":150790,\"lines\":150221,\"geometries\":26,\"textures\":0,\"heapBytes\":31071593,\"tiles\":{\"selected\":9,\"visible\":9,\"culledFrustum\":161,\"culledHorizon\":19,\"subdivisions\":5,\"changes\":2,\"minDepth\":9,\"maxDepth\":10,\"selectionMs\":0.8999999985098839,\"visited\":250,\"cached\":942,\"maxScreenErrorPx\":2.7961024346476595,\"budgetSaturated\":false}}"
+    },
+    {
+      "file": "v1-390-planet.jpg",
+      "view": null
+    },
+    {
+      "file": "v2-390-planet.jpg",
+      "view": "{\"revision\":25,\"scale\":\"PLANET\",\"target\":{\"latDeg\":15.515486632992975,\"lonDeg\":60.11494232427572,\"heightM\":0,\"datum\":\"WGS84\"},\"distanceM\":20410038.399999987,\"pitchRad\":0,\"command\":null,\"originEpoch\":1,\"rebases\":1,\"fps\":15.884221673138004,\"frameMs\":62.955555555555605,\"layersMs\":0.3333333337472545,\"maxLayersMs\":0.5,\"engineMs\":0,\"calls\":12,\"points\":48489,\"triangles\":131772,\"lines\":147461,\"geometries\":11,\"textures\":0,\"heapBytes\":21958999,\"tiles\":{\"selected\":128,\"visible\":128,\"culledFrustum\":0,\"culledHorizon\":28,\"subdivisions\":0,\"changes\":0,\"minDepth\":2,\"maxDepth\":3,\"selectionMs\":1.3999999985098839,\"visited\":206,\"cached\":206,\"maxScreenErrorPx\":3.4986690869459127,\"budgetSaturated\":true}}"
+    }
+  ],
+  "errors": []
+}

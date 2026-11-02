@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { Header } from "@/components/ui/Header";
 import { SettingsPanel } from "@/components/ui/SettingsPanel";
 import { BriefingModal } from "@/components/briefing/BriefingModal";
@@ -51,7 +51,7 @@ function isTypingContext(e: KeyboardEvent): boolean {
 
 type MobilePane = "globe" | "feed" | "search" | "layers" | "aura" | "inspector";
 
-export function IntelApp() {
+export function IntelApp({ Scene = GlobeScene }: { Scene?: ComponentType }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [briefingOpen, setBriefingOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>("globe");
@@ -217,7 +217,7 @@ export function IntelApp() {
 
   return (
     <main className="stage" translate="no" data-mobile-pane={mobilePane} data-overlay-open={settingsOpen || briefingOpen ? "true" : undefined}>
-      <GlobeScene />
+      <Scene />
       <FrameCorners />
 
       <div className="hud">
